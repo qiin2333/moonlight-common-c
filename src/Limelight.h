@@ -980,6 +980,8 @@ int opus_encoder_ctl_wrapper(OpusEncoder *enc, int request, int value);
 #define LI_FF_CONTROLLER_TOUCH_EVENTS 0x02 // LiSendControllerTouchEvent() supported
 uint32_t LiGetHostFeatureFlags(void);
 
+extern bool appDidEnterBackgroundWithoutPip;
+
 #ifdef __cplusplus
 }
 #endif

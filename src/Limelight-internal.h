@@ -158,3 +158,5 @@ int stopInputStream(void);
 int initializeMicrophoneStream(void);
 void destroyMicrophoneStream(void);
 int sendMicrophoneData(const char* data, int length);
+
+bool appDidEnterBackgroundWithoutPip;
