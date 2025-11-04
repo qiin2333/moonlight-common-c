@@ -160,3 +160,12 @@ void destroyMicrophoneStream(void);
 int sendMicrophoneData(const char* data, int length);
 
 bool appDidEnterBackgroundWithoutPip;
+
+typedef enum {
+    UIRectEdgeNone   = 0,
+    UIRectEdgeTop    = 1 << 0,
+    UIRectEdgeLeft   = 1 << 1,
+    UIRectEdgeBottom = 1 << 2,
+    UIRectEdgeRight  = 1 << 3,
+    UIRectEdgeAll    = (UIRectEdgeTop | UIRectEdgeLeft | UIRectEdgeBottom | UIRectEdgeRight)
+} UIRectEdge;

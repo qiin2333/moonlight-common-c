@@ -883,10 +883,21 @@ int LiSendMouseMoveAsMousePositionEvent(short deltaX, short deltaY, short refere
     // Convert the current position to be relative to the provided reference dimensions
     short oldPositionX = (short)(absCurrentPosX * referenceWidth);
     short oldPositionY = (short)(absCurrentPosY * referenceHeight);
+    
+    short clampedPositionX = CLAMP(oldPositionX + deltaX, 0, referenceWidth);
+    short clampedPositionY = CLAMP(oldPositionY + deltaY, 0, referenceHeight);
+    
+    int err = LiSendMousePositionEvent(clampedPositionX, clampedPositionY, referenceWidth, referenceHeight);
+    
+    if(err != 0) return -1;
+    
+    short ret = UIRectEdgeNone;
+    if(clampedPositionX == 0) ret = ret|UIRectEdgeLeft;
+    if(clampedPositionX == referenceWidth) ret = ret|UIRectEdgeRight;
+    if(clampedPositionY == 0) ret = ret|UIRectEdgeTop;
+    if(clampedPositionY == referenceHeight) ret = ret|UIRectEdgeBottom;
 
-    return LiSendMousePositionEvent(CLAMP(oldPositionX + deltaX, 0, referenceWidth),
-                                    CLAMP(oldPositionY + deltaY, 0, referenceHeight),
-                                    referenceWidth, referenceHeight);
+    return ret;
 }
 
 // Send a mouse button event to the streaming machine
