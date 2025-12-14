@@ -622,7 +622,7 @@ static bool playStream(PRTSP_MESSAGE response, char* target, int* error) {
     *error = -1;
 
     ret = initializeRtspRequest(&request, "PLAY", target);
-    if (ret != 0) {
+    if (ret) {
         if (addOption(&request, "Session", sessionIdString)) {
             ret = transactRtspMessage(&request, response, false, error);
         }
@@ -1059,6 +1059,7 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             Limelog("RTSP OPTIONS request failed: %d\n",
                 response.message.response.statusCode);
             ret = response.message.response.statusCode;
+            freeMessage(&response);
             goto Exit;
         }
 
@@ -1079,12 +1080,14 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             Limelog("RTSP DESCRIBE request failed: %d\n",
                 response.message.response.statusCode);
             ret = response.message.response.statusCode;
+            freeMessage(&response);
             goto Exit;
         }
 
         if (!response.payload) {
             Limelog("RTSP DESCRIBE no content in response\n");
             ret = -1;
+            freeMessage(&response);
             goto Exit;
         }
 
@@ -1159,12 +1162,16 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         // Parse the Opus surround parameters out of the RTSP DESCRIBE response.
         ret = parseOpusConfigurations(&response);
         if (ret != 0) {
+            freeMessage(&response);
             goto Exit;
         }
 
         freeMessage(&response);
     }
 
+    // In control-only mode, skip audio and video SETUP, but we still need to get session ID
+    // from control stream setup. Otherwise, setup audio first to get session ID.
+    if (!StreamConfig.controlOnly) {
     {
         RTSP_MESSAGE response;
         char* sessionId;
@@ -1173,20 +1180,115 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         int error = -1;
         char* strtokCtx = NULL;
 
-        if (!setupStream(&response,
-                         AppVersionQuad[0] >= 5 ? "streamid=audio/0/0" : "streamid=audio",
-                         &error)) {
-            Limelog("RTSP SETUP streamid=audio request failed: %d\n", error);
-            ret = error;
-            goto Exit;
+            if (!setupStream(&response,
+                             AppVersionQuad[0] >= 5 ? "streamid=audio/0/0" : "streamid=audio",
+                             &error)) {
+                Limelog("RTSP SETUP streamid=audio request failed: %d\n", error);
+                ret = error;
+                goto Exit;
+            }
+
+            if (response.message.response.statusCode != 200) {
+                Limelog("RTSP SETUP streamid=audio request failed: %d\n",
+                    response.message.response.statusCode);
+                ret = response.message.response.statusCode;
+                freeMessage(&response);
+                goto Exit;
+            }
+
+            // Parse the audio port out of the RTSP SETUP response
+            LC_ASSERT(AudioPortNumber == 0);
+            if (!parseServerPortFromTransport(&response, &AudioPortNumber)) {
+                // Use the well known port if parsing fails
+                AudioPortNumber = 48000;
+
+                Limelog("Audio port: %u (RTSP parsing failed)\n", AudioPortNumber);
+            }
+            else {
+                Limelog("Audio port: %u\n", AudioPortNumber);
+            }
+
+            // Parse the Sunshine ping payload protocol extension if present
+            memset(&AudioPingPayload, 0, sizeof(AudioPingPayload));
+            pingPayload = getOptionContent(response.options, "X-SS-Ping-Payload");
+            if (pingPayload != NULL && strlen(pingPayload) == sizeof(AudioPingPayload.payload)) {
+                memcpy(AudioPingPayload.payload, pingPayload, sizeof(AudioPingPayload.payload));
+            }
+
+            // Let the audio stream know the port number is now finalized.
+            // NB: This is needed because audio stream init happens before RTSP,
+            // which is not the case for the video stream.
+            notifyAudioPortNegotiationComplete();
+
+            sessionId = getOptionContent(response.options, "Session");
+
+            if (sessionId == NULL) {
+                Limelog("RTSP SETUP streamid=audio is missing session attribute\n");
+                ret = -1;
+                freeMessage(&response);
+                goto Exit;
+            }
+
+            // Given there is a non-null session id, get the
+            // first token of the session until ";", which
+            // resolves any 454 session not found errors on
+            // standard RTSP server implementations.
+            // (i.e - sessionId = "DEADBEEFCAFE;timeout = 90")
+            sessionIdString = strdup(strtok_r(sessionId, ";", &strtokCtx));
+            if (sessionIdString == NULL) {
+                Limelog("Failed to duplicate session ID string\n");
+                ret = -1;
+                freeMessage(&response);
+                goto Exit;
+            }
+
+            hasSessionId = true;
+
+            freeMessage(&response);
         }
 
-        if (response.message.response.statusCode != 200) {
-            Limelog("RTSP SETUP streamid=audio request failed: %d\n",
-                response.message.response.statusCode);
-            ret = response.message.response.statusCode;
-            goto Exit;
-        }
+        {
+            RTSP_MESSAGE response;
+            int error = -1;
+            char* pingPayload;
+
+            if (!setupStream(&response,
+                             AppVersionQuad[0] >= 5 ? "streamid=video/0/0" : "streamid=video",
+                             &error)) {
+                Limelog("RTSP SETUP streamid=video request failed: %d\n", error);
+                ret = error;
+                goto Exit;
+            }
+
+            if (response.message.response.statusCode != 200) {
+                Limelog("RTSP SETUP streamid=video request failed: %d\n",
+                    response.message.response.statusCode);
+                ret = response.message.response.statusCode;
+                freeMessage(&response);
+                goto Exit;
+            }
+
+            // Parse the Sunshine ping payload protocol extension if present
+            memset(&VideoPingPayload, 0, sizeof(VideoPingPayload));
+            pingPayload = getOptionContent(response.options, "X-SS-Ping-Payload");
+            if (pingPayload != NULL && strlen(pingPayload) == sizeof(VideoPingPayload.payload)) {
+                memcpy(VideoPingPayload.payload, pingPayload, sizeof(VideoPingPayload.payload));
+            }
+
+            // Parse the video port out of the RTSP SETUP response
+            LC_ASSERT(VideoPortNumber == 0);
+            if (!parseServerPortFromTransport(&response, &VideoPortNumber)) {
+                // Use the well known port if parsing fails
+                VideoPortNumber = 47998;
+
+                Limelog("Video port: %u (RTSP parsing failed)\n", VideoPortNumber);
+            }
+            else {
+                Limelog("Video port: %u\n", VideoPortNumber);
+            }
+
+            freeMessage(&response);
+    }
 
         // Parse the audio port out of the RTSP SETUP response
         LC_ASSERT(AudioPortNumber == 0);
@@ -1285,6 +1387,7 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         }
 
         freeMessage(&response);
+    } // end !controlOnly
     }
     
     // Setup microphone stream if requested, before control stream to maintain logical order
@@ -1305,6 +1408,7 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             Limelog("RTSP SETUP streamid=mic request failed: %d\n",
                 response.message.response.statusCode);
             ret = response.message.response.statusCode;
+            freeMessage(&response);
             goto Exit;
         }
 
@@ -1334,6 +1438,8 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         RTSP_MESSAGE response;
         int error = -1;
         char* connectData;
+        char* sessionId;
+        char* strtokCtx = NULL;
 
         if (!setupStream(&response,
                          controlStreamId,
@@ -1347,6 +1453,7 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             Limelog("RTSP SETUP streamid=control request failed: %d\n",
                 response.message.response.statusCode);
             ret = response.message.response.statusCode;
+            freeMessage(&response);
             goto Exit;
         }
 
@@ -1371,6 +1478,33 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             Limelog("Control port: %u\n", ControlPortNumber);
         }
 
+        // In control-only mode, get session ID from control stream setup
+        if (StreamConfig.controlOnly && !hasSessionId) {
+            sessionId = getOptionContent(response.options, "Session");
+
+            if (sessionId == NULL) {
+                Limelog("RTSP SETUP streamid=control is missing session attribute\n");
+                ret = -1;
+                freeMessage(&response);
+                goto Exit;
+            }
+
+            // Given there is a non-null session id, get the
+            // first token of the session until ";", which 
+            // resolves any 454 session not found errors on
+            // standard RTSP server implementations.
+            // (i.e - sessionId = "DEADBEEFCAFE;timeout = 90") 
+            sessionIdString = strdup(strtok_r(sessionId, ";", &strtokCtx));
+            if (sessionIdString == NULL) {
+                Limelog("Failed to duplicate session ID string\n");
+                ret = -1;
+                freeMessage(&response);
+                goto Exit;
+            }
+
+            hasSessionId = true;
+        }
+
         freeMessage(&response);
     }
 
@@ -1388,92 +1522,104 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             Limelog("RTSP ANNOUNCE request failed: %d\n",
                 response.message.response.statusCode);
             ret = response.message.response.statusCode;
+            freeMessage(&response);
             goto Exit;
         }
 
         freeMessage(&response);
     }
 
-    // GFE 3.22 uses a single PLAY message
-    if (APP_VERSION_AT_LEAST(7, 1, 431)) {
-        RTSP_MESSAGE response;
-        int error = -1;
-
-        if (!playStream(&response, "/", &error)) {
-            Limelog("RTSP PLAY request failed: %d\n", error);
-            ret = error;
-            goto Exit;
-        }
-
-        if (response.message.response.statusCode != 200) {
-            Limelog("RTSP PLAY failed: %d\n",
-                response.message.response.statusCode);
-            ret = response.message.response.statusCode;
-            goto Exit;
-        }
-
-        freeMessage(&response);
+    // In control-only mode, skip PLAY for video and audio streams
+    if (StreamConfig.controlOnly) {
+        // Control-only mode: no need to PLAY video/audio streams
+        Limelog("Control-only mode: skipping PLAY for video/audio streams\n");
     }
     else {
-        {
+        // GFE 3.22 uses a single PLAY message
+        if (APP_VERSION_AT_LEAST(7, 1, 431)) {
             RTSP_MESSAGE response;
             int error = -1;
 
-            if (!playStream(&response, "streamid=video", &error)) {
-                Limelog("RTSP PLAY streamid=video request failed: %d\n", error);
+            if (!playStream(&response, "/", &error)) {
+                Limelog("RTSP PLAY request failed: %d\n", error);
                 ret = error;
                 goto Exit;
             }
 
             if (response.message.response.statusCode != 200) {
-                Limelog("RTSP PLAY streamid=video failed: %d\n",
+                Limelog("RTSP PLAY failed: %d\n",
                     response.message.response.statusCode);
                 ret = response.message.response.statusCode;
+                freeMessage(&response);
                 goto Exit;
             }
 
             freeMessage(&response);
         }
+        else {
+            {
+                RTSP_MESSAGE response;
+                int error = -1;
 
-        {
-            RTSP_MESSAGE response;
-            int error = -1;
+                if (!playStream(&response, "streamid=video", &error)) {
+                    Limelog("RTSP PLAY streamid=video request failed: %d\n", error);
+                    ret = error;
+                    goto Exit;
+                }
 
-            if (!playStream(&response, "streamid=audio", &error)) {
-                Limelog("RTSP PLAY streamid=audio request failed: %d\n", error);
-                ret = error;
-                goto Exit;
+                if (response.message.response.statusCode != 200) {
+                    Limelog("RTSP PLAY streamid=video failed: %d\n",
+                        response.message.response.statusCode);
+                    ret = response.message.response.statusCode;
+                    freeMessage(&response);
+                    goto Exit;
+                }
+
+                freeMessage(&response);
             }
 
-            if (response.message.response.statusCode != 200) {
-                Limelog("RTSP PLAY streamid=audio failed: %d\n",
-                    response.message.response.statusCode);
-                ret = response.message.response.statusCode;
-                goto Exit;
+            {
+                RTSP_MESSAGE response;
+                int error = -1;
+
+                if (!playStream(&response, "streamid=audio", &error)) {
+                    Limelog("RTSP PLAY streamid=audio request failed: %d\n", error);
+                    ret = error;
+                    goto Exit;
+                }
+
+                if (response.message.response.statusCode != 200) {
+                    Limelog("RTSP PLAY streamid=audio failed: %d\n",
+                        response.message.response.statusCode);
+                    ret = response.message.response.statusCode;
+                    freeMessage(&response);
+                    goto Exit;
+                }
+
+                freeMessage(&response);
             }
 
-            freeMessage(&response);
-        }
+            // Play microphone stream if it was setup
+            if (StreamConfig.enableMic) {
+                RTSP_MESSAGE response;
+                int error = -1;
 
-        // Play microphone stream if it was setup
-        if (StreamConfig.enableMic) {
-            RTSP_MESSAGE response;
-            int error = -1;
+                if (!playStream(&response, "streamid=mic", &error)) {
+                    Limelog("RTSP PLAY streamid=mic request failed: %d\n", error);
+                    ret = error;
+                    goto Exit;
+                }
 
-            if (!playStream(&response, "streamid=mic", &error)) {
-                Limelog("RTSP PLAY streamid=mic request failed: %d\n", error);
-                ret = error;
-                goto Exit;
+                if (response.message.response.statusCode != 200) {
+                    Limelog("RTSP PLAY streamid=mic failed: %d\n",
+                        response.message.response.statusCode);
+                    ret = response.message.response.statusCode;
+                    freeMessage(&response);
+                    goto Exit;
+                }
+
+                freeMessage(&response);
             }
-
-            if (response.message.response.statusCode != 200) {
-                Limelog("RTSP PLAY streamid=mic failed: %d\n",
-                    response.message.response.statusCode);
-                ret = response.message.response.statusCode;
-                goto Exit;
-            }
-
-            freeMessage(&response);
         }
     }
     

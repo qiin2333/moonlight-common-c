@@ -103,6 +103,9 @@ typedef struct _STREAM_CONFIGURATION {
     
     // Specifies whether to enable microphone streaming from the client to host
     bool enableMic;
+    
+    // Specifies whether to enable control-only mode (only control stream, no video/audio)
+    bool controlOnly;
 } STREAM_CONFIGURATION, *PSTREAM_CONFIGURATION;
 
 // Use this function to zero the stream configuration when allocated on the stack or heap
