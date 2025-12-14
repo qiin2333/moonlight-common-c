@@ -413,18 +413,24 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
         }
     }
 
-    Limelog("Initializing audio stream...");
-    ListenerCallbacks.stageStarting(STAGE_AUDIO_STREAM_INIT);
-    err = initializeAudioStream();
-    if (err != 0) {
-        Limelog("failed: %d\n", err);
-        ListenerCallbacks.stageFailed(STAGE_AUDIO_STREAM_INIT, err);
-        goto Cleanup;
+    // Skip audio stream initialization in control-only mode
+    if (!StreamConfig.controlOnly) {
+        Limelog("Initializing audio stream...");
+        ListenerCallbacks.stageStarting(STAGE_AUDIO_STREAM_INIT);
+        err = initializeAudioStream();
+        if (err != 0) {
+            Limelog("failed: %d\n", err);
+            ListenerCallbacks.stageFailed(STAGE_AUDIO_STREAM_INIT, err);
+            goto Cleanup;
+        }
+        stage++;
+        LC_ASSERT(stage == STAGE_AUDIO_STREAM_INIT);
+        ListenerCallbacks.stageComplete(STAGE_AUDIO_STREAM_INIT);
+        Limelog("done\n");
     }
-    stage++;
-    LC_ASSERT(stage == STAGE_AUDIO_STREAM_INIT);
-    ListenerCallbacks.stageComplete(STAGE_AUDIO_STREAM_INIT);
-    Limelog("done\n");
+    else {
+        Limelog("Control-only mode: skipping audio stream initialization\n");
+    }
 
     Limelog("Starting RTSP handshake...");
     ListenerCallbacks.stageStarting(STAGE_RTSP_HANDSHAKE);
@@ -452,13 +458,19 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     ListenerCallbacks.stageComplete(STAGE_CONTROL_STREAM_INIT);
     Limelog("done\n");
 
-    Limelog("Initializing video stream...");
-    ListenerCallbacks.stageStarting(STAGE_VIDEO_STREAM_INIT);
-    initializeVideoStream();
-    stage++;
-    LC_ASSERT(stage == STAGE_VIDEO_STREAM_INIT);
-    ListenerCallbacks.stageComplete(STAGE_VIDEO_STREAM_INIT);
-    Limelog("done\n");
+    // Skip video stream initialization in control-only mode
+    if (!StreamConfig.controlOnly) {
+        Limelog("Initializing video stream...");
+        ListenerCallbacks.stageStarting(STAGE_VIDEO_STREAM_INIT);
+        initializeVideoStream();
+        stage++;
+        LC_ASSERT(stage == STAGE_VIDEO_STREAM_INIT);
+        ListenerCallbacks.stageComplete(STAGE_VIDEO_STREAM_INIT);
+        Limelog("done\n");
+    }
+    else {
+        Limelog("Control-only mode: skipping video stream initialization\n");
+    }
 
     Limelog("Initializing input stream...");
     ListenerCallbacks.stageStarting(STAGE_INPUT_STREAM_INIT);
@@ -481,31 +493,37 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     ListenerCallbacks.stageComplete(STAGE_CONTROL_STREAM_START);
     Limelog("done\n");
 
-    Limelog("Starting video stream...");
-    ListenerCallbacks.stageStarting(STAGE_VIDEO_STREAM_START);
-    err = startVideoStream(renderContext, drFlags);
-    if (err != 0) {
-        Limelog("Video stream start failed: %d\n", err);
-        ListenerCallbacks.stageFailed(STAGE_VIDEO_STREAM_START, err);
-        goto Cleanup;
-    }
-    stage++;
-    LC_ASSERT(stage == STAGE_VIDEO_STREAM_START);
-    ListenerCallbacks.stageComplete(STAGE_VIDEO_STREAM_START);
-    Limelog("done\n");
+    // Skip video and audio stream start in control-only mode
+    if (!StreamConfig.controlOnly) {
+        Limelog("Starting video stream...");
+        ListenerCallbacks.stageStarting(STAGE_VIDEO_STREAM_START);
+        err = startVideoStream(renderContext, drFlags);
+        if (err != 0) {
+            Limelog("Video stream start failed: %d\n", err);
+            ListenerCallbacks.stageFailed(STAGE_VIDEO_STREAM_START, err);
+            goto Cleanup;
+        }
+        stage++;
+        LC_ASSERT(stage == STAGE_VIDEO_STREAM_START);
+        ListenerCallbacks.stageComplete(STAGE_VIDEO_STREAM_START);
+        Limelog("done\n");
 
-    Limelog("Starting audio stream...");
-    ListenerCallbacks.stageStarting(STAGE_AUDIO_STREAM_START);
-    err = startAudioStream(audioContext, arFlags);
-    if (err != 0) {
-        Limelog("Audio stream start failed: %d\n", err);
-        ListenerCallbacks.stageFailed(STAGE_AUDIO_STREAM_START, err);
-        goto Cleanup;
+        Limelog("Starting audio stream...");
+        ListenerCallbacks.stageStarting(STAGE_AUDIO_STREAM_START);
+        err = startAudioStream(audioContext, arFlags);
+        if (err != 0) {
+            Limelog("Audio stream start failed: %d\n", err);
+            ListenerCallbacks.stageFailed(STAGE_AUDIO_STREAM_START, err);
+            goto Cleanup;
+        }
+        stage++;
+        LC_ASSERT(stage == STAGE_AUDIO_STREAM_START);
+        ListenerCallbacks.stageComplete(STAGE_AUDIO_STREAM_START);
+        Limelog("done\n");
     }
-    stage++;
-    LC_ASSERT(stage == STAGE_AUDIO_STREAM_START);
-    ListenerCallbacks.stageComplete(STAGE_AUDIO_STREAM_START);
-    Limelog("done\n");
+    else {
+        Limelog("Control-only mode: skipping video and audio stream start\n");
+    }
 
     Limelog("Starting input stream...");
     ListenerCallbacks.stageStarting(STAGE_INPUT_STREAM_START);
