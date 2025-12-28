@@ -30,10 +30,11 @@ extern "C" {
 #define COLOR_RANGE_FULL     1
 
 // Values for 'encryptionFlags' field below
-#define ENCFLG_NONE  0x00000000
-#define ENCFLG_AUDIO 0x00000001
-#define ENCFLG_VIDEO 0x00000002
-#define ENCFLG_ALL   0xFFFFFFFF
+#define ENCFLG_NONE       0x00000000
+#define ENCFLG_AUDIO      0x00000001
+#define ENCFLG_VIDEO      0x00000002
+#define ENCFLG_MICROPHONE 0x00000004
+#define ENCFLG_ALL        0xFFFFFFFF
 
 // This function returns a string that you SHOULD append to the /launch and /resume
 // query parameter string. This is used to enable certain extended functionality
