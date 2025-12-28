@@ -105,11 +105,11 @@ int sendMicrophoneOpusData(const unsigned char* opusData, int opusLength) {
         if (!PltEncryptMessage(micEncryptionCtx, 
                               ALGORITHM_AES_CBC,
                               CIPHER_FLAG_RESET_IV | CIPHER_FLAG_FINISH | CIPHER_FLAG_PAD_TO_BLOCK_SIZE,
-                              StreamConfig.remoteInputAesKey,
+                              (unsigned char*)StreamConfig.remoteInputAesKey,
                               sizeof(StreamConfig.remoteInputAesKey),
                               iv, sizeof(iv),
                               NULL, 0,
-                              opusData, opusLength,
+                              (unsigned char*)opusData, opusLength,
                               encryptedData, &encryptedLength)) {
             Limelog("MIC: Encryption failed\n");
             return -1;
