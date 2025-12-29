@@ -389,7 +389,8 @@ void LiInitializeAudioCallbacks(PAUDIO_RENDERER_CALLBACKS arCallbacks);
 #define STAGE_VIDEO_STREAM_START 9
 #define STAGE_AUDIO_STREAM_START 10
 #define STAGE_INPUT_STREAM_START 11
-#define STAGE_MAX 12
+#define STAGE_MICROPHONE_STREAM_INIT 12
+#define STAGE_MAX 13
 
 // This callback is invoked to indicate that a stage of initialization is about to begin
 typedef void(*ConnListenerStageStarting)(int stage);
