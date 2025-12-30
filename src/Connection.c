@@ -75,6 +75,12 @@ void LiStopConnection(void) {
     // Set the interrupted flag
     LiInterruptConnection();
 
+    if (stage == STAGE_MICROPHONE_STREAM_INIT) {
+        Limelog("Stopping microphone stream...");
+        destroyMicrophoneStream();
+        stage--;
+        Limelog("done\n");
+    }
     if (stage == STAGE_INPUT_STREAM_START) {
         Limelog("Stopping input stream...");
         stopInputStream();
@@ -520,6 +526,24 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
         LC_ASSERT(stage == STAGE_AUDIO_STREAM_START);
         ListenerCallbacks.stageComplete(STAGE_AUDIO_STREAM_START);
         Limelog("done\n");
+
+        // Initialize microphone stream if enabled and port was negotiated
+        if (StreamConfig.enableMic && MicPortNumber != 0) {
+            Limelog("Initializing microphone stream...");
+            ListenerCallbacks.stageStarting(STAGE_MICROPHONE_STREAM_INIT);
+            err = initializeMicrophoneStream();
+            if (err != 0) {
+                Limelog("failed: %d (microphone will be unavailable)\n", err);
+                // Don't fail the connection for mic initialization failure
+                err = 0;  // Reset error so connection continues
+            }
+            else {
+                stage++;
+                LC_ASSERT(stage == STAGE_MICROPHONE_STREAM_INIT);
+                ListenerCallbacks.stageComplete(STAGE_MICROPHONE_STREAM_INIT);
+                Limelog("done\n");
+            }
+        }
     }
     else {
         Limelog("Control-only mode: skipping video and audio stream start\n");
