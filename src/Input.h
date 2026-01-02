@@ -210,6 +210,15 @@ typedef struct _MIC_STREAM_CONFIGURATION {
     int bitrate;
 } MIC_STREAM_CONFIGURATION, *PMIC_STREAM_CONFIGURATION;
 
+// 麦克风控制包（通过输入/控制通道发送）
+typedef struct _SS_MICROPHONE_PACKET {
+    NV_INPUT_HEADER header;
+    uint32_t packetMagic; // MIC_PACKET_MAGIC
+    uint8_t control; // MIC_CONTROL_START / MIC_CONTROL_STOP
+    uint8_t reserved[3];
+    MIC_STREAM_CONFIGURATION config;
+} SS_MICROPHONE_PACKET, *PSS_MICROPHONE_PACKET;
+
 #pragma pack(pop)
 
 int initializeMicrophoneStream(void);

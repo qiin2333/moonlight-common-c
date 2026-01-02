@@ -834,6 +834,17 @@ int LiSendHighResScrollEvent(short scrollAmount);
 // analogous to LiSendScrollEvent() and LiSendHighResScrollEvent().
 // This is a Sunshine protocol extension.
 int LiSendHScrollEvent(signed char scrollClicks);
+
+// Microphone streaming control (Sunshine protocol extension)
+// Sends MIC_CONTROL_START/STOP along with sample rate/channel count/bitrate.
+#define LI_MIC_CONTROL_START 0x01
+#define LI_MIC_CONTROL_STOP  0x02
+int LiSendMicrophoneControl(uint8_t control, int sampleRate, int channelCount, int bitrate);
+
+// Microphone UDP data stream (requires host support)
+int initializeMicrophoneStream(void);
+void destroyMicrophoneStream(void);
+int sendMicrophoneData(const char* data, int length);
 int LiSendHighResHScrollEvent(short scrollAmount);
 
 // This function returns a time in milliseconds with an implementation-defined epoch.

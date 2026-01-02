@@ -88,6 +88,7 @@ typedef struct _PACKET_HOLDER {
         SS_CONTROLLER_TOUCH_PACKET controllerTouch;
         SS_CONTROLLER_MOTION_PACKET controllerMotion;
         SS_CONTROLLER_BATTERY_PACKET controllerBattery;
+        SS_MICROPHONE_PACKET microphone;
         NV_UNICODE_PACKET unicode;
     } packet;
 } PACKET_HOLDER, *PPACKET_HOLDER;
@@ -1299,6 +1300,41 @@ int LiSendHighResHScrollEvent(short scrollAmount) {
 
 int LiSendHScrollEvent(signed char scrollClicks) {
     return LiSendHighResHScrollEvent(scrollClicks * LI_WHEEL_DELTA);
+}
+
+int LiSendMicrophoneControl(uint8_t control, int sampleRate, int channelCount, int bitrate) {
+    PPACKET_HOLDER holder;
+    int err;
+
+    if (!initialized) {
+        return -2;
+    }
+
+    holder = allocatePacketHolder(0);
+    if (holder == NULL) {
+        return -1;
+    }
+
+    holder->channelId = CTRL_CHANNEL_GENERIC;
+    holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
+
+    holder->packet.microphone.header.size = BE32(sizeof(SS_MICROPHONE_PACKET) - sizeof(uint32_t));
+    holder->packet.microphone.header.magic = LE32(SS_MICROPHONE_MAGIC);
+    holder->packet.microphone.packetMagic = LE32(MIC_PACKET_MAGIC);
+    holder->packet.microphone.control = control;
+    memset(holder->packet.microphone.reserved, 0, sizeof(holder->packet.microphone.reserved));
+    holder->packet.microphone.config.sampleRate = LE32((uint32_t)sampleRate);
+    holder->packet.microphone.config.channelCount = LE32((uint32_t)channelCount);
+    holder->packet.microphone.config.bitrate = LE32((uint32_t)bitrate);
+
+    err = LbqOfferQueueItem(&packetQueue, holder, &holder->entry);
+    if (err != LBQ_SUCCESS) {
+        LC_ASSERT(err == LBQ_BOUND_EXCEEDED);
+        Limelog("Input queue reached maximum size limit\n");
+        freePacketHolder(holder);
+    }
+
+    return err;
 }
 
 int LiSendTouchEvent(uint8_t eventType, uint32_t pointerId, float x, float y, float pressureOrDistance,
