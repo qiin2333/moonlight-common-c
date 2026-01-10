@@ -52,7 +52,8 @@ static const char* stageNames[STAGE_MAX] = {
     "control stream establishment",
     "video stream establishment",
     "audio stream establishment",
-    "input stream establishment"
+    "input stream establishment",
+    "microphone stream initialization"
 };
 
 // Get the name of the current stage based on its number
@@ -436,6 +437,8 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     }
     else {
         Limelog("Control-only mode: skipping audio stream initialization\n");
+        stage++;  // Still increment stage to maintain continuity
+        LC_ASSERT(stage == STAGE_VIDEO_STREAM_INIT);
     }
 
     Limelog("Starting RTSP handshake...");
@@ -476,6 +479,8 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     }
     else {
         Limelog("Control-only mode: skipping video stream initialization\n");
+        stage++;  // Still increment stage to maintain continuity
+        LC_ASSERT(stage == STAGE_VIDEO_STREAM_INIT);
     }
 
     Limelog("Initializing input stream...");
@@ -513,7 +518,14 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
         LC_ASSERT(stage == STAGE_VIDEO_STREAM_START);
         ListenerCallbacks.stageComplete(STAGE_VIDEO_STREAM_START);
         Limelog("done\n");
+    }
+    else {
+        Limelog("Control-only mode: skipping video stream start\n");
+        stage++;  // Still increment stage to maintain continuity
+        LC_ASSERT(stage == STAGE_VIDEO_STREAM_START);
+    }
 
+    if (!StreamConfig.controlOnly) {
         Limelog("Starting audio stream...");
         ListenerCallbacks.stageStarting(STAGE_AUDIO_STREAM_START);
         err = startAudioStream(audioContext, arFlags);
@@ -526,27 +538,11 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
         LC_ASSERT(stage == STAGE_AUDIO_STREAM_START);
         ListenerCallbacks.stageComplete(STAGE_AUDIO_STREAM_START);
         Limelog("done\n");
-
-        // Initialize microphone stream if enabled and port was negotiated
-        if (StreamConfig.enableMic && MicPortNumber != 0) {
-            Limelog("Initializing microphone stream...");
-            ListenerCallbacks.stageStarting(STAGE_MICROPHONE_STREAM_INIT);
-            err = initializeMicrophoneStream();
-            if (err != 0) {
-                Limelog("failed: %d (microphone will be unavailable)\n", err);
-                // Don't fail the connection for mic initialization failure
-                err = 0;  // Reset error so connection continues
-            }
-            else {
-                stage++;
-                LC_ASSERT(stage == STAGE_MICROPHONE_STREAM_INIT);
-                ListenerCallbacks.stageComplete(STAGE_MICROPHONE_STREAM_INIT);
-                Limelog("done\n");
-            }
-        }
     }
     else {
-        Limelog("Control-only mode: skipping video and audio stream start\n");
+        Limelog("Control-only mode: skipping audio stream start\n");
+        stage++;  // Still increment stage to maintain continuity
+        LC_ASSERT(stage == STAGE_AUDIO_STREAM_START);
     }
 
     Limelog("Starting input stream...");
@@ -561,7 +557,29 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     LC_ASSERT(stage == STAGE_INPUT_STREAM_START);
     ListenerCallbacks.stageComplete(STAGE_INPUT_STREAM_START);
     Limelog("done\n");
-    
+
+    // Initialize microphone stream if enabled and port was negotiated
+    // Skip in control-only mode since there's no audio stream
+    if (!StreamConfig.controlOnly && StreamConfig.enableMic && MicPortNumber != 0) {
+        Limelog("Initializing microphone stream...");
+        ListenerCallbacks.stageStarting(STAGE_MICROPHONE_STREAM_INIT);
+        err = initializeMicrophoneStream();
+        if (err != 0) {
+            Limelog("failed: %d (microphone will be unavailable)\n", err);
+            // Don't fail the connection for mic initialization failure
+            err = 0;  // Reset error so connection continues
+        }
+        stage++;
+        LC_ASSERT(stage == STAGE_MICROPHONE_STREAM_INIT);
+        ListenerCallbacks.stageComplete(STAGE_MICROPHONE_STREAM_INIT);
+        Limelog("done\n");
+    }
+    else {
+        // Skip for control-only mode or when microphone is disabled
+        stage++;
+        LC_ASSERT(stage == STAGE_MICROPHONE_STREAM_INIT);
+    }
+
     // Wiggle the mouse a bit to wake the display up
     LiSendMouseMoveEvent(1, 1);
     PltSleepMs(10);
