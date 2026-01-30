@@ -88,6 +88,14 @@ typedef struct _STREAM_CONFIGURATION {
     // option (listed above). If not set, the encoder will default to Limited.
     int colorRange;
 
+    // Specifies the HDR mode for the video stream.
+    // 0 = SDR (default)
+    // 1 = HDR10/PQ (SMPTE ST 2084)
+    // 2 = HLG (Hybrid Log-Gamma, ARIB STD-B67)
+    // This value is sent as dynamicRangeMode to the host and determines
+    // the transfer characteristics of the encoded video stream.
+    int hdrMode;
+
     // Specifies the data streams where encryption may be enabled if supported
     // by the host PC. Ideally, you would pass ENCFLG_ALL to encrypt everything
     // that we support encrypting. However, lower performance hardware may not
