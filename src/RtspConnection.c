@@ -649,8 +649,97 @@ static bool sendVideoAnnounce(PRTSP_MESSAGE response, int* error) {
     return ret;
 }
 
+// Check if the surround-params string uses delimiter-separated format (for 12+ channel support)
+static bool isDelimitedFormat(const char* paramStr) {
+    // If we find a comma, semicolon, colon, or pipe in the string before a space/newline,
+    // it's the new delimited format
+    while (*paramStr && *paramStr != ' ' && *paramStr != '\r' && *paramStr != '\n') {
+        if (*paramStr == ',' || *paramStr == ';' || *paramStr == ':' || *paramStr == '|') {
+            return true;
+        }
+        paramStr++;
+    }
+    return false;
+}
+
+// Parse a single integer from a delimited string, advancing the pointer past the delimiter
+static bool parseNextInt(char** paramStr, int* value) {
+    char* endPtr;
+    long val;
+
+    // Skip leading delimiters
+    while (**paramStr == ',' || **paramStr == ';' || **paramStr == ':' || **paramStr == '|') {
+        (*paramStr)++;
+    }
+
+    if (!**paramStr || **paramStr == ' ' || **paramStr == '\r' || **paramStr == '\n') {
+        return false;
+    }
+
+    val = strtol(*paramStr, &endPtr, 10);
+    if (endPtr == *paramStr) {
+        return false;
+    }
+
+    *value = (int)val;
+
+    // Skip trailing delimiter if present
+    if (*endPtr == ',' || *endPtr == ';' || *endPtr == ':' || *endPtr == '|') {
+        endPtr++;
+    }
+
+    *paramStr = endPtr;
+    return true;
+}
+
+static int parseOpusConfigFromDelimitedString(char* paramStr, int channelCount, POPUS_MULTISTREAM_CONFIGURATION opusConfig) {
+    int i;
+    int value;
+
+    if (channelCount > AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT) {
+        Limelog("Invalid channel count: %d\n", channelCount);
+        return -1;
+    }
+
+    opusConfig->channelCount = channelCount;
+
+    // Parse streams count
+    if (!parseNextInt(&paramStr, &value)) {
+        Limelog("Invalid stream count in delimited format\n");
+        return -1;
+    }
+    opusConfig->streams = value;
+
+    // Parse coupled streams count
+    if (!parseNextInt(&paramStr, &value)) {
+        Limelog("Invalid coupled stream count in delimited format\n");
+        return -2;
+    }
+    opusConfig->coupledStreams = value;
+
+    // Parse mapping values
+    for (i = 0; i < opusConfig->channelCount; i++) {
+        if (!parseNextInt(&paramStr, &value)) {
+            Limelog("Invalid mapping value at %d in delimited format\n", i);
+            return -3;
+        }
+        if (value < 0 || value > 255) {
+            Limelog("Mapping value out of range at %d: %d\n", i, value);
+            return -3;
+        }
+        opusConfig->mapping[i] = (unsigned char)value;
+    }
+
+    return 0;
+}
+
 static int parseOpusConfigFromParamString(char* paramStr, int channelCount, POPUS_MULTISTREAM_CONFIGURATION opusConfig) {
     int i;
+
+    // Try delimited format first for 12+ channels, or if delimiters are detected
+    if (channelCount > 8 || isDelimitedFormat(paramStr)) {
+        return parseOpusConfigFromDelimitedString(paramStr, channelCount, opusConfig);
+    }
 
     if (channelCount > AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT) {
         Limelog("Invalid channel count: %d\n", channelCount);
@@ -760,6 +849,8 @@ static int parseOpusConfigurations(PRTSP_MESSAGE response) {
             // GFE's normal-quality channel mapping differs from the one our clients use.
             // They use FL FR C RL RR SL SR LFE, but we use FL FR C LFE RL RR SL SR. We'll need
             // to swap the mappings to match the expected values.
+            // Note: This reordering only applies to 5.1 and 7.1 from GFE. For 7.1.4 (12ch)
+            // from Sunshine, the mapping is already in the correct order.
             if (channelCount == 6 || channelCount == 8) {
                 OPUS_MULTISTREAM_CONFIGURATION originalMapping = NormalQualityOpusConfig;
 
@@ -810,6 +901,25 @@ static int parseOpusConfigurations(PRTSP_MESSAGE response) {
                 NormalQualityOpusConfig.mapping[3] = 5;
                 NormalQualityOpusConfig.mapping[4] = 2;
                 NormalQualityOpusConfig.mapping[5] = 3;
+            }
+            else if (channelCount == 12) {
+                // 7.1.4 hardcoded fallback: 8 streams, 4 coupled
+                // Mapping: FL=0 FR=1 FC=2 LFE=3 BL=4 BR=5 SL=6 SR=7 TFL=8 TFR=9 TBL=10 TBR=11
+                NormalQualityOpusConfig.channelCount = 12;
+                NormalQualityOpusConfig.streams = 8;
+                NormalQualityOpusConfig.coupledStreams = 4;
+                NormalQualityOpusConfig.mapping[0] = 0;
+                NormalQualityOpusConfig.mapping[1] = 1;
+                NormalQualityOpusConfig.mapping[2] = 2;
+                NormalQualityOpusConfig.mapping[3] = 3;
+                NormalQualityOpusConfig.mapping[4] = 4;
+                NormalQualityOpusConfig.mapping[5] = 5;
+                NormalQualityOpusConfig.mapping[6] = 6;
+                NormalQualityOpusConfig.mapping[7] = 7;
+                NormalQualityOpusConfig.mapping[8] = 8;
+                NormalQualityOpusConfig.mapping[9] = 9;
+                NormalQualityOpusConfig.mapping[10] = 10;
+                NormalQualityOpusConfig.mapping[11] = 11;
             }
             else {
                 // We don't have a hardcoded fallback mapping, so we have no choice but to fail.
