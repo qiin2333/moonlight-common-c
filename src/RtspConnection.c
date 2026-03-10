@@ -877,6 +877,15 @@ static int parseOpusConfigurations(PRTSP_MESSAGE response) {
                     return err;
                 }
 
+                // Apply the same LFE reordering as NormalQualityOpusConfig
+                if (channelCount == 6 || channelCount == 8) {
+                    OPUS_MULTISTREAM_CONFIGURATION originalMapping = HighQualityOpusConfig;
+                    HighQualityOpusConfig.mapping[3] = originalMapping.mapping[channelCount - 1];
+                    memcpy(&HighQualityOpusConfig.mapping[4],
+                           &originalMapping.mapping[3],
+                           channelCount - 4);
+                }
+
                 // We can request high quality audio
                 HighQualitySurroundSupported = true;
             }
