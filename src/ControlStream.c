@@ -158,6 +158,7 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 #define IDX_MIC_CONFIG 17
 #define IDX_DYNAMIC_PARAM_CHANGE 18
 #define IDX_RESOLUTION_CHANGE 19
+#define IDX_CLIPBOARD 20
 
 #define CONTROL_STREAM_TIMEOUT_SEC 10
 #define CONTROL_STREAM_LINGER_TIMEOUT_SEC 2
@@ -183,6 +184,7 @@ static const short packetTypesGen3[] = {
     -1,     // Microphone config (unused)
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
+    -1,     // Clipboard (unused)
 };
 static const short packetTypesGen4[] = {
     0x0606, // Start A (Gen4 uses IDR request here)
@@ -205,6 +207,7 @@ static const short packetTypesGen4[] = {
     -1,     // Microphone config (unused)
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
+    -1,     // Clipboard (unused)
 };
 static const short packetTypesGen5[] = {
     0x0305, // Start A
@@ -227,6 +230,7 @@ static const short packetTypesGen5[] = {
     -1,     // Microphone config (unused)
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
+    -1,     // Clipboard (unused)
 };
 static const short packetTypesGen7[] = {
     0x0305, // Start A
@@ -249,6 +253,7 @@ static const short packetTypesGen7[] = {
     -1,     // Microphone config (unused)
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
+    -1,     // Clipboard (unused)
 };
 static const short packetTypesGen7Enc[] = {
     0x0305, // Start A (index 0)
@@ -271,6 +276,7 @@ static const short packetTypesGen7Enc[] = {
     0x5505, // Microphone config (Sunshine protocol extension) (index 17)
     0x5506, // Dynamic parameter change (Sunshine protocol extension) (index 18)
     0x5507, // Resolution change (Sunshine protocol extension) (index 19)
+    0x5508, // Clipboard sync (Sunshine protocol extension) (index 20) - opaque payload forwarded to user-session GUI agent
 };
 
 static const char requestIdrFrameGen3[] = { 0, 0 };
@@ -305,6 +311,7 @@ static const short payloadLengthsGen3[] = {
     -1,                          // Microphone config
     -1,                          // Dynamic parameter change
     -1,                          // Resolution change
+    -1,                          // Clipboard (variable-length)
 };
 static const short payloadLengthsGen4[] = {
     sizeof(requestIdrFrameGen4), // Start A (Gen4 uses IDR request here)
@@ -327,6 +334,7 @@ static const short payloadLengthsGen4[] = {
     -1,                          // Microphone config
     -1,                          // Dynamic parameter change
     -1,                          // Resolution change
+    -1,                          // Clipboard (variable-length)
 };
 static const short payloadLengthsGen5[] = {
     sizeof(startAGen5), // Start A
@@ -349,6 +357,7 @@ static const short payloadLengthsGen5[] = {
     -1,                 // Microphone config
     -1,                 // Dynamic parameter change
     -1,                 // Resolution change
+    -1,                 // Clipboard (variable-length)
 };
 static const short payloadLengthsGen7[] = {
     sizeof(startAGen5), // Start A
@@ -371,6 +380,7 @@ static const short payloadLengthsGen7[] = {
     -1,                 // Microphone config
     -1,                 // Dynamic parameter change
     -1,                 // Resolution change
+    -1,                 // Clipboard (variable-length)
 };
 static const short payloadLengthsGen7Enc[] = {
     sizeof(startAGen5),             // Start A
@@ -393,6 +403,7 @@ static const short payloadLengthsGen7Enc[] = {
     -1,                             // Microphone config
     -1,                             // Dynamic parameter change
     -1,                             // Resolution change
+    -1,                             // Clipboard (variable-length)
 };
 
 static const char* preconstructedPayloadsGen3[] = {
@@ -416,6 +427,7 @@ static const char* preconstructedPayloadsGen3[] = {
     NULL,                // IDX_MIC_CONFIG
     NULL,                // IDX_DYNAMIC_PARAM_CHANGE
     NULL,                // IDX_RESOLUTION_CHANGE
+    NULL,                // IDX_CLIPBOARD
 };
 static const char* preconstructedPayloadsGen4[] = {
     requestIdrFrameGen4, // IDX_START_A
@@ -438,18 +450,21 @@ static const char* preconstructedPayloadsGen4[] = {
     NULL,                // IDX_MIC_CONFIG
     NULL,                // IDX_DYNAMIC_PARAM_CHANGE
     NULL,                // IDX_RESOLUTION_CHANGE
+    NULL,                // IDX_CLIPBOARD
 };
 static const char* preconstructedPayloadsGen5[] = {
     startAGen5, // IDX_START_A
     startBGen5, // IDX_START_B
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL, // IDX_CLIPBOARD
 };
 static const char* preconstructedPayloadsGen7[] = {
     startAGen5, // IDX_START_A
     startBGen5, // IDX_START_B
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL, // IDX_CLIPBOARD
 };
 static const char* preconstructedPayloadsGen7Enc[] = {
     startAGen5,             // IDX_START_A
@@ -472,6 +487,7 @@ static const char* preconstructedPayloadsGen7Enc[] = {
     NULL,                   // IDX_MIC_CONFIG
     NULL,                   // IDX_DYNAMIC_PARAM_CHANGE
     NULL,                   // IDX_RESOLUTION_CHANGE
+    NULL,                   // IDX_CLIPBOARD
 };
 
 static short* packetTypes;
@@ -888,12 +904,26 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
     if (encryptedControlStream) {
         PNVCTL_ENCRYPTED_PACKET_HEADER encPacket;
         PNVCTL_ENET_PACKET_HEADER_V2 packet;
-        char tempBuffer[256];
+        char tempBufferStack[256];
+        char* tempBuffer = tempBufferStack;
+        size_t plaintextLen = sizeof(*packet) + (size_t)(uint16_t)paylen;
+
+        // Most control messages are tiny; fall back to a heap allocation for the
+        // few that aren't (e.g. clipboard payloads up to 65535 bytes).
+        if (plaintextLen > sizeof(tempBufferStack)) {
+            tempBuffer = (char*)malloc(plaintextLen);
+            if (tempBuffer == NULL) {
+                return false;
+            }
+        }
 
         enetPacket = enet_packet_create(NULL,
-                                        sizeof(*encPacket) + AES_GCM_TAG_LENGTH + sizeof(*packet) + paylen,
+                                        sizeof(*encPacket) + AES_GCM_TAG_LENGTH + plaintextLen,
                                         flags);
         if (enetPacket == NULL) {
+            if (tempBuffer != tempBufferStack) {
+                free(tempBuffer);
+            }
             return false;
         }
 
@@ -903,18 +933,23 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
 
         encPacket = (PNVCTL_ENCRYPTED_PACKET_HEADER)enetPacket->data;
         encPacket->encryptedHeaderType = 0x0001;
-        encPacket->length = sizeof(encPacket->seq) + AES_GCM_TAG_LENGTH + sizeof(*packet) + paylen;
+        encPacket->length = sizeof(encPacket->seq) + AES_GCM_TAG_LENGTH + plaintextLen;
         encPacket->seq = currentEnetSequenceNumber++;
 
         // Construct the plaintext data for encryption
-        LC_ASSERT(sizeof(*packet) + paylen < sizeof(tempBuffer));
         packet = (PNVCTL_ENET_PACKET_HEADER_V2)tempBuffer;
         packet->type = ptype;
         packet->payloadLength = paylen;
-        memcpy(&packet[1], payload, paylen);
+        memcpy(&packet[1], payload, (uint16_t)paylen);
 
         // Encrypt the data into the final packet (and byteswap for BE machines)
-        if (!encryptControlMessage(encPacket, packet)) {
+        bool encOk = encryptControlMessage(encPacket, packet);
+
+        if (tempBuffer != tempBufferStack) {
+            free(tempBuffer);
+        }
+
+        if (!encOk) {
             Limelog("Failed to encrypt control stream message\n");
             enet_packet_destroy(enetPacket);
             PltUnlockMutex(&enetMutex);
@@ -1552,6 +1587,18 @@ static void controlReceiveThreadFunc(void* context) {
             if (needsAsyncCallback(ctlHdr->type)) {
                 queueAsyncCallback(ctlHdr, packetLength);
             }
+            else if (ctlHdr->type == packetTypes[IDX_CLIPBOARD]) {
+                // Sunshine clipboard sync (0x5508). The payload is opaque (currently
+                // a v1 wire frame) and forwarded verbatim to the client. We dispatch
+                // synchronously from the recv thread because the payload is variable-
+                // length up to 65535 bytes and doesn't fit the fixed-size async queue.
+                // The client must defer any blocking work onto its own thread.
+                if (ListenerCallbacks.clipboardData != NULL && packetLength > (int)sizeof(*ctlHdr)) {
+                    const char* payload = (const char*)(ctlHdr + 1);
+                    int payloadLen = packetLength - (int)sizeof(*ctlHdr);
+                    ListenerCallbacks.clipboardData(payload, payloadLen);
+                }
+            }
             else if (ctlHdr->type == packetTypes[IDX_TERMINATION]) {
                 BYTE_BUFFER bb;
 
@@ -1952,6 +1999,34 @@ int sendInputPacketOnControlStream(unsigned char* data, int length, uint8_t chan
     // Send the input data (no reply expected)
     if (sendMessageAndForget(packetTypes[IDX_INPUT_DATA], length, data, channelId, flags, moreData) == 0) {
         return -1;
+    }
+
+    return 0;
+}
+
+// Send a clipboard sync payload to the host. This is a Sunshine protocol extension
+// (control packet 0x5508). The wire format of the payload is opaque to moonlight-common-c
+// and forwarded verbatim by the host to its user-session GUI agent.
+int LiSendClipboardData(const void* payload, int length) {
+    // Reject obvious garbage and payloads that won't fit in the 16-bit length field.
+    if (payload == NULL || length <= 0 || length > 65535) {
+        return -1;
+    }
+
+    // Require Sunshine + Gen5+ + that the active server advertised the clipboard
+    // packet type (Gen7Enc only). On all other generations packetTypes[IDX_CLIPBOARD]
+    // is -1 and the message would be silently dropped on the wire.
+    if (AppVersionQuad[0] < 5 || packetTypes == NULL || packetTypes[IDX_CLIPBOARD] == -1) {
+        return -2;
+    }
+
+    if (peer == NULL || peer->state != ENET_PEER_STATE_CONNECTED) {
+        return -3;
+    }
+
+    if (!sendMessageAndForget(packetTypes[IDX_CLIPBOARD], (short)length, payload,
+                              CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false)) {
+        return -4;
     }
 
     return 0;

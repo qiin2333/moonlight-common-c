@@ -554,6 +554,14 @@ typedef void(*ConnListenerSetControllerLED)(uint16_t controllerNumber, uint8_t r
 // resolution accordingly.
 typedef void(*ConnListenerResolutionChanged)(uint32_t width, uint32_t height);
 
+// This callback is invoked when the host (Sunshine fork) pushes a clipboard payload
+// to the client. `data`/`length` is an opaque protocol-defined byte string (currently
+// the v1 wire format: u8 version=1, u8 kind, u32 token, u32 length, bytes payload
+// in little-endian). The callback runs on the control-stream receive thread; the
+// client must defer any blocking work (e.g. UI clipboard writes) to its own thread.
+// The buffer is only valid for the duration of the call.
+typedef void(*ConnListenerClipboardData)(const char* data, int length);
+
 typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerStageStarting stageStarting;
     ConnListenerStageComplete stageComplete;
@@ -569,6 +577,7 @@ typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerSetControllerLED setControllerLED;
     ConnListenerSetAdaptiveTriggers setAdaptiveTriggers;
     ConnListenerResolutionChanged resolutionChanged;
+    ConnListenerClipboardData clipboardData;
 } CONNECTION_LISTENER_CALLBACKS, *PCONNECTION_LISTENER_CALLBACKS;
 
 // Use this function to zero the connection callbacks when allocated on the stack or heap
@@ -908,6 +917,18 @@ int LiSendHighResScrollEvent(short scrollAmount);
 // This is a Sunshine protocol extension.
 int LiSendHScrollEvent(signed char scrollClicks);
 int LiSendHighResHScrollEvent(short scrollAmount);
+
+// Send an opaque clipboard payload to the host. `length` must be > 0 and
+// <= 65535. The host (AlkaidLab Sunshine fork) forwards the payload verbatim
+// to its user-session GUI agent over an in-process bridge; the wire format
+// of the payload itself is defined by the GUI agent (currently v1: u8 version,
+// u8 kind, u32 token, u32 length, bytes payload, little-endian).
+//
+// Returns 0 on success, negative on failure (no active connection, payload
+// too large, send error). This is a Sunshine protocol extension; on Geforce
+// Experience or Sunshine builds without clipboard support, the call returns a
+// negative error code.
+int LiSendClipboardData(const void* payload, int length);
 
 // This function returns a time in microseconds with an implementation-defined epoch.
 // It should only ever be compared with the return value from a previous call to itself.
