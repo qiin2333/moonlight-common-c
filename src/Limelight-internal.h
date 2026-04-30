@@ -33,6 +33,11 @@ extern int AudioPacketDuration;
 extern bool AudioEncryptionEnabled;
 extern bool ReferenceFrameInvalidationSupported;
 
+// Audio codec selected for this session (AUDIO_CODEC_*). Defaults to OPUS.
+extern int NegotiatedAudioCodec;
+// Audio bitrate (bps) selected for AC3/E-AC3 sessions. 0 when codec == OPUS.
+extern int NegotiatedAudioBitrate;
+
 extern uint16_t RtspPortNumber;
 extern uint16_t ControlPortNumber;
 extern uint16_t AudioPortNumber;

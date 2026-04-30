@@ -511,6 +511,18 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         else {
             err |= addAttributeString(&optionHead, "x-nv-audio.surround.enable", "0");
         }
+
+        // Sunshine-only: request a non-Opus surround codec for HDMI/SPDIF
+        // passthrough. Older hosts ignore unknown attributes.
+        if (NegotiatedAudioCodec != AUDIO_CODEC_OPUS) {
+            const char* codecStr = (NegotiatedAudioCodec == AUDIO_CODEC_AC3) ? "ac3" :
+                                   (NegotiatedAudioCodec == AUDIO_CODEC_EAC3) ? "eac3" : "opus";
+            err |= addAttributeString(&optionHead, "x-ml-audio.codec", codecStr);
+            if (NegotiatedAudioBitrate > 0) {
+                snprintf(payloadStr, sizeof(payloadStr), "%d", NegotiatedAudioBitrate);
+                err |= addAttributeString(&optionHead, "x-ml-audio.bitrate", payloadStr);
+            }
+        }
     }
 
     if (AppVersionQuad[0] >= 7) {
@@ -540,6 +552,14 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
                 // Use 5 ms packets by default for lowest latency
                 AudioPacketDuration = 5;
             }
+        }
+
+        // AC3 / E-AC3 use a fixed 1536-sample frame at 48 kHz (32 ms). Override
+        // the negotiated packet duration so RTP queue / FEC arithmetic matches
+        // what Sunshine is actually emitting. E-AC3 may use 32/16/8 ms frames
+        // depending on host config; we currently assume 32 ms ("normal" mode).
+        if (NegotiatedAudioCodec == AUDIO_CODEC_AC3 || NegotiatedAudioCodec == AUDIO_CODEC_EAC3) {
+            AudioPacketDuration = 32;
         }
 
         snprintf(payloadStr, sizeof(payloadStr), "%d", AudioPacketDuration);

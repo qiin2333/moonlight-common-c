@@ -115,6 +115,27 @@ typedef struct _STREAM_CONFIGURATION {
     
     // Specifies whether to enable control-only mode (only control stream, no video/audio)
     bool controlOnly;
+
+    // Requested audio codec. See AUDIO_CODEC_* constants above. Default 0 = OPUS.
+    //
+    // When set to a non-OPUS value:
+    //   - The client must be paired with a Sunshine host that understands the
+    //     "x-ml-audio.codec" RTSP/SDP attribute. Older hosts will silently
+    //     ignore it and continue to send Opus, which will produce no audio.
+    //   - audioConfiguration is still honored for channel layout selection.
+    //   - The audio renderer's decodeAndPlaySample callback receives raw,
+    //     IEC 61937-framed AC3/E-AC3 bytes instead of Opus.
+    //   - The OPUS_MULTISTREAM_CONFIGURATION passed to AudioRendererInit is
+    //     populated with sampleRate / channelCount / samplesPerFrame only;
+    //     the streams / coupledStreams / mapping fields are not meaningful.
+    //   - The renderer should call LiGetNegotiatedAudioCodec() to confirm
+    //     which codec is actually in use.
+    int audioCodec;
+
+    // Requested AC3/E-AC3 bitrate in bits per second when audioCodec != OPUS.
+    // 0 means "host default" (Sunshine uses 640000 for AC3, 384000 for E-AC3).
+    // Ignored when audioCodec == OPUS.
+    int audioBitrate;
 } STREAM_CONFIGURATION, *PSTREAM_CONFIGURATION;
 
 // Use this function to zero the stream configuration when allocated on the stack or heap
@@ -238,6 +259,25 @@ typedef struct _DECODE_UNIT {
 
 // The maximum number of channels supported
 #define AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT 12
+
+// Audio codec values for STREAM_CONFIGURATION.audioCodec and LiGetNegotiatedAudioCodec()
+//
+// AUDIO_CODEC_OPUS is the historical default and the only codec supported by GFE.
+// AUDIO_CODEC_AC3 / AUDIO_CODEC_EAC3 are Sunshine-only extensions (added in
+// Sunshine vX.Y) intended for HDMI/SPDIF passthrough to A/V receivers. The
+// payload delivered to AudioRendererDecodeAndPlaySample is then a raw IEC 61937
+// frame instead of an Opus packet, and the renderer is expected to feed it
+// directly to the OS audio sink (e.g. AudioTrack(ENCODING_AC3)).
+#define AUDIO_CODEC_OPUS  0
+#define AUDIO_CODEC_AC3   1
+#define AUDIO_CODEC_EAC3  2
+
+// Bitmasks for STREAM_CONFIGURATION.supportedAudioCodecs (and reserved for a
+// future server-side capability advertisement). The set bit indicates that the
+// renderer can sink that bitstream type without further decoding.
+#define AUDIO_CODEC_MASK_OPUS  0x01
+#define AUDIO_CODEC_MASK_AC3   0x02
+#define AUDIO_CODEC_MASK_EAC3  0x04
 
 // Passed in StreamConfiguration.supportedVideoFormats to specify supported codecs
 // and to DecoderRendererSetup() to specify selected codec.
@@ -1029,6 +1069,21 @@ void LiRequestIdrFrame(void);
 #define LI_FF_PEN_TOUCH_EVENTS        0x01 // LiSendTouchEvent()/LiSendPenEvent() supported
 #define LI_FF_CONTROLLER_TOUCH_EVENTS 0x02 // LiSendControllerTouchEvent() supported
 uint32_t LiGetHostFeatureFlags(void);
+
+// Returns the audio codec actually negotiated for this session. See AUDIO_CODEC_*
+// constants. Valid only after AudioRendererInit has been called. Before that,
+// returns AUDIO_CODEC_OPUS.
+//
+// NOTE: Today this simply echoes STREAM_CONFIGURATION.audioCodec because Sunshine
+// does not yet acknowledge the selected codec in its RTSP DESCRIBE response. A
+// future protocol revision is expected to populate this from a server-side
+// "x-ml-audio.codec.selected" SDP attribute, at which point clients should
+// inspect this value rather than the requested one.
+int LiGetNegotiatedAudioCodec(void);
+
+// Returns the audio bitrate (bps) negotiated for AC3/E-AC3 sessions, or 0 when
+// audioCodec == AUDIO_CODEC_OPUS. Valid only after AudioRendererInit.
+int LiGetNegotiatedAudioBitrate(void);
 
 #ifdef __cplusplus
 }
