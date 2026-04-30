@@ -23,7 +23,13 @@ static uint64_t firstReceiveTime;
 static uint8_t opusHeaderByte;
 #endif
 
-#define MAX_PACKET_SIZE 1400
+// Sized to fit:
+//   - Opus packets (typically <= 1400 B)
+//   - AC3/E-AC3 frames at up to 640 kbps / 32 ms (~2.5 KB)
+//   - Raw PCM_S16 5.1 @ 5 ms (= 240 * 6 * 2 = 2880 B)
+// Receivers always allocate this size; senders still respect the network
+// MTU when fragmenting upstream.
+#define MAX_PACKET_SIZE 4096
 
 typedef struct _QUEUE_AUDIO_PACKET_HEADER {
     LINKED_BLOCKING_QUEUE_ENTRY lentry;

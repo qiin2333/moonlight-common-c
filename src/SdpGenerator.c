@@ -516,7 +516,8 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         // passthrough. Older hosts ignore unknown attributes.
         if (NegotiatedAudioCodec != AUDIO_CODEC_OPUS) {
             const char* codecStr = (NegotiatedAudioCodec == AUDIO_CODEC_AC3) ? "ac3" :
-                                   (NegotiatedAudioCodec == AUDIO_CODEC_EAC3) ? "eac3" : "opus";
+                                   (NegotiatedAudioCodec == AUDIO_CODEC_EAC3) ? "eac3" :
+                                   (NegotiatedAudioCodec == AUDIO_CODEC_PCM_S16) ? "pcm" : "opus";
             err |= addAttributeString(&optionHead, "x-ml-audio.codec", codecStr);
             if (NegotiatedAudioBitrate > 0) {
                 snprintf(payloadStr, sizeof(payloadStr), "%d", NegotiatedAudioBitrate);
@@ -560,6 +561,11 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         // depending on host config; we currently assume 32 ms ("normal" mode).
         if (NegotiatedAudioCodec == AUDIO_CODEC_AC3 || NegotiatedAudioCodec == AUDIO_CODEC_EAC3) {
             AudioPacketDuration = 32;
+        }
+        // PCM passthrough: keep frames as small as possible. 5 ms @ 48 kHz =
+        // 240 samples, 5.1ch = 2880 B which fits the 4 KB receive buffer.
+        else if (NegotiatedAudioCodec == AUDIO_CODEC_PCM_S16) {
+            AudioPacketDuration = 5;
         }
 
         snprintf(payloadStr, sizeof(payloadStr), "%d", AudioPacketDuration);

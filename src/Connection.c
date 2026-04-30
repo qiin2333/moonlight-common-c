@@ -332,6 +332,21 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
                     : (StreamConfig.audioCodec == AUDIO_CODEC_AC3 ? 640000 : 384000);
             }
             break;
+        case AUDIO_CODEC_PCM_S16:
+            if (!IS_SUNSHINE()) {
+                Limelog("PCM passthrough is only supported by Sunshine; falling back to Opus\n");
+            }
+            else if (CHANNEL_COUNT_FROM_AUDIO_CONFIGURATION(StreamConfig.audioConfiguration) > 6) {
+                Limelog("PCM passthrough capped at 5.1 (6 channels); falling back to Opus for %d-channel config\n",
+                        CHANNEL_COUNT_FROM_AUDIO_CONFIGURATION(StreamConfig.audioConfiguration));
+            }
+            else {
+                NegotiatedAudioCodec = AUDIO_CODEC_PCM_S16;
+                // PCM bitrate is fully determined by sample rate / channels;
+                // expose nominal value for the renderer (48000 Hz * ch * 16 bit).
+                NegotiatedAudioBitrate = 48000 * CHANNEL_COUNT_FROM_AUDIO_CONFIGURATION(StreamConfig.audioConfiguration) * 16;
+            }
+            break;
         default:
             Limelog("Unknown audio codec %d requested; falling back to Opus\n",
                     StreamConfig.audioCodec);

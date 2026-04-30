@@ -271,6 +271,11 @@ typedef struct _DECODE_UNIT {
 #define AUDIO_CODEC_OPUS  0
 #define AUDIO_CODEC_AC3   1
 #define AUDIO_CODEC_EAC3  2
+// AUDIO_CODEC_PCM_S16: raw signed 16-bit interleaved PCM at the negotiated
+// sample rate / channel count. Lowest possible audio latency (no codec block
+// delay, no AVR decoder); biggest bandwidth (~1.5 Mbps stereo, ~4.6 Mbps 5.1).
+// LAN-only in practice.
+#define AUDIO_CODEC_PCM_S16 3
 
 // Bitmasks for STREAM_CONFIGURATION.supportedAudioCodecs (and reserved for a
 // future server-side capability advertisement). The set bit indicates that the
@@ -278,6 +283,7 @@ typedef struct _DECODE_UNIT {
 #define AUDIO_CODEC_MASK_OPUS  0x01
 #define AUDIO_CODEC_MASK_AC3   0x02
 #define AUDIO_CODEC_MASK_EAC3  0x04
+#define AUDIO_CODEC_MASK_PCM_S16 0x08
 
 // Passed in StreamConfiguration.supportedVideoFormats to specify supported codecs
 // and to DecoderRendererSetup() to specify selected codec.
