@@ -25,6 +25,8 @@ OPUS_MULTISTREAM_CONFIGURATION HighQualityOpusConfig;
 int AudioPacketDuration;
 bool AudioEncryptionEnabled;
 bool ReferenceFrameInvalidationSupported;
+int NegotiatedAudioCodec;
+int NegotiatedAudioBitrate;
 uint16_t RtspPortNumber;
 uint16_t ControlPortNumber;
 uint16_t AudioPortNumber;
@@ -298,6 +300,45 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
         err = -1;
         goto Cleanup;
     }
+
+    // Resolve the audio codec for this session.
+    //
+    // AC3 / E-AC3 are Sunshine-only extensions; on GFE we silently downgrade to
+    // Opus to avoid producing a session with no audio. The renderer can call
+    // LiGetNegotiatedAudioCodec() to check what was actually selected.
+    NegotiatedAudioCodec = AUDIO_CODEC_OPUS;
+    NegotiatedAudioBitrate = 0;
+    switch (StreamConfig.audioCodec) {
+        case AUDIO_CODEC_OPUS:
+            // Default; nothing to do.
+            break;
+        case AUDIO_CODEC_AC3:
+        case AUDIO_CODEC_EAC3:
+            if (!IS_SUNSHINE()) {
+                Limelog("Requested audio codec %d is not supported by GFE; falling back to Opus\n",
+                        StreamConfig.audioCodec);
+            }
+            else if (CHANNEL_COUNT_FROM_AUDIO_CONFIGURATION(StreamConfig.audioConfiguration) < 2) {
+                Limelog("AC3/E-AC3 requires multichannel audio; falling back to Opus\n");
+            }
+            else if (CHANNEL_COUNT_FROM_AUDIO_CONFIGURATION(StreamConfig.audioConfiguration) > 6) {
+                Limelog("AC3/E-AC3 supports max 5.1 (6 channels); falling back to Opus for %d-channel config\n",
+                        CHANNEL_COUNT_FROM_AUDIO_CONFIGURATION(StreamConfig.audioConfiguration));
+            }
+            else {
+                NegotiatedAudioCodec = StreamConfig.audioCodec;
+                NegotiatedAudioBitrate = StreamConfig.audioBitrate > 0
+                    ? StreamConfig.audioBitrate
+                    : (StreamConfig.audioCodec == AUDIO_CODEC_AC3 ? 640000 : 384000);
+            }
+            break;
+        default:
+            Limelog("Unknown audio codec %d requested; falling back to Opus\n",
+                    StreamConfig.audioCodec);
+            break;
+    }
+    Limelog("Negotiated audio codec: %d (bitrate %d bps)\n",
+            NegotiatedAudioCodec, NegotiatedAudioBitrate);
 
     // FEC only works in 16 byte chunks, so we must round down
     // the given packet size to the nearest multiple of 16.
