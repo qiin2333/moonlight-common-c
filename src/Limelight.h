@@ -522,6 +522,50 @@ typedef void(*ConnListenerRumble)(unsigned short controllerNumber, unsigned shor
 #define CONN_STATUS_POOR    1
 typedef void(*ConnListenerConnectionStatusUpdate)(int connectionStatus);
 
+// Clipboard item types used by the clipboard sync extension.
+#define LI_CLIPBOARD_ITEM_TYPE_NONE  0x00
+#define LI_CLIPBOARD_ITEM_TYPE_TEXT  0x01
+#define LI_CLIPBOARD_ITEM_TYPE_IMAGE 0x02
+
+// Clipboard item flags.
+#define LI_CLIPBOARD_ITEM_FLAG_SNAPSHOT 0x01
+#define LI_CLIPBOARD_TRANSFER_FLAG_SNAPSHOT LI_CLIPBOARD_ITEM_FLAG_SNAPSHOT
+
+// Clipboard control stream packet type and payload kinds used by the Sunshine
+// clipboard sync extension.
+#define SS_CLIPBOARD_PTYPE 0x5508
+
+#define LI_CLIPBOARD_MSG_BIND             0x01
+#define LI_CLIPBOARD_MSG_UNBIND           0x02
+#define LI_CLIPBOARD_MSG_SNAPSHOT_REQUEST 0x03
+#define LI_CLIPBOARD_MSG_ITEM_START       0x04
+#define LI_CLIPBOARD_MSG_ITEM_CHUNK       0x05
+#define LI_CLIPBOARD_MSG_ITEM_END         0x06
+#define LI_CLIPBOARD_MSG_ITEM_CANCEL      0x07
+
+#define LI_CLIPBOARD_MAX_CHUNK_SIZE 16384
+#define LI_CLIPBOARD_MAX_IMAGE_SIZE (4U * 1024U * 1024U)
+
+typedef struct _LI_CLIPBOARD_ITEM {
+    uint8_t type;
+    const uint8_t* data;
+    uint32_t length;
+    const char* mimeType;
+    const char* name;
+    uint64_t itemId;
+    uint64_t contentHash;
+    uint32_t flags;
+} LI_CLIPBOARD_ITEM, *PLI_CLIPBOARD_ITEM;
+
+// This callback is invoked when a clipboard item has been received from the
+// host and fully reassembled by moonlight-common-c. The callback may be
+// invoked with LI_CLIPBOARD_ITEM_TYPE_NONE to indicate an empty snapshot.
+//
+// The LI_CLIPBOARD_ITEM data is owned by moonlight-common-c and is only valid
+// for the duration of the callback. Copy the content if it must outlive the
+// callback invocation.
+typedef void(*ConnListenerClipboardItemReceived)(const LI_CLIPBOARD_ITEM* item);
+
 // This callback is invoked to notify the client of a change in HDR mode on
 // the host. The client will probably want to update the local display mode
 // to match the state of HDR on the host. This callback may be invoked even
@@ -569,6 +613,7 @@ typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerSetControllerLED setControllerLED;
     ConnListenerSetAdaptiveTriggers setAdaptiveTriggers;
     ConnListenerResolutionChanged resolutionChanged;
+    ConnListenerClipboardItemReceived clipboardItemReceived;
 } CONNECTION_LISTENER_CALLBACKS, *PCONNECTION_LISTENER_CALLBACKS;
 
 // Use this function to zero the connection callbacks when allocated on the stack or heap
@@ -782,6 +827,21 @@ int LiSendKeyboardEvent2(short keyCode, char keyAction, char modifiers, char fla
 
 // This function queues an UTF-8 encoded text to be sent to the remote server.
 int LiSendUtf8TextEvent(const char *text, unsigned int length);
+
+// These functions are used by the clipboard sync extension. They are only
+// supported on Sunshine hosts that advertise the corresponding LI_FF_* flags.
+//
+// LiBindClipboardSession() marks the current stream session as the active
+// clipboard session on the host. LiRequestClipboardSnapshot() asks the host to
+// return its current clipboard contents for initial synchronization.
+//
+// LiSendClipboardItem() uploads a single clipboard item. Text and image
+// payloads are transported using the reliable control channel and chunked by
+// moonlight-common-c as needed.
+int LiBindClipboardSession(void);
+int LiUnbindClipboardSession(void);
+int LiRequestClipboardSnapshot(void);
+int LiSendClipboardItem(const LI_CLIPBOARD_ITEM* item);
 
 // Button flags
 #define A_FLAG     0x1000
@@ -1074,6 +1134,8 @@ void LiRequestIdrFrame(void);
 // This function returns any extended feature flags supported by the host.
 #define LI_FF_PEN_TOUCH_EVENTS        0x01 // LiSendTouchEvent()/LiSendPenEvent() supported
 #define LI_FF_CONTROLLER_TOUCH_EVENTS 0x02 // LiSendControllerTouchEvent() supported
+#define LI_FF_CLIPBOARD_TEXT          0x04 // Clipboard text sync supported
+#define LI_FF_CLIPBOARD_IMAGE         0x08 // Clipboard image sync supported
 uint32_t LiGetHostFeatureFlags(void);
 
 // Returns the audio codec actually negotiated for this session. See AUDIO_CODEC_*
