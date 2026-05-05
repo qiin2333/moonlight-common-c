@@ -105,6 +105,11 @@ static bool disconnectPending;
 static bool encryptedControlStream;
 static bool hdrEnabled;
 static SS_HDR_METADATA hdrMetadata;
+static uint32_t currentResolutionWidth = 0;
+static uint32_t currentResolutionHeight = 0;
+
+// Sunshine unified dynamic parameter change payload types (see Sunshine src/video.h)
+#define SS_DYNAMIC_PARAM_TYPE_RESOLUTION 0
 
 static int intervalGoodFrameCount;
 static int intervalTotalFrameCount;
@@ -127,25 +132,39 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 #define CONN_OKAY_LOSS_RATE 5
 #define CONN_STATUS_SAMPLE_PERIOD 3000
 
+//
+// IMPORTANT: These indices MUST match the ordering of packetTypes*[] tables.
+// Newer encrypted control streams (Gen7Enc) include additional packet types
+// (periodic ping, fully encrypted marker, mic, dynamic params, etc).
+//
 #define IDX_START_A 0
-#define IDX_REQUEST_IDR_FRAME 0
 #define IDX_START_B 1
 #define IDX_INVALIDATE_REF_FRAMES 2
 #define IDX_LOSS_STATS 3
+#define IDX_FRAME_STATS 4
 #define IDX_INPUT_DATA 5
 #define IDX_RUMBLE_DATA 6
 #define IDX_TERMINATION 7
-#define IDX_HDR_INFO 8
-#define IDX_RUMBLE_TRIGGER_DATA 9
-#define IDX_SET_MOTION_EVENT 10
-#define IDX_SET_RGB_LED 11
-#define IDX_DS_ADAPTIVE_TRIGGERS 12
+#define IDX_PERIODIC_PING 8
+#define IDX_REQUEST_IDR_FRAME 9
+#define IDX_FULLY_ENCRYPTED 10
+#define IDX_HDR_INFO 11
+#define IDX_RUMBLE_TRIGGER_DATA 12
+#define IDX_SET_MOTION_EVENT 13
+#define IDX_SET_RGB_LED 14
+#define IDX_SET_ADAPTIVE_TRIGGERS 15
+#define IDX_DS_ADAPTIVE_TRIGGERS IDX_SET_ADAPTIVE_TRIGGERS  // Alias for compatibility
+#define IDX_MIC_DATA 16
+#define IDX_MIC_CONFIG 17
+#define IDX_DYNAMIC_PARAM_CHANGE 18
+#define IDX_RESOLUTION_CHANGE 19
+#define IDX_CLIPBOARD 20
 
 #define CONTROL_STREAM_TIMEOUT_SEC 10
 #define CONTROL_STREAM_LINGER_TIMEOUT_SEC 2
 
 static const short packetTypesGen3[] = {
-    0x1407, // Request IDR frame
+    0x1407, // Start A (Gen3 uses IDR request here)
     0x1410, // Start B
     0x1404, // Invalidate reference frames
     0x140c, // Loss Stats
@@ -153,13 +172,22 @@ static const short packetTypesGen3[] = {
     -1,     // Input data (unused)
     -1,     // Rumble data (unused)
     -1,     // Termination (unused)
+    -1,     // Periodic Ping (unused)
+    0x1407, // Request IDR frame
+    -1,     // fully encrypted (unused)
     -1,     // HDR mode (unused)
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,     // Set Adaptive Triggers (unused)
+    -1,     // Microphone data (unused)
+    -1,     // Microphone config (unused)
+    -1,     // Dynamic parameter change (unused)
+    -1,     // Resolution change (unused)
+    -1,     // Clipboard (unused)
 };
 static const short packetTypesGen4[] = {
-    0x0606, // Request IDR frame
+    0x0606, // Start A (Gen4 uses IDR request here)
     0x0609, // Start B
     0x0604, // Invalidate reference frames
     0x060a, // Loss Stats
@@ -167,10 +195,19 @@ static const short packetTypesGen4[] = {
     -1,     // Input data (unused)
     -1,     // Rumble data (unused)
     -1,     // Termination (unused)
+    -1,     // Periodic Ping (unused)
+    0x0606, // Request IDR frame
+    -1,     // fully encrypted (unused)
     -1,     // HDR mode (unused)
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,     // Set Adaptive Triggers (unused)
+    -1,     // Microphone data (unused)
+    -1,     // Microphone config (unused)
+    -1,     // Dynamic parameter change (unused)
+    -1,     // Resolution change (unused)
+    -1,     // Clipboard (unused)
 };
 static const short packetTypesGen5[] = {
     0x0305, // Start A
@@ -181,10 +218,19 @@ static const short packetTypesGen5[] = {
     0x0207, // Input data
     -1,     // Rumble data (unused)
     -1,     // Termination (unused)
+    -1,     // Periodic Ping (unused)
+    -1,     // Request IDR frame (unused - uses RFI fallback)
+    -1,     // fully encrypted (unused)
     -1,     // HDR mode (unknown)
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,     // Set Adaptive Triggers (unused)
+    -1,     // Microphone data (unused)
+    -1,     // Microphone config (unused)
+    -1,     // Dynamic parameter change (unused)
+    -1,     // Resolution change (unused)
+    -1,     // Clipboard (unused)
 };
 static const short packetTypesGen7[] = {
     0x0305, // Start A
@@ -195,25 +241,42 @@ static const short packetTypesGen7[] = {
     0x0206, // Input data
     0x010b, // Rumble data
     0x0100, // Termination
+    -1,     // Periodic Ping (unused - hardcoded 0x0200)
+    -1,     // Request IDR frame (unused - uses RFI fallback)
+    -1,     // fully encrypted (unused)
     0x010e, // HDR mode
     -1,     // Rumble triggers (unused)
     -1,     // Set motion event (unused)
     -1,     // Set RGB LED (unused)
+    -1,     // Set Adaptive Triggers (unused)
+    -1,     // Microphone data (unused)
+    -1,     // Microphone config (unused)
+    -1,     // Dynamic parameter change (unused)
+    -1,     // Resolution change (unused)
+    -1,     // Clipboard (unused)
 };
 static const short packetTypesGen7Enc[] = {
-    0x0302, // Request IDR frame
-    0x0307, // Start B
-    0x0301, // Invalidate reference frames
-    0x0201, // Loss Stats
-    0x0204, // Frame Stats (unused)
-    0x0206, // Input data
-    0x010b, // Rumble data
-    0x0109, // Termination (extended)
-    0x010e, // HDR mode
-    0x5500, // Rumble triggers (Sunshine protocol extension)
-    0x5501, // Set motion event (Sunshine protocol extension)
-    0x5502, // Set RGB LED (Sunshine protocol extension)
-    0x5503, // Set Adaptive Triggers (Sunshine protocol extension)
+    0x0305, // Start A (index 0)
+    0x0307, // Start B (index 1)
+    0x0301, // Invalidate reference frames (index 2)
+    0x0201, // Loss Stats (index 3)
+    0x0204, // Frame Stats (unused) (index 4)
+    0x0206, // Input data (index 5)
+    0x010b, // Rumble data (index 6)
+    0x0109, // Termination (extended) (index 7)
+    0x0200, // Periodic Ping (index 8)
+    0x0302, // IDR frame (index 9)
+    0x0001, // fully encrypted (index 10)
+    0x010e, // HDR mode (index 11)
+    0x5500, // Rumble triggers (Sunshine protocol extension) (index 12)
+    0x5501, // Set motion event (Sunshine protocol extension) (index 13)
+    0x5502, // Set RGB LED (Sunshine protocol extension) (index 14)
+    0x5503, // Set Adaptive Triggers (Sunshine protocol extension) (index 15)
+    0x5504, // Microphone data (Sunshine protocol extension) (index 16)
+    0x5505, // Microphone config (Sunshine protocol extension) (index 17)
+    0x5506, // Dynamic parameter change (Sunshine protocol extension) (index 18)
+    0x5507, // Resolution change (Sunshine protocol extension) (index 19)
+    0x5508, // Clipboard sync (Sunshine protocol extension) (index 20) - opaque payload forwarded to user-session GUI agent
 };
 
 static const char requestIdrFrameGen3[] = { 0, 0 };
@@ -228,65 +291,203 @@ static const char startBGen5[] = { 0 };
 static const char requestIdrFrameGen7Enc[] = { 0, 0 };
 
 static const short payloadLengthsGen3[] = {
+    sizeof(requestIdrFrameGen3), // Start A (Gen3 uses IDR request here)
+    sizeof(startBGen3),          // Start B
+    24,                          // Invalidate reference frames
+    32,                          // Loss Stats
+    64,                          // Frame Stats
+    -1,                          // Input data
+    -1,                          // Rumble data
+    -1,                          // Termination
+    -1,                          // Periodic Ping
     sizeof(requestIdrFrameGen3), // Request IDR frame
-    sizeof(startBGen3), // Start B
-    24, // Invalidate reference frames
-    32, // Loss Stats
-    64, // Frame Stats
-    -1, // Input data
+    -1,                          // fully encrypted
+    -1,                          // HDR mode
+    -1,                          // Rumble triggers
+    -1,                          // Set motion event
+    -1,                          // Set RGB LED
+    -1,                          // Set Adaptive Triggers
+    -1,                          // Microphone data
+    -1,                          // Microphone config
+    -1,                          // Dynamic parameter change
+    -1,                          // Resolution change
+    -1,                          // Clipboard (variable-length)
 };
 static const short payloadLengthsGen4[] = {
+    sizeof(requestIdrFrameGen4), // Start A (Gen4 uses IDR request here)
+    sizeof(startBGen4),          // Start B
+    24,                          // Invalidate reference frames
+    32,                          // Loss Stats
+    64,                          // Frame Stats
+    -1,                          // Input data
+    -1,                          // Rumble data
+    -1,                          // Termination
+    -1,                          // Periodic Ping
     sizeof(requestIdrFrameGen4), // Request IDR frame
-    sizeof(startBGen4), // Start B
-    24, // Invalidate reference frames
-    32, // Loss Stats
-    64, // Frame Stats
-    -1, // Input data
+    -1,                          // fully encrypted
+    -1,                          // HDR mode
+    -1,                          // Rumble triggers
+    -1,                          // Set motion event
+    -1,                          // Set RGB LED
+    -1,                          // Set Adaptive Triggers
+    -1,                          // Microphone data
+    -1,                          // Microphone config
+    -1,                          // Dynamic parameter change
+    -1,                          // Resolution change
+    -1,                          // Clipboard (variable-length)
 };
 static const short payloadLengthsGen5[] = {
     sizeof(startAGen5), // Start A
     sizeof(startBGen5), // Start B
-    24, // Invalidate reference frames
-    32, // Loss Stats
-    80, // Frame Stats
-    -1, // Input data
+    24,                 // Invalidate reference frames
+    32,                 // Loss Stats
+    80,                 // Frame Stats
+    -1,                 // Input data
+    -1,                 // Rumble data
+    -1,                 // Termination
+    -1,                 // Periodic Ping
+    -1,                 // Request IDR frame (unused)
+    -1,                 // fully encrypted
+    -1,                 // HDR mode
+    -1,                 // Rumble triggers
+    -1,                 // Set motion event
+    -1,                 // Set RGB LED
+    -1,                 // Set Adaptive Triggers
+    -1,                 // Microphone data
+    -1,                 // Microphone config
+    -1,                 // Dynamic parameter change
+    -1,                 // Resolution change
+    -1,                 // Clipboard (variable-length)
 };
 static const short payloadLengthsGen7[] = {
     sizeof(startAGen5), // Start A
     sizeof(startBGen5), // Start B
-    24, // Invalidate reference frames
-    32, // Loss Stats
-    80, // Frame Stats
-    -1, // Input data
+    24,                 // Invalidate reference frames
+    32,                 // Loss Stats
+    80,                 // Frame Stats
+    -1,                 // Input data
+    -1,                 // Rumble data
+    -1,                 // Termination
+    -1,                 // Periodic Ping
+    -1,                 // Request IDR frame (unused)
+    -1,                 // fully encrypted
+    -1,                 // HDR mode
+    -1,                 // Rumble triggers
+    -1,                 // Set motion event
+    -1,                 // Set RGB LED
+    -1,                 // Set Adaptive Triggers
+    -1,                 // Microphone data
+    -1,                 // Microphone config
+    -1,                 // Dynamic parameter change
+    -1,                 // Resolution change
+    -1,                 // Clipboard (variable-length)
 };
 static const short payloadLengthsGen7Enc[] = {
+    sizeof(startAGen5),             // Start A
+    sizeof(startBGen5),             // Start B
+    24,                             // Invalidate reference frames
+    32,                             // Loss Stats
+    80,                             // Frame Stats
+    -1,                             // Input data
+    -1,                             // Rumble data
+    -1,                             // Termination
+    -1,                             // Periodic Ping
     sizeof(requestIdrFrameGen7Enc), // Request IDR frame
-    sizeof(startBGen5), // Start B
-    24, // Invalidate reference frames
-    32, // Loss Stats
-    80, // Frame Stats
-    -1, // Input data
+    -1,                             // fully encrypted
+    -1,                             // HDR mode
+    -1,                             // Rumble triggers
+    -1,                             // Set motion event
+    -1,                             // Set RGB LED
+    -1,                             // Set Adaptive Triggers
+    -1,                             // Microphone data
+    -1,                             // Microphone config
+    -1,                             // Dynamic parameter change
+    -1,                             // Resolution change
+    -1,                             // Clipboard (variable-length)
 };
 
 static const char* preconstructedPayloadsGen3[] = {
-    requestIdrFrameGen3,
-    (char*)startBGen3
+    requestIdrFrameGen3, // IDX_START_A
+    (char*)startBGen3,   // IDX_START_B
+    NULL,                // IDX_INVALIDATE_REF_FRAMES
+    NULL,                // IDX_LOSS_STATS
+    NULL,                // IDX_FRAME_STATS
+    NULL,                // IDX_INPUT_DATA
+    NULL,                // IDX_RUMBLE_DATA
+    NULL,                // IDX_TERMINATION
+    NULL,                // IDX_PERIODIC_PING
+    requestIdrFrameGen3, // IDX_REQUEST_IDR_FRAME
+    NULL,                // IDX_FULLY_ENCRYPTED
+    NULL,                // IDX_HDR_INFO
+    NULL,                // IDX_RUMBLE_TRIGGER_DATA
+    NULL,                // IDX_SET_MOTION_EVENT
+    NULL,                // IDX_SET_RGB_LED
+    NULL,                // IDX_SET_ADAPTIVE_TRIGGERS
+    NULL,                // IDX_MIC_DATA
+    NULL,                // IDX_MIC_CONFIG
+    NULL,                // IDX_DYNAMIC_PARAM_CHANGE
+    NULL,                // IDX_RESOLUTION_CHANGE
+    NULL,                // IDX_CLIPBOARD
 };
 static const char* preconstructedPayloadsGen4[] = {
-    requestIdrFrameGen4,
-    startBGen4
+    requestIdrFrameGen4, // IDX_START_A
+    startBGen4,          // IDX_START_B
+    NULL,                // IDX_INVALIDATE_REF_FRAMES
+    NULL,                // IDX_LOSS_STATS
+    NULL,                // IDX_FRAME_STATS
+    NULL,                // IDX_INPUT_DATA
+    NULL,                // IDX_RUMBLE_DATA
+    NULL,                // IDX_TERMINATION
+    NULL,                // IDX_PERIODIC_PING
+    requestIdrFrameGen4, // IDX_REQUEST_IDR_FRAME
+    NULL,                // IDX_FULLY_ENCRYPTED
+    NULL,                // IDX_HDR_INFO
+    NULL,                // IDX_RUMBLE_TRIGGER_DATA
+    NULL,                // IDX_SET_MOTION_EVENT
+    NULL,                // IDX_SET_RGB_LED
+    NULL,                // IDX_SET_ADAPTIVE_TRIGGERS
+    NULL,                // IDX_MIC_DATA
+    NULL,                // IDX_MIC_CONFIG
+    NULL,                // IDX_DYNAMIC_PARAM_CHANGE
+    NULL,                // IDX_RESOLUTION_CHANGE
+    NULL,                // IDX_CLIPBOARD
 };
 static const char* preconstructedPayloadsGen5[] = {
-    startAGen5,
-    startBGen5
+    startAGen5, // IDX_START_A
+    startBGen5, // IDX_START_B
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL, // IDX_CLIPBOARD
 };
 static const char* preconstructedPayloadsGen7[] = {
-    startAGen5,
-    startBGen5
+    startAGen5, // IDX_START_A
+    startBGen5, // IDX_START_B
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL, // IDX_CLIPBOARD
 };
 static const char* preconstructedPayloadsGen7Enc[] = {
-    requestIdrFrameGen7Enc,
-    startBGen5
+    startAGen5,             // IDX_START_A
+    startBGen5,             // IDX_START_B
+    NULL,                   // IDX_INVALIDATE_REF_FRAMES
+    NULL,                   // IDX_LOSS_STATS
+    NULL,                   // IDX_FRAME_STATS
+    NULL,                   // IDX_INPUT_DATA
+    NULL,                   // IDX_RUMBLE_DATA
+    NULL,                   // IDX_TERMINATION
+    NULL,                   // IDX_PERIODIC_PING
+    requestIdrFrameGen7Enc, // IDX_REQUEST_IDR_FRAME
+    NULL,                   // IDX_FULLY_ENCRYPTED
+    NULL,                   // IDX_HDR_INFO
+    NULL,                   // IDX_RUMBLE_TRIGGER_DATA
+    NULL,                   // IDX_SET_MOTION_EVENT
+    NULL,                   // IDX_SET_RGB_LED
+    NULL,                   // IDX_SET_ADAPTIVE_TRIGGERS
+    NULL,                   // IDX_MIC_DATA
+    NULL,                   // IDX_MIC_CONFIG
+    NULL,                   // IDX_DYNAMIC_PARAM_CHANGE
+    NULL,                   // IDX_RESOLUTION_CHANGE
+    NULL,                   // IDX_CLIPBOARD
 };
 
 static short* packetTypes;
@@ -703,12 +904,26 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
     if (encryptedControlStream) {
         PNVCTL_ENCRYPTED_PACKET_HEADER encPacket;
         PNVCTL_ENET_PACKET_HEADER_V2 packet;
-        char tempBuffer[256];
+        char tempBufferStack[256];
+        char* tempBuffer = tempBufferStack;
+        size_t plaintextLen = sizeof(*packet) + (size_t)(uint16_t)paylen;
+
+        // Most control messages are tiny; fall back to a heap allocation for the
+        // few that aren't (e.g. clipboard payloads up to 65535 bytes).
+        if (plaintextLen > sizeof(tempBufferStack)) {
+            tempBuffer = (char*)malloc(plaintextLen);
+            if (tempBuffer == NULL) {
+                return false;
+            }
+        }
 
         enetPacket = enet_packet_create(NULL,
-                                        sizeof(*encPacket) + AES_GCM_TAG_LENGTH + sizeof(*packet) + paylen,
+                                        sizeof(*encPacket) + AES_GCM_TAG_LENGTH + plaintextLen,
                                         flags);
         if (enetPacket == NULL) {
+            if (tempBuffer != tempBufferStack) {
+                free(tempBuffer);
+            }
             return false;
         }
 
@@ -718,18 +933,23 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
 
         encPacket = (PNVCTL_ENCRYPTED_PACKET_HEADER)enetPacket->data;
         encPacket->encryptedHeaderType = 0x0001;
-        encPacket->length = sizeof(encPacket->seq) + AES_GCM_TAG_LENGTH + sizeof(*packet) + paylen;
+        encPacket->length = sizeof(encPacket->seq) + AES_GCM_TAG_LENGTH + plaintextLen;
         encPacket->seq = currentEnetSequenceNumber++;
 
         // Construct the plaintext data for encryption
-        LC_ASSERT(sizeof(*packet) + paylen < sizeof(tempBuffer));
         packet = (PNVCTL_ENET_PACKET_HEADER_V2)tempBuffer;
         packet->type = ptype;
         packet->payloadLength = paylen;
-        memcpy(&packet[1], payload, paylen);
+        memcpy(&packet[1], payload, (uint16_t)paylen);
 
         // Encrypt the data into the final packet (and byteswap for BE machines)
-        if (!encryptControlMessage(encPacket, packet)) {
+        bool encOk = encryptControlMessage(encPacket, packet);
+
+        if (tempBuffer != tempBufferStack) {
+            free(tempBuffer);
+        }
+
+        if (!encOk) {
             Limelog("Failed to encrypt control stream message\n");
             enet_packet_destroy(enetPacket);
             PltUnlockMutex(&enetMutex);
@@ -1010,6 +1230,24 @@ static void asyncCallbackThreadFunc(void* context) {
                                                   queuedCb->data.dsAdaptiveTrigger.left,
                                                   queuedCb->data.dsAdaptiveTrigger.right);
             break;
+        case IDX_RESOLUTION_CHANGE:
+            // Resolution state is maintained globally, so we just invoke the client callback here.
+            // These events are stateless, so we can consume all of them now.
+            while (LbqPeekQueueElement(&asyncCallbackQueue, (void**)&nextCb) == LBQ_SUCCESS && nextCb->typeIndex == queuedCb->typeIndex) {
+                // This entry is batchable, so pop it off the queue
+                if (LbqPollQueueElement(&asyncCallbackQueue, (void**)&nextCb) != LBQ_SUCCESS) {
+                    break;
+                }
+
+                // Replace the old entry with the new one
+                free(queuedCb);
+                queuedCb = nextCb;
+            }
+
+            if (ListenerCallbacks.resolutionChanged != NULL) {
+                ListenerCallbacks.resolutionChanged(currentResolutionWidth, currentResolutionHeight);
+            }
+            break;
         default:
             // Unhandled packet type from queueAsyncCallback()
             LC_ASSERT(false);
@@ -1026,7 +1264,11 @@ static bool needsAsyncCallback(unsigned short packetType) {
            packetType == packetTypes[IDX_SET_MOTION_EVENT] ||
            packetType == packetTypes[IDX_SET_RGB_LED] ||
            packetType == packetTypes[IDX_HDR_INFO] ||
-           packetType == packetTypes[IDX_DS_ADAPTIVE_TRIGGERS];
+           packetType == packetTypes[IDX_DS_ADAPTIVE_TRIGGERS] ||
+           // Sunshine unified dynamic parameter change message (0x5506). We currently map
+           // RESOLUTION changes onto the existing resolutionChanged callback.
+           packetType == packetTypes[IDX_DYNAMIC_PARAM_CHANGE] ||
+           packetType == packetTypes[IDX_RESOLUTION_CHANGE];
 }
 
 static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLength) {
@@ -1086,6 +1328,29 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
         BbGetBytes(&bb, queuedCb->data.dsAdaptiveTrigger.left, DS_EFFECT_PAYLOAD_SIZE);
         BbGetBytes(&bb, queuedCb->data.dsAdaptiveTrigger.right, DS_EFFECT_PAYLOAD_SIZE);
         queuedCb->typeIndex = IDX_DS_ADAPTIVE_TRIGGERS;
+    }
+    else if (ctlHdr->type == packetTypes[IDX_RESOLUTION_CHANGE]) {
+        // Resolution data is already processed in the receive thread to update global state
+        queuedCb->typeIndex = IDX_RESOLUTION_CHANGE;
+    }
+    else if (ctlHdr->type == packetTypes[IDX_DYNAMIC_PARAM_CHANGE]) {
+        // Sunshine unified dynamic parameter change message (0x5506).
+        // Payload format (little-endian):
+        // - int32 param_type
+        // - param payload (for RESOLUTION: int32 width, int32 height)
+        uint32_t paramType;
+        BbGet32(&bb, &paramType);
+
+        if (paramType == SS_DYNAMIC_PARAM_TYPE_RESOLUTION) {
+            // Resolution data is already processed in the receive thread to update global state.
+            // Map onto the existing resolutionChanged callback.
+            queuedCb->typeIndex = IDX_RESOLUTION_CHANGE;
+        }
+        else {
+            // Ignore unsupported dynamic parameter types for now
+            free(queuedCb);
+            return;
+        }
     }
     else {
         // Unhandled packet type from needsAsyncCallback()
@@ -1291,10 +1556,48 @@ static void controlReceiveThreadFunc(void* context) {
 
                 hdrEnabled = (enableByte != 0);
             }
+            
+            // Process resolution change data immediately to update global resolution state.
+            // The actual client callback will be invoked in the async callback thread.
+            if (ctlHdr->type == packetTypes[IDX_RESOLUTION_CHANGE]) {
+                BYTE_BUFFER bb;
+                
+                BbInitializeWrappedBuffer(&bb, (char*)ctlHdr, sizeof(*ctlHdr), packetLength - sizeof(*ctlHdr), BYTE_ORDER_LITTLE);
+                
+                BbGet32(&bb, &currentResolutionWidth);
+                BbGet32(&bb, &currentResolutionHeight);
+            }
+            else if (ctlHdr->type == packetTypes[IDX_DYNAMIC_PARAM_CHANGE]) {
+                // Sunshine unified dynamic parameter change message (0x5506).
+                // If this is a RESOLUTION change, update the global resolution state so the
+                // async callback thread can notify Java via resolutionChanged.
+                BYTE_BUFFER bb;
+                uint32_t paramType;
+
+                BbInitializeWrappedBuffer(&bb, (char*)ctlHdr, sizeof(*ctlHdr), packetLength - sizeof(*ctlHdr), BYTE_ORDER_LITTLE);
+                BbGet32(&bb, &paramType);
+
+                if (paramType == SS_DYNAMIC_PARAM_TYPE_RESOLUTION) {
+                    BbGet32(&bb, &currentResolutionWidth);
+                    BbGet32(&bb, &currentResolutionHeight);
+                }
+            }
 
             // Process client callbacks in a separate thread
             if (needsAsyncCallback(ctlHdr->type)) {
                 queueAsyncCallback(ctlHdr, packetLength);
+            }
+            else if (ctlHdr->type == packetTypes[IDX_CLIPBOARD]) {
+                // Sunshine clipboard sync (0x5508). The payload is opaque (currently
+                // a v1 wire frame) and forwarded verbatim to the client. We dispatch
+                // synchronously from the recv thread because the payload is variable-
+                // length up to 65535 bytes and doesn't fit the fixed-size async queue.
+                // The client must defer any blocking work onto its own thread.
+                if (ListenerCallbacks.clipboardData != NULL && packetLength > (int)sizeof(*ctlHdr)) {
+                    const char* payload = (const char*)(ctlHdr + 1);
+                    int payloadLen = packetLength - (int)sizeof(*ctlHdr);
+                    ListenerCallbacks.clipboardData(payload, payloadLen);
+                }
             }
             else if (ctlHdr->type == packetTypes[IDX_TERMINATION]) {
                 BYTE_BUFFER bb;
@@ -1696,6 +1999,34 @@ int sendInputPacketOnControlStream(unsigned char* data, int length, uint8_t chan
     // Send the input data (no reply expected)
     if (sendMessageAndForget(packetTypes[IDX_INPUT_DATA], length, data, channelId, flags, moreData) == 0) {
         return -1;
+    }
+
+    return 0;
+}
+
+// Send a clipboard sync payload to the host. This is a Sunshine protocol extension
+// (control packet 0x5508). The wire format of the payload is opaque to moonlight-common-c
+// and forwarded verbatim by the host to its user-session GUI agent.
+int LiSendClipboardData(const void* payload, int length) {
+    // Reject obvious garbage and payloads that won't fit in the 16-bit length field.
+    if (payload == NULL || length <= 0 || length > 65535) {
+        return -1;
+    }
+
+    // Require Sunshine + Gen5+ + that the active server advertised the clipboard
+    // packet type (Gen7Enc only). On all other generations packetTypes[IDX_CLIPBOARD]
+    // is -1 and the message would be silently dropped on the wire.
+    if (AppVersionQuad[0] < 5 || packetTypes == NULL || packetTypes[IDX_CLIPBOARD] == -1) {
+        return -2;
+    }
+
+    if (peer == NULL || peer->state != ENET_PEER_STATE_CONNECTED) {
+        return -3;
+    }
+
+    if (!sendMessageAndForget(packetTypes[IDX_CLIPBOARD], (short)length, payload,
+                              CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false)) {
+        return -4;
     }
 
     return 0;

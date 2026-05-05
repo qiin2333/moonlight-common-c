@@ -285,6 +285,34 @@ static void setSocketQos(SOCKET s, int socketQosType) {
         Limelog("setsockopt(SO_PRIORITY, %d) failed: %d\n", value, (int)LastSocketError());
     }
 #endif
+
+    // DSCP via IP_TOS — recognized by WiFi WMM and most routers
+    // AF41 (0x88) = Assured Forwarding class 4, low drop — ideal for interactive video
+    // EF   (0xB8) = Expedited Forwarding — for real-time audio
+    {
+        int tos;
+        switch (socketQosType) {
+        case SOCK_QOS_TYPE_AUDIO:
+            tos = 0xB8; // DSCP EF (Expedited Forwarding)
+            break;
+        case SOCK_QOS_TYPE_VIDEO:
+            tos = 0x88; // DSCP AF41 (Assured Forwarding 4, low drop)
+            break;
+        default:
+            tos = 0;    // Best effort
+            break;
+        }
+
+        if (tos != 0) {
+            if (setsockopt(s, IPPROTO_IP, IP_TOS, (char*)&tos, sizeof(tos)) < 0) {
+                Limelog("setsockopt(IP_TOS, 0x%x) failed: %d\n", tos, (int)LastSocketError());
+            }
+#ifdef IPV6_TCLASS
+            // Also set IPv6 traffic class if available
+            setsockopt(s, IPPROTO_IPV6, IPV6_TCLASS, (char*)&tos, sizeof(tos));
+#endif
+        }
+    }
 }
 
 SOCKET bindUdpSocket(int addressFamily, struct sockaddr_storage* localAddr, SOCKADDR_LEN addrLen, int bufferSize, int socketQosType) {

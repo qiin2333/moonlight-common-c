@@ -30,10 +30,11 @@ extern "C" {
 #define COLOR_RANGE_FULL     1
 
 // Values for 'encryptionFlags' field below
-#define ENCFLG_NONE  0x00000000
-#define ENCFLG_AUDIO 0x00000001
-#define ENCFLG_VIDEO 0x00000002
-#define ENCFLG_ALL   0xFFFFFFFF
+#define ENCFLG_NONE       0x00000000
+#define ENCFLG_AUDIO      0x00000001
+#define ENCFLG_VIDEO      0x00000002
+#define ENCFLG_MICROPHONE 0x00000004
+#define ENCFLG_ALL        0xFFFFFFFF
 
 // This function returns a string that you SHOULD append to the /launch and /resume
 // query parameter string. This is used to enable certain extended functionality
@@ -87,6 +88,14 @@ typedef struct _STREAM_CONFIGURATION {
     // option (listed above). If not set, the encoder will default to Limited.
     int colorRange;
 
+    // Specifies the HDR mode for the video stream.
+    // 0 = SDR (default)
+    // 1 = HDR10/PQ (SMPTE ST 2084)
+    // 2 = HLG (Hybrid Log-Gamma, ARIB STD-B67)
+    // This value is sent as dynamicRangeMode to the host and determines
+    // the transfer characteristics of the encoded video stream.
+    int hdrMode;
+
     // Specifies the data streams where encryption may be enabled if supported
     // by the host PC. Ideally, you would pass ENCFLG_ALL to encrypt everything
     // that we support encrypting. However, lower performance hardware may not
@@ -100,6 +109,12 @@ typedef struct _STREAM_CONFIGURATION {
     // in /launch and /resume requests.
     char remoteInputAesKey[16];
     char remoteInputAesIv[16];
+    
+    // Specifies whether to enable microphone streaming from the client to host
+    bool enableMic;
+    
+    // Specifies whether to enable control-only mode (only control stream, no video/audio)
+    bool controlOnly;
 } STREAM_CONFIGURATION, *PSTREAM_CONFIGURATION;
 
 // Use this function to zero the stream configuration when allocated on the stack or heap
@@ -202,6 +217,10 @@ typedef struct _DECODE_UNIT {
 // Specifies that the audio stream should be in 7.1 surround sound if the PC is able
 #define AUDIO_CONFIGURATION_71_SURROUND MAKE_AUDIO_CONFIGURATION(8, 0x63F)
 
+// Specifies that the audio stream should be in 7.1.4 surround sound (12 channels) if the PC is able
+// Channel mask: FL|FR|FC|LFE|BL|BR|SL|SR + TOP_FL|TOP_FR|TOP_BL|TOP_BR = 0x63F | 0xF000 = 0xF63F
+#define AUDIO_CONFIGURATION_714_SURROUND MAKE_AUDIO_CONFIGURATION(12, 0xF63F)
+
 // Specifies an audio configuration by channel count and channel mask
 // See https://docs.microsoft.com/en-us/windows-hardware/drivers/audio/channel-mask for channelMask values
 // NOTE: Not all combinations are supported by GFE and/or this library.
@@ -218,7 +237,7 @@ typedef struct _DECODE_UNIT {
     (CHANNEL_MASK_FROM_AUDIO_CONFIGURATION(x) << 16 | CHANNEL_COUNT_FROM_AUDIO_CONFIGURATION(x))
 
 // The maximum number of channels supported
-#define AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT 8
+#define AUDIO_CONFIGURATION_MAX_CHANNEL_COUNT 12
 
 // Passed in StreamConfiguration.supportedVideoFormats to specify supported codecs
 // and to DecoderRendererSetup() to specify selected codec.
@@ -382,7 +401,8 @@ void LiInitializeAudioCallbacks(PAUDIO_RENDERER_CALLBACKS arCallbacks);
 #define STAGE_VIDEO_STREAM_START 9
 #define STAGE_AUDIO_STREAM_START 10
 #define STAGE_INPUT_STREAM_START 11
-#define STAGE_MAX 12
+#define STAGE_MICROPHONE_STREAM_INIT 12
+#define STAGE_MAX 13
 
 // This callback is invoked to indicate that a stage of initialization is about to begin
 typedef void(*ConnListenerStageStarting)(int stage);
@@ -483,6 +503,19 @@ typedef void(*ConnListenerSetAdaptiveTriggers)(uint16_t controllerNumber, uint8_
 // This callback is invoked to set a controller's RGB LED (if present).
 typedef void(*ConnListenerSetControllerLED)(uint16_t controllerNumber, uint8_t r, uint8_t g, uint8_t b);
 
+// This callback is invoked to notify the client of a resolution change on the host
+// (e.g., when the host screen is rotated). The client should update the stream
+// resolution accordingly.
+typedef void(*ConnListenerResolutionChanged)(uint32_t width, uint32_t height);
+
+// This callback is invoked when the host (Sunshine fork) pushes a clipboard payload
+// to the client. `data`/`length` is an opaque protocol-defined byte string (currently
+// the v1 wire format: u8 version=1, u8 kind, u32 token, u32 length, bytes payload
+// in little-endian). The callback runs on the control-stream receive thread; the
+// client must defer any blocking work (e.g. UI clipboard writes) to its own thread.
+// The buffer is only valid for the duration of the call.
+typedef void(*ConnListenerClipboardData)(const char* data, int length);
+
 typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerStageStarting stageStarting;
     ConnListenerStageComplete stageComplete;
@@ -497,6 +530,8 @@ typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerSetMotionEventState setMotionEventState;
     ConnListenerSetControllerLED setControllerLED;
     ConnListenerSetAdaptiveTriggers setAdaptiveTriggers;
+    ConnListenerResolutionChanged resolutionChanged;
+    ConnListenerClipboardData clipboardData;
 } CONNECTION_LISTENER_CALLBACKS, *PCONNECTION_LISTENER_CALLBACKS;
 
 // Use this function to zero the connection callbacks when allocated on the stack or heap
@@ -836,6 +871,18 @@ int LiSendHighResScrollEvent(short scrollAmount);
 // This is a Sunshine protocol extension.
 int LiSendHScrollEvent(signed char scrollClicks);
 int LiSendHighResHScrollEvent(short scrollAmount);
+
+// Send an opaque clipboard payload to the host. `length` must be > 0 and
+// <= 65535. The host (AlkaidLab Sunshine fork) forwards the payload verbatim
+// to its user-session GUI agent over an in-process bridge; the wire format
+// of the payload itself is defined by the GUI agent (currently v1: u8 version,
+// u8 kind, u32 token, u32 length, bytes payload, little-endian).
+//
+// Returns 0 on success, negative on failure (no active connection, payload
+// too large, send error). This is a Sunshine protocol extension; on Geforce
+// Experience or Sunshine builds without clipboard support, the call returns a
+// negative error code.
+int LiSendClipboardData(const void* payload, int length);
 
 // This function returns a time in microseconds with an implementation-defined epoch.
 // It should only ever be compared with the return value from a previous call to itself.

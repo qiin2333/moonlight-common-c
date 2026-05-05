@@ -221,12 +221,16 @@ static int addGen5Options(PSDP_OPTION* head) {
         err |= addAttributeString(head, "x-nv-general.useReliableUdp", "1");
         err |= addAttributeString(head, "x-nv-ri.useControlChannel", "1");
 
-        // When streaming 4K, lower FEC levels to reduce stream overhead
+        // When streaming 4K, lower FEC levels to reduce stream overhead.
+        // For remote connections, use higher FEC to compensate for
+        // increased packet loss on WAN/Internet paths.
         if (StreamConfig.width >= 3840 && StreamConfig.height >= 2160) {
-            err |= addAttributeString(head, "x-nv-vqos[0].fec.repairPercent", "5");
+            err |= addAttributeString(head, "x-nv-vqos[0].fec.repairPercent",
+                StreamConfig.streamingRemotely == STREAM_CFG_REMOTE ? "10" : "5");
         }
         else {
-            err |= addAttributeString(head, "x-nv-vqos[0].fec.repairPercent", "20");
+            err |= addAttributeString(head, "x-nv-vqos[0].fec.repairPercent",
+                StreamConfig.streamingRemotely == STREAM_CFG_REMOTE ? "25" : "20");
         }
     }
     
@@ -297,6 +301,15 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
             // we'll encrypt anyway (since we are capable of doing so) and print a warning.
             Limelog("Enabling audio encryption by host request despite client opt-out. Audio quality may suffer!");
             EncryptionFeaturesEnabled |= SS_ENC_AUDIO;
+        }
+
+        // If microphone encryption is supported by the host, enable it
+        // Microphone encryption follows audio encryption - if audio is encrypted, mic should be too
+        if (EncryptionFeaturesSupported & SS_ENC_MICROPHONE) {
+            // Enable mic encryption if audio encryption is enabled or if host explicitly requests it
+            if ((EncryptionFeaturesEnabled & SS_ENC_AUDIO) || (EncryptionFeaturesRequested & SS_ENC_MICROPHONE)) {
+                EncryptionFeaturesEnabled |= SS_ENC_MICROPHONE;
+            }
         }
 
         snprintf(payloadStr, sizeof(payloadStr), "%u", EncryptionFeaturesEnabled);
@@ -452,8 +465,19 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
 
         if (AppVersionQuad[0] >= 7) {
             // Enable HDR if requested
+            // dynamicRangeMode: 0 = SDR, 1 = HDR10/PQ, 2 = HLG
             if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_10BIT) {
-                err |= addAttributeString(&optionHead, "x-nv-video[0].dynamicRangeMode", "1");
+                // Use the hdrMode from StreamConfig to determine the exact HDR type
+                // This allows the client to request HLG (mode 2) if supported
+                char hdrModeStr[2];
+                if (StreamConfig.hdrMode == 2) {
+                    // HLG mode requested
+                    snprintf(hdrModeStr, sizeof(hdrModeStr), "2");
+                } else {
+                    // Default to HDR10/PQ (mode 1) for HDR content
+                    snprintf(hdrModeStr, sizeof(hdrModeStr), "1");
+                }
+                err |= addAttributeString(&optionHead, "x-nv-video[0].dynamicRangeMode", hdrModeStr);
             }
             else {
                 err |= addAttributeString(&optionHead, "x-nv-video[0].dynamicRangeMode", "0");

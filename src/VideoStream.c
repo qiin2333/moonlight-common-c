@@ -25,14 +25,11 @@ static bool receivedFullFrame;
 // the RTP queue will wait for missing/reordered packets.
 #define RTP_QUEUE_DELAY 10
 
-// This is the desired number of video packets that can be
-// stored in the socket's receive buffer. 2048 is chosen
-// because it should be large enough for all reasonable
-// frame sizes (probably 2 or 3 frames) without using too
-// much kernel memory with larger packet sizes. It also
-// can smooth over transient pauses in network traffic
-// and subsequent packet/frame bursts that follow.
-#define RTP_RECV_PACKETS_BUFFERED 2048
+// Desired number of video packets for the socket receive buffer.
+// Local connections use 4096 packets (~4.5 MB) to absorb WiFi jitter.
+// Remote connections use 8192 packets (~9 MB) for higher RTT and jitter.
+#define RTP_RECV_PACKETS_LOCAL  4096
+#define RTP_RECV_PACKETS_REMOTE 8192
 
 // Initialize the video stream
 void initializeVideoStream(void) {
@@ -328,8 +325,10 @@ int startVideoStream(void* rendererContext, int drFlags) {
         return err;
     }
 
+    int recvPackets = (StreamConfig.streamingRemotely == STREAM_CFG_REMOTE)
+        ? RTP_RECV_PACKETS_REMOTE : RTP_RECV_PACKETS_LOCAL;
     rtpSocket = bindUdpSocket(RemoteAddr.ss_family, &LocalAddr, AddrLen,
-                              RTP_RECV_PACKETS_BUFFERED * (StreamConfig.packetSize + MAX_RTP_HEADER_SIZE),
+                              recvPackets * (StreamConfig.packetSize + MAX_RTP_HEADER_SIZE),
                               SOCK_QOS_TYPE_VIDEO);
     if (rtpSocket == INVALID_SOCKET) {
         VideoCallbacks.cleanup();
