@@ -924,10 +924,20 @@ int LiSendHighResHScrollEvent(short scrollAmount);
 // of the payload itself is defined by the GUI agent (currently v1: u8 version,
 // u8 kind, u32 token, u32 length, bytes payload, little-endian).
 //
+// Standard payload kinds (informational; common-c does not parse the body):
+//   1 = LI_CLIPBOARD_KIND_TEXT  (UTF-8 text)
+//   2 = LI_CLIPBOARD_KIND_PNG   (PNG image)
+//   3 = LI_CLIPBOARD_KIND_REF   (UTF-8 JSON {id,mime,size}; large blob is
+//                                transferred out-of-band over HTTPS via the
+//                                Sunshine /api/v1/clipboard/blob endpoints)
+//
 // Returns 0 on success, negative on failure (no active connection, payload
 // too large, send error). This is a Sunshine protocol extension; on Geforce
 // Experience or Sunshine builds without clipboard support, the call returns a
 // negative error code.
+#define LI_CLIPBOARD_KIND_TEXT 1
+#define LI_CLIPBOARD_KIND_PNG  2
+#define LI_CLIPBOARD_KIND_REF  3
 int LiSendClipboardData(const void* payload, int length);
 
 // This function returns a time in microseconds with an implementation-defined epoch.
