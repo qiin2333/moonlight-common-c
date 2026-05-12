@@ -703,13 +703,32 @@ PRTP_PACKET RtpaGetQueuedPacket(PRTP_AUDIO_QUEUE queue, uint16_t customHeaderLen
     // Return the next RTP sequence number by indexing into the most recent FEC block
     if (queueHasPacketReady(queue)) {
         PRTPA_FEC_BLOCK nextBlock = queue->blockHead;
+        // Defensive guard: dataPackets[i] is expected non-NULL when queueHasPacketReady()
+        // returns true, but in the wild we observed a NULL src in memcpy
+        // (RtpaGetQueuedPacket+0x138 -> memcpy SIGSEGV @ 0). Bail safely.
+        void* srcShard = nextBlock->dataPackets[nextBlock->nextDataPacketIndex];
+        if (srcShard == NULL) {
+            Limelog("Audio shard %u missing despite queueHasPacketReady() (block base seq %u)\n",
+                    (unsigned)nextBlock->nextDataPacketIndex,
+                    (unsigned)nextBlock->fecHeader.baseSequenceNumber);
+            // Skip this shard and advance state to avoid infinite loop on the same hole.
+            nextBlock->nextDataPacketIndex++;
+            queue->nextRtpSequenceNumber++;
+            if (nextBlock->nextDataPacketIndex == RTPA_DATA_SHARDS) {
+                freeFecBlockHead(queue);
+            }
+            else {
+                validateFecBlockState(queue);
+            }
+            return NULL;
+        }
         PRTP_PACKET packet = malloc(customHeaderLength + sizeof(RTP_PACKET) + nextBlock->blockSize);
         if (packet == NULL) {
             return NULL;
         }
 
         *length = nextBlock->blockSize + sizeof(RTP_PACKET);
-        memcpy((uint8_t*)packet + customHeaderLength, nextBlock->dataPackets[nextBlock->nextDataPacketIndex], *length);
+        memcpy((uint8_t*)packet + customHeaderLength, srcShard, *length);
         nextBlock->nextDataPacketIndex++;
 
         queue->nextRtpSequenceNumber++;
