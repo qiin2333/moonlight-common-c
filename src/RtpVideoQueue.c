@@ -346,6 +346,18 @@ static int reconstructFrame(PRTP_VIDEO_QUEUE queue) {
     }
 
 cleanup_packets:
+    ;
+    // Defensive guard: if the pending list head was unexpectedly NULL'd between
+    // the entry-collection loop and here (suspected upstream data-structure
+    // inconsistency observed in the wild as RtpvAddPacket+0xC00 SIGSEGV @ 0x10),
+    // fall through to the free-only path instead of crashing on head->packet.
+    PRTPV_QUEUE_ENTRY headEntryForRecovery = queue->pendingFecBlockList.head;
+    if (ret == 0 && headEntryForRecovery == NULL) {
+        Limelog("FEC recovery skipped: pendingFecBlockList.head is NULL (frame %u)\n",
+                queue->currentFrameNumber);
+        ret = -5;
+    }
+
     for (i = 0; i < totalPackets; i++) {
         if (marks[i]) {
             // Only submit frame data, not FEC packets
@@ -353,9 +365,9 @@ cleanup_packets:
                 PRTPV_QUEUE_ENTRY queueEntry = (PRTPV_QUEUE_ENTRY)&packets[i][receiveSize];
                 PRTP_PACKET rtpPacket = (PRTP_PACKET) packets[i];
                 rtpPacket->sequenceNumber = U16(i + queue->bufferLowestSequenceNumber);
-                rtpPacket->header = queue->pendingFecBlockList.head->packet->header;
-                rtpPacket->timestamp = queue->pendingFecBlockList.head->packet->timestamp;
-                rtpPacket->ssrc = queue->pendingFecBlockList.head->packet->ssrc;
+                rtpPacket->header = headEntryForRecovery->packet->header;
+                rtpPacket->timestamp = headEntryForRecovery->packet->timestamp;
+                rtpPacket->ssrc = headEntryForRecovery->packet->ssrc;
 
                 int dataOffset = sizeof(*rtpPacket);
                 if (rtpPacket->header & FLAG_EXTENSION) {
