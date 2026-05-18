@@ -173,9 +173,7 @@ static void VideoReceiveThreadProc(void* context) {
 
 #ifndef LC_FUZZING
         if (!receivedFullFrame) {
-            uint64_t now = PltGetMillis();
-
-            if (now - firstDataTimeMs >= FIRST_FRAME_TIMEOUT_SEC * 1000) {
+            if (PltGetMillis() - firstDataTimeMs >= FIRST_FRAME_TIMEOUT_SEC * 1000) {
                 Limelog("Terminating connection due to lack of a successful video frame\n");
                 ListenerCallbacks.connectionTerminated(ML_ERROR_NO_VIDEO_FRAME);
                 break;
@@ -422,4 +420,8 @@ int startVideoStream(void* rendererContext, int drFlags) {
     }
 
     return 0;
+}
+
+const RTP_VIDEO_STATS* LiGetRTPVideoStats(void) {
+    return &rtpQueue.stats;
 }

@@ -304,6 +304,8 @@ static void AudioReceiveThreadProc(void* context) {
             Limelog("Received first audio packet after %d ms\n", waitingForAudioMs);
 
             if (firstReceiveTime != 0) {
+                // XXX firstReceiveTime is never set here...
+                // We're already dropping 500ms of audio so this probably doesn't matter
                 packetsToDrop += (uint32_t)(PltGetMillis() - firstReceiveTime) / AudioPacketDuration;
             }
 
@@ -481,4 +483,8 @@ int LiGetPendingAudioFrames(void) {
 
 int LiGetPendingAudioDuration(void) {
     return LiGetPendingAudioFrames() * AudioPacketDuration;
+}
+
+const RTP_AUDIO_STATS* LiGetRTPAudioStats(void) {
+    return &rtpAudioQueue.stats;
 }
