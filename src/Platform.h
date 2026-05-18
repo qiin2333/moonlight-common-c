@@ -12,6 +12,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdint.h>
+#include <_time.h>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -162,4 +163,3 @@ void PltTicksInit(void);
 uint64_t PltGetMicroseconds(void);
 
 uint64_t PltGetMillis(void);
-
