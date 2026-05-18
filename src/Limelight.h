@@ -31,10 +31,11 @@ extern "C" {
 #define COLOR_RANGE_FULL     1
 
 // Values for 'encryptionFlags' field below
-#define ENCFLG_NONE  0x00000000
-#define ENCFLG_AUDIO 0x00000001
-#define ENCFLG_VIDEO 0x00000002
-#define ENCFLG_ALL   0xFFFFFFFF
+#define ENCFLG_NONE       0x00000000
+#define ENCFLG_AUDIO      0x00000001
+#define ENCFLG_VIDEO      0x00000002
+#define ENCFLG_MICROPHONE 0x00000004
+#define ENCFLG_ALL        0xFFFFFFFF
 
 // This function returns a string that you SHOULD append to the /launch and /resume
 // query parameter string. This is used to enable certain extended functionality
@@ -103,7 +104,14 @@ typedef struct _STREAM_CONFIGURATION {
     char remoteInputAesIv[16];
     
     // Specifies whether to enable microphone streaming from the client to host
+<<<<<<< HEAD
     bool redirectMic;
+=======
+    bool enableMic;
+    
+    // Specifies whether to enable control-only mode (only control stream, no video/audio)
+    bool controlOnly;
+>>>>>>> qiinMic
 } STREAM_CONFIGURATION, *PSTREAM_CONFIGURATION;
 
 // Use this function to zero the stream configuration when allocated on the stack or heap
@@ -386,9 +394,14 @@ void LiInitializeAudioCallbacks(PAUDIO_RENDERER_CALLBACKS arCallbacks);
 #define STAGE_VIDEO_STREAM_START 9
 #define STAGE_AUDIO_STREAM_START 10
 #define STAGE_INPUT_STREAM_START 11
+<<<<<<< HEAD
 #define STAGE_MIC_STREAM_START 12 // here's the real stage_max
 #define STAGE_MIC_STREAM_UNSUPPORTED_OR_UNINITIALIZED 13 //must stay compatible with Sunshine that does not support mic redirection
 #define STAGE_MAX 14
+=======
+#define STAGE_MICROPHONE_STREAM_INIT 12
+#define STAGE_MAX 13
+>>>>>>> qiinMic
 
 // This callback is invoked to indicate that a stage of initialization is about to begin
 typedef void(*ConnListenerStageStarting)(int stage);
@@ -489,6 +502,11 @@ typedef void(*ConnListenerSetAdaptiveTriggers)(uint16_t controllerNumber, uint8_
 // This callback is invoked to set a controller's RGB LED (if present).
 typedef void(*ConnListenerSetControllerLED)(uint16_t controllerNumber, uint8_t r, uint8_t g, uint8_t b);
 
+// This callback is invoked to notify the client of a resolution change on the host
+// (e.g., when the host screen is rotated). The client should update the stream
+// resolution accordingly.
+typedef void(*ConnListenerResolutionChanged)(uint32_t width, uint32_t height);
+
 typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerStageStarting stageStarting;
     ConnListenerStageComplete stageComplete;
@@ -503,6 +521,7 @@ typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerSetMotionEventState setMotionEventState;
     ConnListenerSetControllerLED setControllerLED;
     ConnListenerSetAdaptiveTriggers setAdaptiveTriggers;
+    ConnListenerResolutionChanged resolutionChanged;
 } CONNECTION_LISTENER_CALLBACKS, *PCONNECTION_LISTENER_CALLBACKS;
 
 // Use this function to zero the connection callbacks when allocated on the stack or heap
