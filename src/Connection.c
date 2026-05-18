@@ -53,12 +53,8 @@ static const char* stageNames[STAGE_MAX] = {
     "video stream establishment",
     "audio stream establishment",
     "input stream establishment",
-<<<<<<< HEAD
     "mic stream establishment",
     "mic stream unsupported or unintialized"
-=======
-    "microphone stream initialization"
->>>>>>> qiinMic
 };
 
 // Get the name of the current stage based on its number
@@ -80,15 +76,8 @@ void LiStopConnection(void) {
 
     // Set the interrupted flag
     LiInterruptConnection();
-<<<<<<< HEAD
-    
     if (stage == STAGE_MIC_STREAM_START) {
         Limelog("Stopping mic stream...");
-=======
-
-    if (stage == STAGE_MICROPHONE_STREAM_INIT) {
-        Limelog("Stopping microphone stream...");
->>>>>>> qiinMic
         destroyMicrophoneStream();
         stage--;
         Limelog("done\n");
@@ -281,6 +270,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     memset(&LocalAddr, 0, sizeof(LocalAddr));
     NegotiatedVideoFormat = 0;
     memcpy(&StreamConfig, streamConfig, sizeof(StreamConfig));
+    StreamConfig.controlOnly = false;
     RemoteAddrString = strdup(serverInfo->address);
 
     // The values in RTSP SETUP will be used to populate these.
@@ -581,8 +571,6 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     LC_ASSERT(stage == STAGE_INPUT_STREAM_START);
     ListenerCallbacks.stageComplete(STAGE_INPUT_STREAM_START);
     Limelog("done\n");
-<<<<<<< HEAD
-    
     ListenerCallbacks.stageStarting(STAGE_MIC_STREAM_START);
     err = initializeMicrophoneStream();
     if (err != 0) {
@@ -597,32 +585,6 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
 
     Limelog("Starting mic stream got port number: %d\n", MicPortNumber);
     Limelog("done\n");
-    
-=======
-
-    // Initialize microphone stream if enabled and port was negotiated
-    // Skip in control-only mode since there's no audio stream
-    if (!StreamConfig.controlOnly && StreamConfig.enableMic && MicPortNumber != 0) {
-        Limelog("Initializing microphone stream...");
-        ListenerCallbacks.stageStarting(STAGE_MICROPHONE_STREAM_INIT);
-        err = initializeMicrophoneStream();
-        if (err != 0) {
-            Limelog("failed: %d (microphone will be unavailable)\n", err);
-            // Don't fail the connection for mic initialization failure
-            err = 0;  // Reset error so connection continues
-        }
-        stage++;
-        LC_ASSERT(stage == STAGE_MICROPHONE_STREAM_INIT);
-        ListenerCallbacks.stageComplete(STAGE_MICROPHONE_STREAM_INIT);
-        Limelog("done\n");
-    }
-    else {
-        // Skip for control-only mode or when microphone is disabled
-        stage++;
-        LC_ASSERT(stage == STAGE_MICROPHONE_STREAM_INIT);
-    }
-
->>>>>>> qiinMic
     // Wiggle the mouse a bit to wake the display up
     LiSendMouseMoveEvent(1, 1);
     PltSleepMs(10);

@@ -160,12 +160,6 @@ void destroyInputStream(void);
 int startInputStream(void);
 int stopInputStream(void);
 
-<<<<<<< HEAD
-// 麦克风流函数声明
-int initializeMicrophoneStream(void);
-void destroyMicrophoneStream(void);
-int sendMicrophoneData(const char* data, int length);
-
 bool appDidEnterBackgroundWithoutPip;
 
 typedef enum {
@@ -176,9 +170,7 @@ typedef enum {
     UIRectEdgeRight  = 1 << 3,
     UIRectEdgeAll    = (UIRectEdgeTop | UIRectEdgeLeft | UIRectEdgeBottom | UIRectEdgeRight)
 } UIRectEdge;
-=======
 int initializeMicrophoneStream(void);
 void destroyMicrophoneStream(void);
 int sendMicrophoneOpusData(const unsigned char* opusData, int opusLength);
 bool isMicrophoneEncryptionEnabled(void);
->>>>>>> qiinMic

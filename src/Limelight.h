@@ -104,14 +104,10 @@ typedef struct _STREAM_CONFIGURATION {
     char remoteInputAesIv[16];
     
     // Specifies whether to enable microphone streaming from the client to host
-<<<<<<< HEAD
     bool redirectMic;
-=======
-    bool enableMic;
-    
+
     // Specifies whether to enable control-only mode (only control stream, no video/audio)
     bool controlOnly;
->>>>>>> qiinMic
 } STREAM_CONFIGURATION, *PSTREAM_CONFIGURATION;
 
 // Use this function to zero the stream configuration when allocated on the stack or heap
@@ -394,14 +390,9 @@ void LiInitializeAudioCallbacks(PAUDIO_RENDERER_CALLBACKS arCallbacks);
 #define STAGE_VIDEO_STREAM_START 9
 #define STAGE_AUDIO_STREAM_START 10
 #define STAGE_INPUT_STREAM_START 11
-<<<<<<< HEAD
 #define STAGE_MIC_STREAM_START 12 // here's the real stage_max
 #define STAGE_MIC_STREAM_UNSUPPORTED_OR_UNINITIALIZED 13 //must stay compatible with Sunshine that does not support mic redirection
 #define STAGE_MAX 14
-=======
-#define STAGE_MICROPHONE_STREAM_INIT 12
-#define STAGE_MAX 13
->>>>>>> qiinMic
 
 // This callback is invoked to indicate that a stage of initialization is about to begin
 typedef void(*ConnListenerStageStarting)(int stage);
@@ -1032,9 +1023,10 @@ bool LiGetHdrMetadata(PSS_HDR_METADATA metadata);
 // frame, just that an IDR frame will arrive soon.
 void LiRequestIdrFrame(void);
 
-int sendMicrophoneData(const char* data, int length);
+int sendMicrophoneOpusData(const unsigned char* opusData, int opusLength);
 void destroyMicrophoneStream(void);
 int opus_encoder_ctl_wrapper(OpusEncoder *enc, int request, int value);
+bool isMicrophoneEncryptionEnabled(void);
 
 // This function returns any extended feature flags supported by the host.
 #define LI_FF_PEN_TOUCH_EVENTS        0x01 // LiSendTouchEvent()/LiSendPenEvent() supported
