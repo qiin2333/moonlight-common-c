@@ -221,12 +221,16 @@ static int addGen5Options(PSDP_OPTION* head) {
         err |= addAttributeString(head, "x-nv-general.useReliableUdp", "1");
         err |= addAttributeString(head, "x-nv-ri.useControlChannel", "1");
 
-        // When streaming 4K, lower FEC levels to reduce stream overhead
+        // When streaming 4K, lower FEC levels to reduce stream overhead.
+        // For remote connections, use higher FEC to compensate for
+        // increased packet loss on WAN/Internet paths.
         if (StreamConfig.width >= 3840 && StreamConfig.height >= 2160) {
-            err |= addAttributeString(head, "x-nv-vqos[0].fec.repairPercent", "5");
+            err |= addAttributeString(head, "x-nv-vqos[0].fec.repairPercent",
+                StreamConfig.streamingRemotely == STREAM_CFG_REMOTE ? "10" : "5");
         }
         else {
-            err |= addAttributeString(head, "x-nv-vqos[0].fec.repairPercent", "20");
+            err |= addAttributeString(head, "x-nv-vqos[0].fec.repairPercent",
+                StreamConfig.streamingRemotely == STREAM_CFG_REMOTE ? "25" : "20");
         }
     }
     
