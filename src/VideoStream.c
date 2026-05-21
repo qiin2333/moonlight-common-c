@@ -28,7 +28,7 @@ static bool receivedFullFrame;
 // Desired number of video packets for the socket receive buffer.
 // Local connections use 4096 packets (~4.5 MB) to absorb WiFi jitter.
 // Remote connections use 8192 packets (~9 MB) for higher RTT and jitter.
-#define RTP_RECV_PACKETS_LOCAL  4096
+#define RTP_RECV_PACKETS_LOCAL  2048
 #define RTP_RECV_PACKETS_REMOTE 8192
 
 // Initialize the video stream
