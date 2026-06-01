@@ -449,6 +449,16 @@ typedef void(*ConnListenerConnectionTerminated)(int errorCode);
 // supported on GFE 3.22+.
 #define ML_ERROR_FRAME_CONVERSION -104
 
+// This error is passed to ConnListenerConnectionTerminated() if the control
+// stream entered the disconnect flow but the expected disconnect event never
+// arrived before the timeout expired.
+#define ML_ERROR_CONTROL_DISCONNECT_TIMEOUT -105
+
+// This error is passed to ConnListenerConnectionTerminated() if the control
+// stream reported an unexpected ENet disconnect event after the stream had
+// already been established.
+#define ML_ERROR_CONTROL_UNEXPECTED_DISCONNECT -106
+
 // This callback is invoked to log debug message
 typedef void(*ConnListenerLogMessage)(const char* format, ...);
 

@@ -1412,7 +1412,7 @@ static void controlReceiveThreadFunc(void* context) {
                         // assume the server died tragically, so go ahead and tear down.
                         PltUnlockMutex(&enetMutex);
                         Limelog("Disconnect event timeout expired\n");
-                        ListenerCallbacks.connectionTerminated(-1);
+                        ListenerCallbacks.connectionTerminated(ML_ERROR_CONTROL_DISCONNECT_TIMEOUT);
                         return;
                     }
                 }
@@ -1640,7 +1640,7 @@ static void controlReceiveThreadFunc(void* context) {
         }
         else if (event.type == ENET_EVENT_TYPE_DISCONNECT) {
             Limelog("Control stream received unexpected disconnect event\n");
-            ListenerCallbacks.connectionTerminated(-1);
+            ListenerCallbacks.connectionTerminated(ML_ERROR_CONTROL_UNEXPECTED_DISCONNECT);
             return;
         }
     }
