@@ -67,6 +67,7 @@ typedef struct _PACKET_HOLDER {
         SS_HSCROLL_PACKET hscroll;
         NV_HAPTICS_PACKET haptics;
         SS_TOUCH_PACKET touch;
+        SS_TOUCHPAD_PACKET touchpad;
         SS_PEN_PACKET pen;
         SS_CONTROLLER_ARRIVAL_PACKET controllerArrival;
         SS_CONTROLLER_TOUCH_PACKET controllerTouch;
@@ -1359,6 +1360,56 @@ int LiSendTouchEvent(uint8_t eventType, uint32_t pointerId, float x, float y, fl
     floatToNetfloat(pressureOrDistance, holder->packet.touch.pressureOrDistance);
     floatToNetfloat(contactAreaMajor, holder->packet.touch.contactAreaMajor);
     floatToNetfloat(contactAreaMinor, holder->packet.touch.contactAreaMinor);
+
+    err = LbqOfferQueueItem(&packetQueue, holder, &holder->entry);
+    if (err != LBQ_SUCCESS) {
+        LC_ASSERT(err == LBQ_BOUND_EXCEEDED);
+        Limelog("Input queue reached maximum size limit\n");
+        freePacketHolder(holder);
+    }
+
+    return err;
+}
+
+int LiSendTouchpadEvent(uint8_t eventType, uint32_t pointerId, float x, float y, float pressure,
+                        float contactAreaMajor, float contactAreaMinor, uint16_t rotation,
+                        uint16_t deviceWidthMm, uint16_t deviceHeightMm, uint8_t buttonState) {
+    PPACKET_HOLDER holder;
+    int err;
+
+    if (!initialized) {
+        return -2;
+    }
+
+    // This is a protocol extension only supported with Sunshine
+    if (!(SunshineFeatureFlags & LI_FF_TOUCHPAD_EVENTS)) {
+        return LI_ERR_UNSUPPORTED;
+    }
+
+    holder = allocatePacketHolder(0);
+    if (holder == NULL) {
+        return -1;
+    }
+
+    holder->channelId = CTRL_CHANNEL_TOUCH;
+
+    // Allow move events to be dropped if a newer one arrives, but don't allow
+    // state changing events like up/down/button/cancel events to be dropped.
+    holder->enetPacketFlags = TOUCH_EVENT_IS_BATCHABLE(eventType) ? 0 : ENET_PACKET_FLAG_RELIABLE;
+
+    holder->packet.touchpad.header.size = BE32(sizeof(SS_TOUCHPAD_PACKET) - sizeof(uint32_t));
+    holder->packet.touchpad.header.magic = LE32(SS_TOUCHPAD_MAGIC);
+    holder->packet.touchpad.eventType = eventType;
+    holder->packet.touchpad.buttonState = buttonState;
+    holder->packet.touchpad.rotation = LE16(rotation);
+    holder->packet.touchpad.pointerId = LE32(pointerId);
+    holder->packet.touchpad.deviceWidthMm = LE16(deviceWidthMm);
+    holder->packet.touchpad.deviceHeightMm = LE16(deviceHeightMm);
+    floatToNetfloat(x, holder->packet.touchpad.x);
+    floatToNetfloat(y, holder->packet.touchpad.y);
+    floatToNetfloat(pressure, holder->packet.touchpad.pressure);
+    floatToNetfloat(contactAreaMajor, holder->packet.touchpad.contactAreaMajor);
+    floatToNetfloat(contactAreaMinor, holder->packet.touchpad.contactAreaMinor);
 
     err = LbqOfferQueueItem(&packetQueue, holder, &holder->entry);
     if (err != LBQ_SUCCESS) {

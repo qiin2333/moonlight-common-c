@@ -137,6 +137,23 @@ typedef struct _SS_TOUCH_PACKET {
     netfloat contactAreaMinor;
 } SS_TOUCH_PACKET, *PSS_TOUCH_PACKET;
 
+#define SS_TOUCHPAD_MAGIC 0x55000009
+#define SS_TOUCHPAD_BUTTON_PRIMARY 0x01
+typedef struct _SS_TOUCHPAD_PACKET {
+    NV_INPUT_HEADER header;
+    uint8_t eventType;
+    uint8_t buttonState;
+    uint16_t rotation;
+    uint32_t pointerId;
+    uint16_t deviceWidthMm;
+    uint16_t deviceHeightMm;
+    netfloat x;
+    netfloat y;
+    netfloat pressure;
+    netfloat contactAreaMajor;
+    netfloat contactAreaMinor;
+} SS_TOUCHPAD_PACKET, *PSS_TOUCHPAD_PACKET;
+
 #define SS_PEN_MAGIC 0x55000003
 typedef struct _SS_PEN_PACKET {
     NV_INPUT_HEADER header;
