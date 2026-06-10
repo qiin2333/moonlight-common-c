@@ -752,6 +752,14 @@ int LiSendTouchpadEvent(uint8_t eventType, uint32_t pointerId, float x, float y,
                         float contactAreaMajor, float contactAreaMinor, uint16_t rotation,
                         uint16_t deviceWidthMm, uint16_t deviceHeightMm, uint8_t buttonState);
 
+// This function sends all native touchpad contact changes that belong to the same hardware frame.
+// The arrays must contain contactCount entries. x/y/pressure values are normalized 0.0-1.0.
+// To determine if this is supported, call LiGetHostFeatureFlags() and check for the
+// LI_FF_TOUCHPAD_FRAME_EVENTS flag. If unsupported, callers can fall back to LiSendTouchpadEvent().
+int LiSendTouchpadFrameEvent(uint8_t contactCount, const uint8_t* eventTypes, const uint32_t* pointerIds,
+                             const float* x, const float* y, const float* pressure, uint16_t rotation,
+                             uint16_t deviceWidthMm, uint16_t deviceHeightMm, uint8_t buttonState);
+
 // This function is similar to LiSendTouchEvent() but allows additional parameters relevant for pen
 // input, including tilt and buttons. Tilt is in degrees from vertical in Z dimension (perpendicular
 // to screen, 0..90). See LiSendTouchEvent() for detailed documentation on other parameters.
@@ -1125,6 +1133,7 @@ void LiRequestIdrFrame(void);
 #define LI_FF_PEN_TOUCH_EVENTS        0x01 // LiSendTouchEvent()/LiSendPenEvent() supported
 #define LI_FF_CONTROLLER_TOUCH_EVENTS 0x02 // LiSendControllerTouchEvent() supported
 #define LI_FF_TOUCHPAD_EVENTS         0x10 // LiSendTouchpadEvent() supported
+#define LI_FF_TOUCHPAD_FRAME_EVENTS   0x20 // LiSendTouchpadFrameEvent() supported
 uint32_t LiGetHostFeatureFlags(void);
 
 // Returns the audio codec actually negotiated for this session. See AUDIO_CODEC_*

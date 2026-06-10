@@ -154,6 +154,27 @@ typedef struct _SS_TOUCHPAD_PACKET {
     netfloat contactAreaMinor;
 } SS_TOUCHPAD_PACKET, *PSS_TOUCHPAD_PACKET;
 
+#define SS_TOUCHPAD_FRAME_MAGIC 0x5500000A
+#define SS_TOUCHPAD_FRAME_MAX_CONTACTS 5
+typedef struct _SS_TOUCHPAD_FRAME_CONTACT {
+    uint8_t eventType;
+    uint8_t zero[1]; // Alignment/reserved
+    uint16_t pressure;
+    uint32_t pointerId;
+    uint16_t x;
+    uint16_t y;
+} SS_TOUCHPAD_FRAME_CONTACT, *PSS_TOUCHPAD_FRAME_CONTACT;
+
+typedef struct _SS_TOUCHPAD_FRAME_PACKET {
+    NV_INPUT_HEADER header;
+    uint8_t contactCount;
+    uint8_t buttonState;
+    uint16_t rotation;
+    uint16_t deviceWidthMm;
+    uint16_t deviceHeightMm;
+    SS_TOUCHPAD_FRAME_CONTACT contacts[SS_TOUCHPAD_FRAME_MAX_CONTACTS];
+} SS_TOUCHPAD_FRAME_PACKET, *PSS_TOUCHPAD_FRAME_PACKET;
+
 #define SS_PEN_MAGIC 0x55000003
 typedef struct _SS_PEN_PACKET {
     NV_INPUT_HEADER header;

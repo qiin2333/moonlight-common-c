@@ -68,6 +68,7 @@ typedef struct _PACKET_HOLDER {
         NV_HAPTICS_PACKET haptics;
         SS_TOUCH_PACKET touch;
         SS_TOUCHPAD_PACKET touchpad;
+        SS_TOUCHPAD_FRAME_PACKET touchpadFrame;
         SS_PEN_PACKET pen;
         SS_CONTROLLER_ARRIVAL_PACKET controllerArrival;
         SS_CONTROLLER_TOUCH_PACKET controllerTouch;
@@ -318,6 +319,11 @@ static void floatToNetfloat(float in, netfloat out) {
         out[2] = inb[1];
         out[3] = inb[0];
     }
+}
+
+static uint16_t normalizedFloatToUint16(float in) {
+    float clamped = CLAMP(in, 0.0f, 1.0f);
+    return (uint16_t)(clamped * 65535.0f + 0.5f);
 }
 
 // Input thread proc
@@ -1410,6 +1416,66 @@ int LiSendTouchpadEvent(uint8_t eventType, uint32_t pointerId, float x, float y,
     floatToNetfloat(pressure, holder->packet.touchpad.pressure);
     floatToNetfloat(contactAreaMajor, holder->packet.touchpad.contactAreaMajor);
     floatToNetfloat(contactAreaMinor, holder->packet.touchpad.contactAreaMinor);
+
+    err = LbqOfferQueueItem(&packetQueue, holder, &holder->entry);
+    if (err != LBQ_SUCCESS) {
+        LC_ASSERT(err == LBQ_BOUND_EXCEEDED);
+        Limelog("Input queue reached maximum size limit\n");
+        freePacketHolder(holder);
+    }
+
+    return err;
+}
+
+int LiSendTouchpadFrameEvent(uint8_t contactCount, const uint8_t* eventTypes, const uint32_t* pointerIds,
+                             const float* x, const float* y, const float* pressure, uint16_t rotation,
+                             uint16_t deviceWidthMm, uint16_t deviceHeightMm, uint8_t buttonState) {
+    PPACKET_HOLDER holder;
+    int err;
+    bool batchable = true;
+
+    if (!initialized) {
+        return -2;
+    }
+
+    if (!(SunshineFeatureFlags & LI_FF_TOUCHPAD_FRAME_EVENTS)) {
+        return LI_ERR_UNSUPPORTED;
+    }
+
+    if (contactCount > SS_TOUCHPAD_FRAME_MAX_CONTACTS ||
+        (contactCount > 0 && (eventTypes == NULL || pointerIds == NULL || x == NULL || y == NULL || pressure == NULL))) {
+        return -3;
+    }
+
+    holder = allocatePacketHolder(0);
+    if (holder == NULL) {
+        return -1;
+    }
+
+    holder->channelId = CTRL_CHANNEL_TOUCH;
+
+    holder->packet.touchpadFrame.header.size = BE32(sizeof(SS_TOUCHPAD_FRAME_PACKET) - sizeof(uint32_t));
+    holder->packet.touchpadFrame.header.magic = LE32(SS_TOUCHPAD_FRAME_MAGIC);
+    holder->packet.touchpadFrame.contactCount = contactCount;
+    holder->packet.touchpadFrame.buttonState = buttonState;
+    holder->packet.touchpadFrame.rotation = LE16(rotation);
+    holder->packet.touchpadFrame.deviceWidthMm = LE16(deviceWidthMm);
+    holder->packet.touchpadFrame.deviceHeightMm = LE16(deviceHeightMm);
+    memset(holder->packet.touchpadFrame.contacts, 0, sizeof(holder->packet.touchpadFrame.contacts));
+
+    for (uint8_t i = 0; i < contactCount; i++) {
+        holder->packet.touchpadFrame.contacts[i].eventType = eventTypes[i];
+        holder->packet.touchpadFrame.contacts[i].pointerId = LE32(pointerIds[i]);
+        holder->packet.touchpadFrame.contacts[i].x = LE16(normalizedFloatToUint16(x[i]));
+        holder->packet.touchpadFrame.contacts[i].y = LE16(normalizedFloatToUint16(y[i]));
+        holder->packet.touchpadFrame.contacts[i].pressure = LE16(normalizedFloatToUint16(pressure[i]));
+
+        if (!TOUCH_EVENT_IS_BATCHABLE(eventTypes[i])) {
+            batchable = false;
+        }
+    }
+
+    holder->enetPacketFlags = batchable ? 0 : ENET_PACKET_FLAG_RELIABLE;
 
     err = LbqOfferQueueItem(&packetQueue, holder, &holder->entry);
     if (err != LBQ_SUCCESS) {
