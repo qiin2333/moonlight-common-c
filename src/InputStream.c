@@ -22,6 +22,7 @@ static float absCurrentPosY;
 #define MAX_MOTION_EVENTS 2
 
 static uint8_t currentPenButtonState;
+static uint8_t currentTouchpadButtonState;
 
 #define CLAMP(val, min, max) (((val) < (min)) ? (min) : (((val) > (max)) ? (max) : (val)))
 
@@ -116,6 +117,7 @@ int initializeInputStream(void) {
     batchedScrollDelta = 0;
 
     currentPenButtonState = 0;
+    currentTouchpadButtonState = 0;
 
     // Start with the virtual mouse centered
     absCurrentPosX = absCurrentPosY = 0.5f;
@@ -1399,9 +1401,11 @@ int LiSendTouchpadEvent(uint8_t eventType, uint32_t pointerId, float x, float y,
 
     holder->channelId = CTRL_CHANNEL_TOUCH;
 
-    // Allow move events to be dropped if a newer one arrives, but don't allow
-    // state changing events like up/down/button/cancel events to be dropped.
-    holder->enetPacketFlags = TOUCH_EVENT_IS_BATCHABLE(eventType) ? 0 : ENET_PACKET_FLAG_RELIABLE;
+    // Allow move events to be dropped if a newer one arrives (if no buttons changed),
+    // but don't allow state changing events like up/down/button/cancel events or button
+    // transitions to be dropped.
+    holder->enetPacketFlags = (TOUCH_EVENT_IS_BATCHABLE(eventType) && !(buttonState ^ currentTouchpadButtonState)) ? 0 : ENET_PACKET_FLAG_RELIABLE;
+    currentTouchpadButtonState = buttonState;
 
     holder->packet.touchpad.header.size = BE32(sizeof(SS_TOUCHPAD_PACKET) - sizeof(uint32_t));
     holder->packet.touchpad.header.magic = LE32(SS_TOUCHPAD_MAGIC);
@@ -1475,7 +1479,11 @@ int LiSendTouchpadFrameEvent(uint8_t contactCount, const uint8_t* eventTypes, co
         }
     }
 
-    holder->enetPacketFlags = batchable ? 0 : ENET_PACKET_FLAG_RELIABLE;
+    // Allow the frame to be dropped if a newer one arrives only when every contact is a
+    // batchable move/hover event and the button state did not change. A button transition
+    // (even alongside move/hover contacts) must be delivered reliably so clicks aren't lost.
+    holder->enetPacketFlags = (batchable && !(buttonState ^ currentTouchpadButtonState)) ? 0 : ENET_PACKET_FLAG_RELIABLE;
+    currentTouchpadButtonState = buttonState;
 
     err = LbqOfferQueueItem(&packetQueue, holder, &holder->entry);
     if (err != LBQ_SUCCESS) {
