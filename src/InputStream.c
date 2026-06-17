@@ -43,6 +43,7 @@ static uint8_t currentTouchpadButtonState;
 // effective input latency by avoiding packet queuing in ENet.
 #define MOUSE_BATCHING_INTERVAL_MS 1
 #define PEN_BATCHING_INTERVAL_MS 1
+#define TOUCHPAD_FLUSH_INTERVAL_MS 1
 
 // Don't batch up/down/cancel events
 #define TOUCH_EVENT_IS_BATCHABLE(x) ((x) == LI_TOUCH_EVENT_HOVER || (x) == LI_TOUCH_EVENT_MOVE)
@@ -346,6 +347,7 @@ static void inputSendThreadProc(void* context) {
 
     uint64_t lastMousePacketTime = 0;
     uint64_t lastPenPacketTime = 0;
+    uint64_t lastTouchpadFlushTime = 0;
 
     while (!PltIsThreadInterrupted(&inputSendThread)) {
         err = LbqWaitForQueueElement(&packetQueue, (void**)&holder);
@@ -614,8 +616,22 @@ static void inputSendThreadProc(void* context) {
             continue;
         }
 
+        bool moreData = LbqGetItemCount(&packetQueue) > 0;
+
+        if (holder->packet.header.magic == LE32(SS_TOUCHPAD_FRAME_MAGIC) && holder->enetPacketFlags == 0) {
+            uint64_t now = PltGetMillis();
+
+            if (moreData && now >= lastTouchpadFlushTime + TOUCHPAD_FLUSH_INTERVAL_MS) {
+                moreData = false;
+            }
+
+            if (!moreData) {
+                lastTouchpadFlushTime = now;
+            }
+        }
+
         // Encrypt and send the input packet
-        if (!sendInputPacket(holder, LbqGetItemCount(&packetQueue) > 0)) {
+        if (!sendInputPacket(holder, moreData)) {
             freePacketHolder(holder);
             return;
         }
