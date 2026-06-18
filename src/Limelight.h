@@ -755,6 +755,7 @@ int LiSendTouchpadEvent(uint8_t eventType, uint32_t pointerId, float x, float y,
 
 // This function sends all native touchpad contact changes that belong to the same hardware frame.
 // The arrays must contain contactCount entries. x/y/pressure values are normalized 0.0-1.0.
+// Unlike LiSendTouchpadEvent(), frame events do not carry contact area.
 // To determine if this is supported, call LiGetHostFeatureFlags() and check for the
 // LI_FF_TOUCHPAD_FRAME_EVENTS flag. If unsupported, callers can fall back to LiSendTouchpadEvent().
 int LiSendTouchpadFrameEvent(uint8_t contactCount, const uint8_t* eventTypes, const uint32_t* pointerIds,
