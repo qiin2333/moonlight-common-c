@@ -737,6 +737,7 @@ int LiSendMouseMoveAsMousePositionEvent(short deltaX, short deltaY, short refere
 #define LI_TOUCH_EVENT_BUTTON_ONLY 0x05
 #define LI_TOUCH_EVENT_HOVER_LEAVE 0x06
 #define LI_TOUCH_EVENT_CANCEL_ALL  0x07
+#define LI_TOUCHPAD_BUTTON_PRIMARY 0x01
 #define LI_ROT_UNKNOWN 0xFFFF
 int LiSendTouchEvent(uint8_t eventType, uint32_t pointerId, float x, float y, float pressureOrDistance,
                      float contactAreaMajor, float contactAreaMinor, uint16_t rotation);
@@ -744,7 +745,7 @@ int LiSendTouchEvent(uint8_t eventType, uint32_t pointerId, float x, float y, fl
 // This function sends raw laptop-style touchpad contacts to Sunshine. Unlike LiSendTouchEvent(),
 // x/y are normalized coordinates on the physical touchpad surface, not the remote display.
 // deviceWidthMm/deviceHeightMm describe the physical touchpad size and may be 0 if unknown.
-// buttonState is a bitmask of SS_TOUCHPAD_BUTTON_* values from Input.h.
+// buttonState is a bitmask of LI_TOUCHPAD_BUTTON_* values.
 //
 // To determine if LiSendTouchpadEvent() is supported without calling it, call
 // LiGetHostFeatureFlags() and check for the LI_FF_TOUCHPAD_EVENTS flag.
