@@ -36,7 +36,7 @@ static void fakeClConnectionTerminated(int errorCode) {}
 static void fakeClLogMessage(const char* format, ...) {}
 static void fakeClRumble(unsigned short controllerNumber, unsigned short lowFreqMotor, unsigned short highFreqMotor) {}
 static void fakeClConnectionStatusUpdate(int connectionStatus) {}
-static void fakeClSetHdrMode(bool enabled) {}
+static void fakeClSetHdrMode(bool enabled, void* hdrMetadata) {}
 static void fakeClRumbleTriggers(uint16_t controllerNumber, uint16_t leftTriggerMotor, uint16_t rightTriggerMotor) {}
 static void fakeClSetMotionEventState(uint16_t controllerNumber, uint8_t motionType, uint16_t reportRateHz) {}
 static void fakeClSetAdaptiveTriggers(uint16_t controllerNumber, uint8_t eventFlags, uint8_t typeLeft, uint8_t typeRight, uint8_t *left, uint8_t *right) {};

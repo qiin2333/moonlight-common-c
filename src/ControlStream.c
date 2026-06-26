@@ -1213,7 +1213,7 @@ static void asyncCallbackThreadFunc(void* context) {
                 queuedCb = nextCb;
             }
 
-            ListenerCallbacks.setHdrMode(hdrEnabled);
+            ListenerCallbacks.setHdrMode(hdrEnabled, IS_SUNSHINE() && hdrEnabled ? &hdrMetadata : NULL);
             break;
 
         case IDX_SET_MOTION_EVENT:
