@@ -39,7 +39,7 @@
 #define gemm DECORATE_FUNC(gemm, ISA_SUFFIX)
 #define invert_mat DECORATE_FUNC(invert_mat, ISA_SUFFIX)
 
-#if defined(__x86_64__) || defined(__i386__) || (defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_AMD64)))
+#if !defined(NXDK) && (defined(__x86_64__) || defined(__i386__) || (defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_AMD64))))
 
   // Compile a variant for SSSE3
   #if defined(__clang__)
@@ -117,7 +117,7 @@ reed_solomon_release_t reed_solomon_release_fn;
 reed_solomon_encode_t reed_solomon_encode_fn;
 reed_solomon_decode_t reed_solomon_decode_fn;
 
-#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_AMD64))
+#if defined(_MSC_VER) && !defined(NXDK) && (defined(_M_IX86) || defined(_M_AMD64))
 
   #if defined(_M_AMD64)
   // For some reason this is needed to avoid a "C1189 No target architecture" error from winnt.h
@@ -135,7 +135,7 @@ reed_solomon_decode_t reed_solomon_decode_fn;
  * @details The streaming code will directly invoke these function pointers during encoding.
  */
 void reed_solomon_init(void) {
-#if defined(_MSC_VER) && (defined(_M_IX86) || defined(_M_AMD64))
+#if defined(_MSC_VER) && !defined(NXDK) && (defined(_M_IX86) || defined(_M_AMD64))
   // Visual Studio
   if (_msc_supports_avx512f()) {
     reed_solomon_new_fn = reed_solomon_new_avx512;
