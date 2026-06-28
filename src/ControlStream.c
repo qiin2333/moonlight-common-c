@@ -2032,6 +2032,53 @@ int LiSendClipboardData(const void* payload, int length) {
     return 0;
 }
 
+// Request a stream resolution change from the host. This is a Sunshine protocol
+// extension that sends a unified dynamic parameter change message (control packet
+// 0x5506) with the RESOLUTION parameter type. The wire payload is little-endian
+// [int32 paramType, int32 width, int32 height], matching the inbound parser above.
+int LiSendResolutionChangeRequest(unsigned int width, unsigned int height) {
+    unsigned char payload[12];
+    BYTE_BUFFER bb;
+
+    // Round down to the nearest even pixel (video encoders require even dimensions).
+    // A 1-pixel input rounds to 0, which is then caught by the < 2 check below.
+    width = width & ~1u;
+    height = height & ~1u;
+
+    // Reject sub-2 dimensions and out-of-range after rounding. The host clamps
+    // further, but there is no reason to put garbage on the wire.
+    if (width < 2 || height < 2 || width > 16384 || height > 16384) {
+        return -1;
+    }
+
+    // Require Sunshine + Gen5+ + that the active server advertised the dynamic
+    // parameter change packet type (Gen7Enc only). On all other generations
+    // packetTypes[IDX_DYNAMIC_PARAM_CHANGE] is -1 and the message would be
+    // silently dropped on the wire.
+    if (AppVersionQuad[0] < 5 || packetTypes == NULL || packetTypes[IDX_DYNAMIC_PARAM_CHANGE] == -1) {
+        return -2;
+    }
+
+    // Fast-path check for no active connection; mirrors LiSendClipboardData().
+    // A teardown racing between here and the send can still fail the send; we
+    // surface that as -4 (best-effort, same as the other LiSend* senders).
+    if (peer == NULL || peer->state != ENET_PEER_STATE_CONNECTED) {
+        return -3;
+    }
+
+    BbInitializeWrappedBuffer(&bb, (char*)payload, 0, sizeof(payload), BYTE_ORDER_LITTLE);
+    BbPut32(&bb, SS_DYNAMIC_PARAM_TYPE_RESOLUTION);
+    BbPut32(&bb, width);
+    BbPut32(&bb, height);
+
+    if (!sendMessageAndForget(packetTypes[IDX_DYNAMIC_PARAM_CHANGE], (short)sizeof(payload), payload,
+                              CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false)) {
+        return -4;
+    }
+
+    return 0;
+}
+
 // Called by the input stream to flush queued packets before a batching wait
 void flushInputOnControlStream(void) {
     if (AppVersionQuad[0] >= 5) {

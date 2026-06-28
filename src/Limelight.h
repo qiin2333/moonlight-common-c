@@ -948,6 +948,25 @@ int LiSendHighResHScrollEvent(short scrollAmount);
 #define LI_CLIPBOARD_KIND_REF  3
 int LiSendClipboardData(const void* payload, int length);
 
+// Request a stream resolution change from the host. This is a Sunshine protocol
+// extension that sends a unified dynamic parameter change message (control packet
+// 0x5506) carrying the RESOLUTION parameter type. Supported hosts (AlkaidLab
+// Sunshine fork and compatible) validate and apply the requested display mode,
+// then echo the applied resolution back via the ConnListenerResolutionChanged
+// callback, allowing the client to reconfigure its decoder.
+//
+// width/height are in physical pixels. The host clamps to its own supported
+// range; clients should still apply their own min/max and debounce before
+// calling to avoid flooding the host during a live window resize.
+//
+// Returns 0 on success, negative on failure: -1 invalid dimensions (< 2 or
+// > 16384 after even-rounding), -2 the active control-stream generation does
+// not include the IDX_DYNAMIC_PARAM_CHANGE packet type (i.e. not Sunshine
+// Gen7Enc+); callers must gate on host/serverinfo capability before invoking
+// this function — check the host's serverinfo tags to confirm support before
+// calling, -3 no active connection, -4 send error.
+int LiSendResolutionChangeRequest(unsigned int width, unsigned int height);
+
 // This function returns a time in microseconds with an implementation-defined epoch.
 // It should only ever be compared with the return value from a previous call to itself.
 uint64_t LiGetMicroseconds(void);
