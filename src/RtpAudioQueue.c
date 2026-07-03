@@ -1,5 +1,14 @@
 #include "Limelight-internal.h"
 
+#include "rswrapper.h"
+
+typedef struct _reed_solomon {
+    int ds;
+    int ps;
+    int ts;
+    uint8_t p[];
+} reed_solomon;
+
 #if defined(LC_DEBUG) && !defined(LC_FUZZING)
 // This enables FEC validation mode with a synthetic drop
 // and recovered packet checks vs the original input. It
