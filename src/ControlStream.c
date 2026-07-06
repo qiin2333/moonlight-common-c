@@ -973,6 +973,17 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
         PltLockMutex(&enetMutex);
     }
 
+    // Locked re-check: peer may have been torn down between the caller's
+    // (unlocked) fast-path check and this point.  Both teardown paths null
+    // peer/client under enetMutex, so this is the authoritative guard.
+    // Also reject if stopControlStream() has set stopping under enetMutex,
+    // which it does before beginning the graceful-disconnect linger phase.
+    if (stopping || peer == NULL || peer->state != ENET_PEER_STATE_CONNECTED) {
+        enet_packet_destroy(enetPacket);
+        PltUnlockMutex(&enetMutex);
+        return false;
+    }
+
     volatile bool packetFreed = false;
 
     // Set a callback to use to let us know if the packet has been freed.
@@ -1008,11 +1019,20 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
                 PltSleepMs(1);
                 PltLockMutex(&enetMutex);
 
+                // Re-check teardown state after relock. stopControlStream() may have
+                // set stopping (and may now be running gracefullyDisconnectEnetPeer or
+                // have already nulled peer/client) while we were sleeping. Bail before
+                // any enet_host_service() or peer/client dereference. The packet was
+                // already queued via enet_peer_send(); the linger phase will handle it.
+                if (stopping || peer == NULL || client == NULL) {
+                    break;
+                }
+
                 // Try to send the packet again
                 err = enet_host_service(client, NULL, 0);
             }
 
-            if (err >= 0 && peer->state == ENET_PEER_STATE_CONNECTED && !packetFreed && !isPacketSentWaitingForAck(enetPacket)) {
+            if (err >= 0 && peer != NULL && peer->state == ENET_PEER_STATE_CONNECTED && !packetFreed && !isPacketSentWaitingForAck(enetPacket)) {
                 Limelog("Control message took over 10 ms to send (net latency: %u ms | packet loss: %f%%)\n",
                         peer->roundTripTime, peer->packetLoss / (float)ENET_PEER_PACKET_LOSS_SCALE);
             }
@@ -1974,15 +1994,32 @@ int stopControlStream(void) {
     }
 
     if (peer != NULL) {
+        // Signal teardown to concurrent external senders (LiSendResolutionChangeRequest,
+        // LiSendClipboardData, etc.) so they fail at sendMessageEnet's locked re-check
+        // rather than racing the linger phase. stopping is already true from the top of
+        // this function, but we set it again under enetMutex to guarantee visibility:
+        // sendMessageEnet reads it while holding enetMutex, so the write and read must
+        // both be protected by the same lock for a proper happens-before relationship.
+        // NOTE: gracefullyDisconnectEnetPeer does NOT hold enetMutex, so there is no
+        // recursive-lock or deadlock risk here.
+        PltLockMutex(&enetMutex);
+        stopping = true;
+        PltUnlockMutex(&enetMutex);
+
         // Gracefully disconnect to ensure the remote host receives all of our final
         // outbound traffic, including any key up events that might be sent.
         gracefullyDisconnectEnetPeer(client, peer, CONTROL_STREAM_LINGER_TIMEOUT_SEC * 1000);
-        peer = NULL;
     }
+    // Null peer and destroy the host under enetMutex so that any concurrent
+    // sendMessageEnet that already passed its (unlocked) fast-path check will
+    // see the NULL in its own locked re-check before dereferencing.
+    PltLockMutex(&enetMutex);
+    peer = NULL;
     if (client != NULL) {
         enet_host_destroy(client);
         client = NULL;
     }
+    PltUnlockMutex(&enetMutex);
 
     if (ctlSock != INVALID_SOCKET) {
         closeSocket(ctlSock);
