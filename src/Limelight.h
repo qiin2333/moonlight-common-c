@@ -526,7 +526,7 @@ typedef void(*ConnListenerConnectionStatusUpdate)(int connectionStatus);
 // the host. The client will probably want to update the local display mode
 // to match the state of HDR on the host. This callback may be invoked even
 // if the stream is not using an HDR-capable codec.
-typedef void(*ConnListenerSetHdrMode)(bool hdrEnabled);
+typedef void(*ConnListenerSetHdrMode)(bool hdrEnabled, void* hdrMetadata);
 
 // This callback is invoked to rumble a gamepad's triggers. For more details,
 // see the comment above on ConnListenerRumble().
