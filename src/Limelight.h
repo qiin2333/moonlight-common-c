@@ -341,6 +341,11 @@ typedef struct _DECODE_UNIT {
 // supports reference frame invalidation for AV1 streams. This flag is only valid on video renderers.
 #define CAPABILITY_REFERENCE_FRAME_INVALIDATION_AV1 0x40
 
+// If set in the video renderer capabilities field, this flag specifies that the renderer
+// consumes HEVC prefix SEI NALUs and requires them to remain in submitted decode units.
+// Without this capability, prepended SEI NALUs are stripped for compatibility with legacy renderers.
+#define CAPABILITY_PRESERVE_HEVC_SEI 0x80
+
 // If set in the video renderer capabilities field, this macro specifies that the renderer
 // supports slicing to increase decoding performance. The parameter specifies the desired
 // number of slices per frame. This capability is only valid on video renderers.
