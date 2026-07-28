@@ -190,33 +190,60 @@ static bool getAnnexBStartSequence(PBUFFER_DESC current, PBUFFER_DESC startSeq) 
     return false;
 }
 
+static bool isSeiNal(PBUFFER_DESC buffer);
+static bool shouldPreserveHevcSei(PBUFFER_DESC buffer);
+
 void validateDecodeUnitForPlayback(PDECODE_UNIT decodeUnit) {
+    PLENTRY firstBuffer = decodeUnit->bufferList;
+
     // Frames must always have at least one buffer
     LC_ASSERT(decodeUnit->bufferList != NULL);
     LC_ASSERT(decodeUnit->fullLength != 0);
+
+    // An opted-in HEVC renderer may receive prefix SEI before VPS/SPS/PPS.
+    // Ignore those entries only for structural validation; they remain in the
+    // decode unit passed to the renderer.
+    if (decodeUnit->frameType == FRAME_TYPE_IDR &&
+        (VideoCallbacks.capabilities & CAPABILITY_PRESERVE_HEVC_SEI) != 0 &&
+        (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_H265) != 0) {
+        while (firstBuffer != NULL) {
+            BUFFER_DESC buffer = {
+                .data = firstBuffer->data,
+                .offset = 0,
+                .length = (unsigned int)firstBuffer->length,
+            };
+            if (!shouldPreserveHevcSei(&buffer)) {
+                break;
+            }
+            firstBuffer = firstBuffer->next;
+        }
+    }
 
     // Validate the buffers in the frame
     if (decodeUnit->frameType == FRAME_TYPE_IDR) {
         // IDR frames always start with codec configuration data
         if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_H264) {
             // H.264 IDR frames should have an SPS, PPS, then picture data
-            LC_ASSERT_VT(decodeUnit->bufferList->bufferType == BUFFER_TYPE_SPS);
-            LC_ASSERT_VT(decodeUnit->bufferList->next != NULL);
-            LC_ASSERT_VT(decodeUnit->bufferList->next->bufferType == BUFFER_TYPE_PPS);
-            LC_ASSERT_VT(decodeUnit->bufferList->next->next != NULL);
+            LC_ASSERT_VT(firstBuffer != NULL);
+            LC_ASSERT_VT(firstBuffer->bufferType == BUFFER_TYPE_SPS);
+            LC_ASSERT_VT(firstBuffer->next != NULL);
+            LC_ASSERT_VT(firstBuffer->next->bufferType == BUFFER_TYPE_PPS);
+            LC_ASSERT_VT(firstBuffer->next->next != NULL);
         }
         else if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_H265) {
             // HEVC IDR frames should have an VPS, SPS, PPS, then picture data
-            LC_ASSERT_VT(decodeUnit->bufferList->bufferType == BUFFER_TYPE_VPS);
-            LC_ASSERT_VT(decodeUnit->bufferList->next != NULL);
-            LC_ASSERT_VT(decodeUnit->bufferList->next->bufferType == BUFFER_TYPE_SPS);
-            LC_ASSERT_VT(decodeUnit->bufferList->next->next != NULL);
-            LC_ASSERT_VT(decodeUnit->bufferList->next->next->bufferType == BUFFER_TYPE_PPS);
-            LC_ASSERT_VT(decodeUnit->bufferList->next->next->next != NULL);
+            LC_ASSERT_VT(firstBuffer != NULL);
+            LC_ASSERT_VT(firstBuffer->bufferType == BUFFER_TYPE_VPS);
+            LC_ASSERT_VT(firstBuffer->next != NULL);
+            LC_ASSERT_VT(firstBuffer->next->bufferType == BUFFER_TYPE_SPS);
+            LC_ASSERT_VT(firstBuffer->next->next != NULL);
+            LC_ASSERT_VT(firstBuffer->next->next->bufferType == BUFFER_TYPE_PPS);
+            LC_ASSERT_VT(firstBuffer->next->next->next != NULL);
         }
         else if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_AV1) {
             // We don't parse the AV1 bitstream
-            LC_ASSERT_VT(decodeUnit->bufferList->bufferType == BUFFER_TYPE_PICDATA);
+            LC_ASSERT_VT(firstBuffer != NULL);
+            LC_ASSERT_VT(firstBuffer->bufferType == BUFFER_TYPE_PICDATA);
         }
         else {
             LC_ASSERT(false);
@@ -376,6 +403,12 @@ static bool isSeiNal(PBUFFER_DESC buffer) {
     }
 }
 
+static bool shouldPreserveHevcSei(PBUFFER_DESC buffer) {
+    return (VideoCallbacks.capabilities & CAPABILITY_PRESERVE_HEVC_SEI) != 0 &&
+           (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_H265) != 0 &&
+           isSeiNal(buffer);
+}
+
 #ifdef LC_DEBUG
 static bool isFillerDataNal(PBUFFER_DESC buffer) {
     BUFFER_DESC startSeq;
@@ -463,6 +496,19 @@ static bool isIdrFrameStart(PBUFFER_DESC buffer) {
         LC_ASSERT(false);
         return false;
     }
+}
+
+static bool isIdrFrameStartAfterPreservedSei(PBUFFER_DESC buffer) {
+    BUFFER_DESC candidate = *buffer;
+
+    while (shouldPreserveHevcSei(&candidate)) {
+        skipToNextNalOrEnd(&candidate);
+        if (candidate.length == 0) {
+            return false;
+        }
+    }
+
+    return isIdrFrameStart(&candidate);
 }
 
 // Reassemble the frame with the given frame number
@@ -662,10 +708,11 @@ static void processAvcHevcRtpPayloadSlow(PBUFFER_DESC currentPos, PLENTRY_INTERN
             skipToNextNal(currentPos);
         }
 
-        // Skip any prepended AUD or SEI NALUs. We may have padding between
-        // these on IDR frames, so the check in processRtpPayload() is not
-        // completely sufficient to handle that case.
-        while (isAccessUnitDelimiter(currentPos) || isSeiNal(currentPos)) {
+        // Skip prepended AUD NALUs and SEI NALUs that the renderer did not opt
+        // into consuming. HEVC SEI is retained for renderers that need dynamic
+        // metadata such as CUVA HDR Vivid.
+        while (isAccessUnitDelimiter(currentPos) ||
+               (isSeiNal(currentPos) && !shouldPreserveHevcSei(currentPos))) {
             skipToNextNal(currentPos);
         }
 
@@ -990,9 +1037,10 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
                 skipToNextNal(&currentPos);
             }
 
-            // There may be one or more SEI NAL units prepended to the
-            // frame data *after* the (optional) AUD.
-            while (isSeiNal(&currentPos)) {
+            // There may be one or more SEI NAL units prepended to the frame
+            // data after the optional AUD. Keep HEVC SEI when the renderer
+            // consumes it (for example, CUVA HDR Vivid dynamic metadata).
+            while (isSeiNal(&currentPos) && !shouldPreserveHevcSei(&currentPos)) {
                 skipToNextNal(&currentPos);
             }
         }
@@ -1003,7 +1051,9 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
     }
 
     if (NegotiatedVideoFormat & (VIDEO_FORMAT_MASK_H264 | VIDEO_FORMAT_MASK_H265)) {
-        if (firstPacket && isIdrFrameStart(&currentPos)) {
+        if (firstPacket &&
+            (isIdrFrameStart(&currentPos) ||
+             isIdrFrameStartAfterPreservedSei(&currentPos))) {
             // SPS and PPS prefix is padded between NALs, so we must decode it with the slow path
             processAvcHevcRtpPayloadSlow(&currentPos, existingEntry);
         }
