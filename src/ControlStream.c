@@ -1,4 +1,5 @@
 #include "Limelight-internal.h"
+#include "CursorStream.h"
 
 // This is a private header, but it just contains some time macros
 #include <enet/time.h>
@@ -159,6 +160,9 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 #define IDX_DYNAMIC_PARAM_CHANGE 18
 #define IDX_RESOLUTION_CHANGE 19
 #define IDX_CLIPBOARD 20
+#define IDX_CURSOR 21
+
+static CURSOR_STREAM_STATE cursorReassembly;
 
 #define CONTROL_STREAM_TIMEOUT_SEC 10
 #define CONTROL_STREAM_LINGER_TIMEOUT_SEC 2
@@ -185,6 +189,7 @@ static const short packetTypesGen3[] = {
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
     -1,     // Clipboard (unused)
+    -1,     // Cursor (unused)
 };
 static const short packetTypesGen4[] = {
     0x0606, // Start A (Gen4 uses IDR request here)
@@ -208,6 +213,7 @@ static const short packetTypesGen4[] = {
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
     -1,     // Clipboard (unused)
+    -1,     // Cursor (unused)
 };
 static const short packetTypesGen5[] = {
     0x0305, // Start A
@@ -231,6 +237,7 @@ static const short packetTypesGen5[] = {
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
     -1,     // Clipboard (unused)
+    -1,     // Cursor (unused)
 };
 static const short packetTypesGen7[] = {
     0x0305, // Start A
@@ -254,6 +261,7 @@ static const short packetTypesGen7[] = {
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
     -1,     // Clipboard (unused)
+    -1,     // Cursor (unused)
 };
 static const short packetTypesGen7Enc[] = {
     0x0305, // Start A (index 0)
@@ -277,6 +285,7 @@ static const short packetTypesGen7Enc[] = {
     0x5506, // Dynamic parameter change (Sunshine protocol extension) (index 18)
     0x5507, // Resolution change (Sunshine protocol extension) (index 19)
     0x5508, // Clipboard sync (Sunshine protocol extension) (index 20) - opaque payload forwarded to user-session GUI agent
+    0x5509, // Local cursor mode/update (Sunshine protocol extension) (index 21)
 };
 
 static const char requestIdrFrameGen3[] = { 0, 0 };
@@ -312,6 +321,7 @@ static const short payloadLengthsGen3[] = {
     -1,                          // Dynamic parameter change
     -1,                          // Resolution change
     -1,                          // Clipboard (variable-length)
+    -1,                          // Cursor (variable-length)
 };
 static const short payloadLengthsGen4[] = {
     sizeof(requestIdrFrameGen4), // Start A (Gen4 uses IDR request here)
@@ -335,6 +345,7 @@ static const short payloadLengthsGen4[] = {
     -1,                          // Dynamic parameter change
     -1,                          // Resolution change
     -1,                          // Clipboard (variable-length)
+    -1,                          // Cursor (variable-length)
 };
 static const short payloadLengthsGen5[] = {
     sizeof(startAGen5), // Start A
@@ -358,6 +369,7 @@ static const short payloadLengthsGen5[] = {
     -1,                 // Dynamic parameter change
     -1,                 // Resolution change
     -1,                 // Clipboard (variable-length)
+    -1,                 // Cursor (variable-length)
 };
 static const short payloadLengthsGen7[] = {
     sizeof(startAGen5), // Start A
@@ -381,6 +393,7 @@ static const short payloadLengthsGen7[] = {
     -1,                 // Dynamic parameter change
     -1,                 // Resolution change
     -1,                 // Clipboard (variable-length)
+    -1,                 // Cursor (variable-length)
 };
 static const short payloadLengthsGen7Enc[] = {
     sizeof(startAGen5),             // Start A
@@ -404,6 +417,7 @@ static const short payloadLengthsGen7Enc[] = {
     -1,                             // Dynamic parameter change
     -1,                             // Resolution change
     -1,                             // Clipboard (variable-length)
+    -1,                             // Cursor (variable-length)
 };
 
 static const char* preconstructedPayloadsGen3[] = {
@@ -428,6 +442,7 @@ static const char* preconstructedPayloadsGen3[] = {
     NULL,                // IDX_DYNAMIC_PARAM_CHANGE
     NULL,                // IDX_RESOLUTION_CHANGE
     NULL,                // IDX_CLIPBOARD
+    NULL,                // IDX_CURSOR
 };
 static const char* preconstructedPayloadsGen4[] = {
     requestIdrFrameGen4, // IDX_START_A
@@ -451,6 +466,7 @@ static const char* preconstructedPayloadsGen4[] = {
     NULL,                // IDX_DYNAMIC_PARAM_CHANGE
     NULL,                // IDX_RESOLUTION_CHANGE
     NULL,                // IDX_CLIPBOARD
+    NULL,                // IDX_CURSOR
 };
 static const char* preconstructedPayloadsGen5[] = {
     startAGen5, // IDX_START_A
@@ -458,6 +474,7 @@ static const char* preconstructedPayloadsGen5[] = {
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NULL, // IDX_CLIPBOARD
+    NULL, // IDX_CURSOR
 };
 static const char* preconstructedPayloadsGen7[] = {
     startAGen5, // IDX_START_A
@@ -465,6 +482,7 @@ static const char* preconstructedPayloadsGen7[] = {
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NULL, // IDX_CLIPBOARD
+    NULL, // IDX_CURSOR
 };
 static const char* preconstructedPayloadsGen7Enc[] = {
     startAGen5,             // IDX_START_A
@@ -488,6 +506,7 @@ static const char* preconstructedPayloadsGen7Enc[] = {
     NULL,                   // IDX_DYNAMIC_PARAM_CHANGE
     NULL,                   // IDX_RESOLUTION_CHANGE
     NULL,                   // IDX_CLIPBOARD
+    NULL,                   // IDX_CURSOR
 };
 
 static short* packetTypes;
@@ -497,6 +516,10 @@ static bool supportsIdrFrameRequest;
 
 #define LOSS_REPORT_INTERVAL_MS 50
 #define PERIODIC_PING_INTERVAL_MS 100
+
+static void resetCursorReassembly(void) {
+    destroyCursorStreamState(&cursorReassembly);
+}
 
 // Initializes the control stream
 int initializeControlStream(void) {
@@ -557,6 +580,7 @@ int initializeControlStream(void) {
     decryptionCtx = PltCreateCryptoContext();
     hdrEnabled = false;
     memset(&hdrMetadata, 0, sizeof(hdrMetadata));
+    resetCursorReassembly();
 
     return 0;
 }
@@ -580,6 +604,7 @@ void destroyControlStream(void) {
     freeBasicLbqList(LbqDestroyLinkedBlockingQueue(&referenceFrameControlQueue));
     freeBasicLbqList(LbqDestroyLinkedBlockingQueue(&frameFecStatusQueue));
     freeBasicLbqList(LbqDestroyLinkedBlockingQueue(&asyncCallbackQueue));
+    resetCursorReassembly();
 
     PltDeleteMutex(&enetMutex);
 }
@@ -1366,6 +1391,23 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
     }
 }
 
+static void dispatchCursorUpdate(const LI_CURSOR_UPDATE* update, void* context) {
+    (void)context;
+    ListenerCallbacks.cursorUpdate(update);
+}
+
+static void processCursorUpdate(const char* payload, int payloadLength) {
+    if (ListenerCallbacks.cursorUpdate == NULL) {
+        return;
+    }
+
+    processCursorStreamPacket(&cursorReassembly,
+                              (const uint8_t*)payload,
+                              payloadLength,
+                              dispatchCursorUpdate,
+                              NULL);
+}
+
 static void controlReceiveThreadFunc(void* context) {
     int err;
 
@@ -1597,6 +1639,14 @@ static void controlReceiveThreadFunc(void* context) {
                     const char* payload = (const char*)(ctlHdr + 1);
                     int payloadLen = packetLength - (int)sizeof(*ctlHdr);
                     ListenerCallbacks.clipboardData(payload, payloadLen);
+                }
+            }
+            else if (ctlHdr->type == packetTypes[IDX_CURSOR]) {
+                // Sunshine local cursor update (0x5509). Large BGRA shapes are
+                // split into ordered reliable chunks and reassembled here.
+                if (packetLength > (int)sizeof(*ctlHdr)) {
+                    processCursorUpdate((const char*)(ctlHdr + 1),
+                                        packetLength - (int)sizeof(*ctlHdr));
                 }
             }
             else if (ctlHdr->type == packetTypes[IDX_TERMINATION]) {
@@ -2030,6 +2080,30 @@ int LiSendClipboardData(const void* payload, int length) {
     }
 
     return 0;
+}
+
+int LiSetCursorMode(int cursorMode) {
+    uint8_t payload[4] = { CURSOR_STREAM_PROTOCOL_VERSION, 0, 0, 0 };
+
+    if (cursorMode != LI_CURSOR_MODE_VIDEO && cursorMode != LI_CURSOR_MODE_LOCAL) {
+        return LI_CURSOR_MODE_ERR_INVALID;
+    }
+    if ((SunshineFeatureFlags & LI_FF_CURSOR_SHAPE) == 0 ||
+            AppVersionQuad[0] < 5 || packetTypes == NULL ||
+            packetTypes[IDX_CURSOR] == -1) {
+        return LI_CURSOR_MODE_ERR_UNSUPPORTED;
+    }
+    if (peer == NULL || peer->state != ENET_PEER_STATE_CONNECTED) {
+        return LI_CURSOR_MODE_ERR_NOT_CONNECTED;
+    }
+
+    payload[1] = (uint8_t)cursorMode;
+    if (!sendMessageAndForget(packetTypes[IDX_CURSOR], sizeof(payload), payload,
+                              CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false)) {
+        return LI_CURSOR_MODE_ERR_SEND_FAILED;
+    }
+
+    return LI_CURSOR_MODE_OK;
 }
 
 // Called by the input stream to flush queued packets before a batching wait
