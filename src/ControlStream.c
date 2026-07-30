@@ -2225,24 +2225,24 @@ int LiSetCursorMode(int cursorMode) {
     uint8_t payload[4] = { SS_CURSOR_PROTOCOL_VERSION, 0, 0, 0 };
 
     if (cursorMode != LI_CURSOR_MODE_VIDEO && cursorMode != LI_CURSOR_MODE_LOCAL) {
-        return -1;
+        return LI_CURSOR_MODE_ERR_INVALID;
     }
     if ((SunshineFeatureFlags & LI_FF_CURSOR_SHAPE) == 0 ||
             AppVersionQuad[0] < 5 || packetTypes == NULL ||
             packetTypes[IDX_CURSOR] == -1) {
-        return -2;
+        return LI_CURSOR_MODE_ERR_UNSUPPORTED;
     }
     if (peer == NULL || peer->state != ENET_PEER_STATE_CONNECTED) {
-        return -3;
+        return LI_CURSOR_MODE_ERR_NOT_CONNECTED;
     }
 
     payload[1] = (uint8_t)cursorMode;
     if (!sendMessageAndForget(packetTypes[IDX_CURSOR], sizeof(payload), payload,
                               CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false)) {
-        return -4;
+        return LI_CURSOR_MODE_ERR_SEND_FAILED;
     }
 
-    return 0;
+    return LI_CURSOR_MODE_OK;
 }
 
 // Called by the input stream to flush queued packets before a batching wait

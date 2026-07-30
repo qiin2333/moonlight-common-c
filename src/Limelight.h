@@ -1162,6 +1162,12 @@ uint32_t LiGetHostFeatureFlags(void);
 // host advertises LI_FF_CURSOR_SHAPE.
 #define LI_CURSOR_MODE_VIDEO 0
 #define LI_CURSOR_MODE_LOCAL 1
+
+#define LI_CURSOR_MODE_OK                0
+#define LI_CURSOR_MODE_ERR_INVALID      -1
+#define LI_CURSOR_MODE_ERR_UNSUPPORTED  -2
+#define LI_CURSOR_MODE_ERR_NOT_CONNECTED -3
+#define LI_CURSOR_MODE_ERR_SEND_FAILED  -4
 int LiSetCursorMode(int cursorMode);
 
 // Returns the audio codec actually negotiated for this session. See AUDIO_CODEC_*
