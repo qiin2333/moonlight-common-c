@@ -562,6 +562,23 @@ typedef void(*ConnListenerResolutionChanged)(uint32_t width, uint32_t height);
 // The buffer is only valid for the duration of the call.
 typedef void(*ConnListenerClipboardData)(const char* data, int length);
 
+// Cursor updates are Sunshine protocol extensions. Pixel data is tightly-packed
+// BGRA8888 and is only present when LI_CURSOR_UPDATE_FLAG_SHAPE is set. The
+// buffer is valid only for the duration of the callback.
+#define LI_CURSOR_UPDATE_FLAG_SHAPE   0x01
+#define LI_CURSOR_UPDATE_FLAG_VISIBLE 0x02
+typedef struct _LI_CURSOR_UPDATE {
+    uint8_t flags;
+    uint32_t shapeId;
+    uint16_t width;
+    uint16_t height;
+    int16_t hotspotX;
+    int16_t hotspotY;
+    const uint8_t* pixels;
+    uint32_t pixelDataLength;
+} LI_CURSOR_UPDATE, *PLI_CURSOR_UPDATE;
+typedef void(*ConnListenerCursorUpdate)(const LI_CURSOR_UPDATE* update);
+
 typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerStageStarting stageStarting;
     ConnListenerStageComplete stageComplete;
@@ -578,6 +595,7 @@ typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerSetAdaptiveTriggers setAdaptiveTriggers;
     ConnListenerResolutionChanged resolutionChanged;
     ConnListenerClipboardData clipboardData;
+    ConnListenerCursorUpdate cursorUpdate;
 } CONNECTION_LISTENER_CALLBACKS, *PCONNECTION_LISTENER_CALLBACKS;
 
 // Use this function to zero the connection callbacks when allocated on the stack or heap
@@ -1136,7 +1154,15 @@ void LiRequestIdrFrame(void);
 #define LI_FF_CONTROLLER_TOUCH_EVENTS 0x02 // LiSendControllerTouchEvent() supported
 #define LI_FF_TOUCHPAD_EVENTS         0x10 // LiSendTouchpadEvent() supported
 #define LI_FF_TOUCHPAD_FRAME_EVENTS   0x20 // LiSendTouchpadFrameEvent() supported
+#define LI_FF_CURSOR_SHAPE            0x40 // Host can send local cursor shape updates
 uint32_t LiGetHostFeatureFlags(void);
+
+// Select whether Sunshine composites the cursor into the video frame or sends
+// cursor shape updates for local rendering. This is only supported when the
+// host advertises LI_FF_CURSOR_SHAPE.
+#define LI_CURSOR_MODE_VIDEO 0
+#define LI_CURSOR_MODE_LOCAL 1
+int LiSetCursorMode(int cursorMode);
 
 // Returns the audio codec actually negotiated for this session. See AUDIO_CODEC_*
 // constants. Valid only after AudioRendererInit has been called. Before that,

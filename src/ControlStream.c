@@ -159,6 +159,45 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 #define IDX_DYNAMIC_PARAM_CHANGE 18
 #define IDX_RESOLUTION_CHANGE 19
 #define IDX_CLIPBOARD 20
+#define IDX_CURSOR 21
+
+#define SS_CURSOR_PROTOCOL_VERSION 1
+#define SS_CURSOR_FLAG_SHAPE 0x01
+#define SS_CURSOR_FLAG_VISIBLE 0x02
+#define SS_CURSOR_MAX_WIDTH 256
+#define SS_CURSOR_MAX_HEIGHT 256
+#define SS_CURSOR_MAX_BYTES (SS_CURSOR_MAX_WIDTH * SS_CURSOR_MAX_HEIGHT * 4)
+
+#pragma pack(push, 1)
+typedef struct _SS_CURSOR_UPDATE_HEADER {
+    uint8_t version;
+    uint8_t flags;
+    uint16_t headerSize;
+    uint32_t shapeId;
+    uint16_t width;
+    uint16_t height;
+    int16_t hotspotX;
+    int16_t hotspotY;
+    uint32_t totalSize;
+    uint32_t offset;
+    uint16_t chunkSize;
+    uint16_t reserved;
+} SS_CURSOR_UPDATE_HEADER, *PSS_CURSOR_UPDATE_HEADER;
+#pragma pack(pop)
+
+typedef struct _CURSOR_REASSEMBLY_STATE {
+    uint8_t* pixels;
+    uint32_t shapeId;
+    uint32_t totalSize;
+    uint32_t receivedSize;
+    uint16_t width;
+    uint16_t height;
+    int16_t hotspotX;
+    int16_t hotspotY;
+    bool visible;
+} CURSOR_REASSEMBLY_STATE;
+
+static CURSOR_REASSEMBLY_STATE cursorReassembly;
 
 #define CONTROL_STREAM_TIMEOUT_SEC 10
 #define CONTROL_STREAM_LINGER_TIMEOUT_SEC 2
@@ -185,6 +224,7 @@ static const short packetTypesGen3[] = {
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
     -1,     // Clipboard (unused)
+    -1,     // Cursor (unused)
 };
 static const short packetTypesGen4[] = {
     0x0606, // Start A (Gen4 uses IDR request here)
@@ -208,6 +248,7 @@ static const short packetTypesGen4[] = {
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
     -1,     // Clipboard (unused)
+    -1,     // Cursor (unused)
 };
 static const short packetTypesGen5[] = {
     0x0305, // Start A
@@ -231,6 +272,7 @@ static const short packetTypesGen5[] = {
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
     -1,     // Clipboard (unused)
+    -1,     // Cursor (unused)
 };
 static const short packetTypesGen7[] = {
     0x0305, // Start A
@@ -254,6 +296,7 @@ static const short packetTypesGen7[] = {
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
     -1,     // Clipboard (unused)
+    -1,     // Cursor (unused)
 };
 static const short packetTypesGen7Enc[] = {
     0x0305, // Start A (index 0)
@@ -277,6 +320,7 @@ static const short packetTypesGen7Enc[] = {
     0x5506, // Dynamic parameter change (Sunshine protocol extension) (index 18)
     0x5507, // Resolution change (Sunshine protocol extension) (index 19)
     0x5508, // Clipboard sync (Sunshine protocol extension) (index 20) - opaque payload forwarded to user-session GUI agent
+    0x5509, // Local cursor mode/update (Sunshine protocol extension) (index 21)
 };
 
 static const char requestIdrFrameGen3[] = { 0, 0 };
@@ -312,6 +356,7 @@ static const short payloadLengthsGen3[] = {
     -1,                          // Dynamic parameter change
     -1,                          // Resolution change
     -1,                          // Clipboard (variable-length)
+    -1,                          // Cursor (variable-length)
 };
 static const short payloadLengthsGen4[] = {
     sizeof(requestIdrFrameGen4), // Start A (Gen4 uses IDR request here)
@@ -335,6 +380,7 @@ static const short payloadLengthsGen4[] = {
     -1,                          // Dynamic parameter change
     -1,                          // Resolution change
     -1,                          // Clipboard (variable-length)
+    -1,                          // Cursor (variable-length)
 };
 static const short payloadLengthsGen5[] = {
     sizeof(startAGen5), // Start A
@@ -358,6 +404,7 @@ static const short payloadLengthsGen5[] = {
     -1,                 // Dynamic parameter change
     -1,                 // Resolution change
     -1,                 // Clipboard (variable-length)
+    -1,                 // Cursor (variable-length)
 };
 static const short payloadLengthsGen7[] = {
     sizeof(startAGen5), // Start A
@@ -381,6 +428,7 @@ static const short payloadLengthsGen7[] = {
     -1,                 // Dynamic parameter change
     -1,                 // Resolution change
     -1,                 // Clipboard (variable-length)
+    -1,                 // Cursor (variable-length)
 };
 static const short payloadLengthsGen7Enc[] = {
     sizeof(startAGen5),             // Start A
@@ -404,6 +452,7 @@ static const short payloadLengthsGen7Enc[] = {
     -1,                             // Dynamic parameter change
     -1,                             // Resolution change
     -1,                             // Clipboard (variable-length)
+    -1,                             // Cursor (variable-length)
 };
 
 static const char* preconstructedPayloadsGen3[] = {
@@ -428,6 +477,7 @@ static const char* preconstructedPayloadsGen3[] = {
     NULL,                // IDX_DYNAMIC_PARAM_CHANGE
     NULL,                // IDX_RESOLUTION_CHANGE
     NULL,                // IDX_CLIPBOARD
+    NULL,                // IDX_CURSOR
 };
 static const char* preconstructedPayloadsGen4[] = {
     requestIdrFrameGen4, // IDX_START_A
@@ -451,6 +501,7 @@ static const char* preconstructedPayloadsGen4[] = {
     NULL,                // IDX_DYNAMIC_PARAM_CHANGE
     NULL,                // IDX_RESOLUTION_CHANGE
     NULL,                // IDX_CLIPBOARD
+    NULL,                // IDX_CURSOR
 };
 static const char* preconstructedPayloadsGen5[] = {
     startAGen5, // IDX_START_A
@@ -458,6 +509,7 @@ static const char* preconstructedPayloadsGen5[] = {
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NULL, // IDX_CLIPBOARD
+    NULL, // IDX_CURSOR
 };
 static const char* preconstructedPayloadsGen7[] = {
     startAGen5, // IDX_START_A
@@ -465,6 +517,7 @@ static const char* preconstructedPayloadsGen7[] = {
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NULL, // IDX_CLIPBOARD
+    NULL, // IDX_CURSOR
 };
 static const char* preconstructedPayloadsGen7Enc[] = {
     startAGen5,             // IDX_START_A
@@ -488,6 +541,7 @@ static const char* preconstructedPayloadsGen7Enc[] = {
     NULL,                   // IDX_DYNAMIC_PARAM_CHANGE
     NULL,                   // IDX_RESOLUTION_CHANGE
     NULL,                   // IDX_CLIPBOARD
+    NULL,                   // IDX_CURSOR
 };
 
 static short* packetTypes;
@@ -497,6 +551,11 @@ static bool supportsIdrFrameRequest;
 
 #define LOSS_REPORT_INTERVAL_MS 50
 #define PERIODIC_PING_INTERVAL_MS 100
+
+static void resetCursorReassembly(void) {
+    free(cursorReassembly.pixels);
+    memset(&cursorReassembly, 0, sizeof(cursorReassembly));
+}
 
 // Initializes the control stream
 int initializeControlStream(void) {
@@ -557,6 +616,7 @@ int initializeControlStream(void) {
     decryptionCtx = PltCreateCryptoContext();
     hdrEnabled = false;
     memset(&hdrMetadata, 0, sizeof(hdrMetadata));
+    resetCursorReassembly();
 
     return 0;
 }
@@ -580,6 +640,7 @@ void destroyControlStream(void) {
     freeBasicLbqList(LbqDestroyLinkedBlockingQueue(&referenceFrameControlQueue));
     freeBasicLbqList(LbqDestroyLinkedBlockingQueue(&frameFecStatusQueue));
     freeBasicLbqList(LbqDestroyLinkedBlockingQueue(&asyncCallbackQueue));
+    resetCursorReassembly();
 
     PltDeleteMutex(&enetMutex);
 }
@@ -1366,6 +1427,126 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
     }
 }
 
+static void processCursorUpdate(const char* payload, int payloadLength) {
+    SS_CURSOR_UPDATE_HEADER wireHeader;
+    LI_CURSOR_UPDATE update;
+    uint16_t headerSize;
+    uint32_t shapeId;
+    uint16_t width;
+    uint16_t height;
+    int16_t hotspotX;
+    int16_t hotspotY;
+    uint32_t totalSize;
+    uint32_t offset;
+    uint16_t chunkSize;
+    bool hasShape;
+    bool visible;
+
+    if (ListenerCallbacks.cursorUpdate == NULL ||
+            payloadLength < (int)sizeof(wireHeader)) {
+        return;
+    }
+
+    memcpy(&wireHeader, payload, sizeof(wireHeader));
+    if (wireHeader.version != SS_CURSOR_PROTOCOL_VERSION ||
+            (wireHeader.flags & ~(SS_CURSOR_FLAG_SHAPE | SS_CURSOR_FLAG_VISIBLE)) != 0) {
+        resetCursorReassembly();
+        return;
+    }
+
+    headerSize = LE16(wireHeader.headerSize);
+    shapeId = LE32(wireHeader.shapeId);
+    width = LE16(wireHeader.width);
+    height = LE16(wireHeader.height);
+    hotspotX = (int16_t)LE16((uint16_t)wireHeader.hotspotX);
+    hotspotY = (int16_t)LE16((uint16_t)wireHeader.hotspotY);
+    totalSize = LE32(wireHeader.totalSize);
+    offset = LE32(wireHeader.offset);
+    chunkSize = LE16(wireHeader.chunkSize);
+    hasShape = (wireHeader.flags & SS_CURSOR_FLAG_SHAPE) != 0;
+    visible = (wireHeader.flags & SS_CURSOR_FLAG_VISIBLE) != 0;
+
+    if (headerSize != sizeof(wireHeader) ||
+            chunkSize != payloadLength - (int)headerSize) {
+        resetCursorReassembly();
+        return;
+    }
+
+    if (!hasShape) {
+        if (width != 0 || height != 0 || totalSize != 0 || offset != 0 || chunkSize != 0) {
+            resetCursorReassembly();
+            return;
+        }
+
+        // A newer visibility-only state supersedes any incomplete older shape.
+        resetCursorReassembly();
+        memset(&update, 0, sizeof(update));
+        update.flags = visible ? LI_CURSOR_UPDATE_FLAG_VISIBLE : 0;
+        update.shapeId = shapeId;
+        ListenerCallbacks.cursorUpdate(&update);
+        return;
+    }
+
+    if (width == 0 || width > SS_CURSOR_MAX_WIDTH ||
+            height == 0 || height > SS_CURSOR_MAX_HEIGHT ||
+            hotspotX < 0 || hotspotX >= (int16_t)width ||
+            hotspotY < 0 || hotspotY >= (int16_t)height ||
+            totalSize == 0 || totalSize > SS_CURSOR_MAX_BYTES ||
+            totalSize != (uint32_t)width * (uint32_t)height * 4u ||
+            chunkSize == 0 || offset > totalSize || chunkSize > totalSize - offset) {
+        resetCursorReassembly();
+        return;
+    }
+
+    if (offset == 0) {
+        resetCursorReassembly();
+        cursorReassembly.pixels = malloc(totalSize);
+        if (cursorReassembly.pixels == NULL) {
+            return;
+        }
+
+        cursorReassembly.shapeId = shapeId;
+        cursorReassembly.totalSize = totalSize;
+        cursorReassembly.width = width;
+        cursorReassembly.height = height;
+        cursorReassembly.hotspotX = hotspotX;
+        cursorReassembly.hotspotY = hotspotY;
+        cursorReassembly.visible = visible;
+    }
+
+    if (cursorReassembly.pixels == NULL ||
+            cursorReassembly.shapeId != shapeId ||
+            cursorReassembly.totalSize != totalSize ||
+            cursorReassembly.width != width ||
+            cursorReassembly.height != height ||
+            cursorReassembly.hotspotX != hotspotX ||
+            cursorReassembly.hotspotY != hotspotY ||
+            cursorReassembly.visible != visible ||
+            cursorReassembly.receivedSize != offset) {
+        resetCursorReassembly();
+        return;
+    }
+
+    memcpy(cursorReassembly.pixels + offset, payload + headerSize, chunkSize);
+    cursorReassembly.receivedSize += chunkSize;
+    if (cursorReassembly.receivedSize != cursorReassembly.totalSize) {
+        return;
+    }
+
+    memset(&update, 0, sizeof(update));
+    update.flags = LI_CURSOR_UPDATE_FLAG_SHAPE |
+                   (cursorReassembly.visible ? LI_CURSOR_UPDATE_FLAG_VISIBLE : 0);
+    update.shapeId = cursorReassembly.shapeId;
+    update.width = cursorReassembly.width;
+    update.height = cursorReassembly.height;
+    update.hotspotX = cursorReassembly.hotspotX;
+    update.hotspotY = cursorReassembly.hotspotY;
+    update.pixels = cursorReassembly.pixels;
+    update.pixelDataLength = cursorReassembly.totalSize;
+    ListenerCallbacks.cursorUpdate(&update);
+    resetCursorReassembly();
+}
+
 static void controlReceiveThreadFunc(void* context) {
     int err;
 
@@ -1597,6 +1778,14 @@ static void controlReceiveThreadFunc(void* context) {
                     const char* payload = (const char*)(ctlHdr + 1);
                     int payloadLen = packetLength - (int)sizeof(*ctlHdr);
                     ListenerCallbacks.clipboardData(payload, payloadLen);
+                }
+            }
+            else if (ctlHdr->type == packetTypes[IDX_CURSOR]) {
+                // Sunshine local cursor update (0x5509). Large BGRA shapes are
+                // split into ordered reliable chunks and reassembled here.
+                if (packetLength > (int)sizeof(*ctlHdr)) {
+                    processCursorUpdate((const char*)(ctlHdr + 1),
+                                        packetLength - (int)sizeof(*ctlHdr));
                 }
             }
             else if (ctlHdr->type == packetTypes[IDX_TERMINATION]) {
@@ -2025,6 +2214,30 @@ int LiSendClipboardData(const void* payload, int length) {
     }
 
     if (!sendMessageAndForget(packetTypes[IDX_CLIPBOARD], (short)length, payload,
+                              CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false)) {
+        return -4;
+    }
+
+    return 0;
+}
+
+int LiSetCursorMode(int cursorMode) {
+    uint8_t payload[4] = { SS_CURSOR_PROTOCOL_VERSION, 0, 0, 0 };
+
+    if (cursorMode != LI_CURSOR_MODE_VIDEO && cursorMode != LI_CURSOR_MODE_LOCAL) {
+        return -1;
+    }
+    if ((SunshineFeatureFlags & LI_FF_CURSOR_SHAPE) == 0 ||
+            AppVersionQuad[0] < 5 || packetTypes == NULL ||
+            packetTypes[IDX_CURSOR] == -1) {
+        return -2;
+    }
+    if (peer == NULL || peer->state != ENET_PEER_STATE_CONNECTED) {
+        return -3;
+    }
+
+    payload[1] = (uint8_t)cursorMode;
+    if (!sendMessageAndForget(packetTypes[IDX_CURSOR], sizeof(payload), payload,
                               CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false)) {
         return -4;
     }
