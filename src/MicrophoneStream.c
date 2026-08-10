@@ -97,19 +97,27 @@ int sendMicrophoneOpusData(const unsigned char* opusData, int opusLength) {
         unsigned char iv[MIC_IV_LEN] = {0};
         unsigned char encryptedData[ROUND_TO_PKCS7_PADDED_LEN(MAX_MIC_PACKET_SIZE)];
         int encryptedLength = (int)sizeof(encryptedData);
-        
+
+        // FIXME(修复闪退): PltEncryptMessage 在 CIPHER_FLAG_PAD_TO_BLOCK_SIZE 下会
+        // 调用 addPkcs7PaddingInPlace 在 inputData 缓冲区原地追加 PKCS7 填充。
+        // 直接传入 opusData（JNI 数组，长度恰好 opusLength，无填充余量）会在
+        // opusLength 不是 16 的倍数时越界写入（SIGSEGV 闪退，GWP-ASan 报告
+        // "Buffer Overflow"）。必须拷贝到带 ROUND_TO_PKCS7_PADDED_LEN 余量的缓冲。
+        unsigned char paddedInput[ROUND_TO_PKCS7_PADDED_LEN(MAX_MIC_PACKET_SIZE)];
+        memcpy(paddedInput, opusData, opusLength);
+
         // IV = riKeyId + sequenceNumber in big-endian
         uint32_t ivSeq = BE32(micRiKeyId + micSequenceNumber);
         memcpy(iv, &ivSeq, sizeof(ivSeq));
-        
-        if (!PltEncryptMessage(micEncryptionCtx, 
+
+        if (!PltEncryptMessage(micEncryptionCtx,
                               ALGORITHM_AES_CBC,
                               CIPHER_FLAG_RESET_IV | CIPHER_FLAG_FINISH | CIPHER_FLAG_PAD_TO_BLOCK_SIZE,
                               (unsigned char*)StreamConfig.remoteInputAesKey,
                               sizeof(StreamConfig.remoteInputAesKey),
                               iv, sizeof(iv),
                               NULL, 0,
-                              (unsigned char*)opusData, opusLength,
+                              paddedInput, opusLength,
                               encryptedData, &encryptedLength)) {
             Limelog("MIC: Encryption failed\n");
             return -1;
