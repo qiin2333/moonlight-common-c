@@ -476,7 +476,9 @@ static void inputSendThreadProc(void* context) {
 
             lastMousePacketTime = now;
         }
-        // If it's a pen packet, we should only send the latest move or hover events
+        // Pace pen motion packets to avoid queuing in ENet. Preserve every contact MOVE
+        // sample because dropping them creates visible gaps in drawn strokes. HOVER samples
+        // may still be coalesced because no stroke geometry is lost while the pen is raised.
         else if (holder->packet.header.magic == LE32(SS_PEN_MAGIC) && TOUCH_EVENT_IS_BATCHABLE(holder->packet.pen.eventType)) {
             uint64_t now = PltGetMillis();
 
@@ -487,33 +489,35 @@ static void inputSendThreadProc(void* context) {
                 now = PltGetMillis();
             }
 
-            for (;;) {
-                PPACKET_HOLDER penBatchHolder;
+            if (holder->packet.pen.eventType == LI_TOUCH_EVENT_HOVER) {
+                for (;;) {
+                    PPACKET_HOLDER penBatchHolder;
 
-                // Peek at the next packet
-                if (LbqPeekQueueElement(&packetQueue, (void**)&penBatchHolder) != LBQ_SUCCESS) {
-                    break;
+                    // Peek at the next packet
+                    if (LbqPeekQueueElement(&packetQueue, (void**)&penBatchHolder) != LBQ_SUCCESS) {
+                        break;
+                    }
+
+                    // If it's not a pen packet, we're done
+                    if (penBatchHolder->packet.header.magic != LE32(SS_PEN_MAGIC)) {
+                        break;
+                    }
+
+                    // If the buttons or event type is different, we cannot batch
+                    if (holder->packet.pen.penButtons != penBatchHolder->packet.pen.penButtons ||
+                        holder->packet.pen.eventType != penBatchHolder->packet.pen.eventType) {
+                        break;
+                    }
+
+                    // Remove the next packet
+                    if (LbqPollQueueElement(&packetQueue, (void**)&penBatchHolder) != LBQ_SUCCESS) {
+                        break;
+                    }
+
+                    // Replace the current packet with the new one
+                    freePacketHolder(holder);
+                    holder = penBatchHolder;
                 }
-
-                // If it's not a pen packet, we're done
-                if (penBatchHolder->packet.header.magic != LE32(SS_PEN_MAGIC)) {
-                    break;
-                }
-
-                // If the buttons or event type is different, we cannot batch
-                if (holder->packet.pen.penButtons != penBatchHolder->packet.pen.penButtons ||
-                    holder->packet.pen.eventType != penBatchHolder->packet.pen.eventType) {
-                    break;
-                }
-
-                // Remove the next packet
-                if (LbqPollQueueElement(&packetQueue, (void**)&penBatchHolder) != LBQ_SUCCESS) {
-                    break;
-                }
-
-                // Replace the current packet with the new one
-                freePacketHolder(holder);
-                holder = penBatchHolder;
             }
 
             lastPenPacketTime = now;
@@ -1534,8 +1538,8 @@ int LiSendPenEvent(uint8_t eventType, uint8_t toolType, uint8_t penButtons,
 
     holder->channelId = CTRL_CHANNEL_PEN;
 
-    // Allow move and hover events to be dropped if a newer one arrives (if no buttons changed),
-    // but don't allow state changing events like up/down/leave events to be dropped.
+    // Move and hover packets may be dropped in transit, but state-changing events like
+    // up/down/leave must be reliable. The send thread preserves queued contact MOVE samples.
     holder->enetPacketFlags = (TOUCH_EVENT_IS_BATCHABLE(eventType) && !(penButtons ^ currentPenButtonState)) ? 0 : ENET_PACKET_FLAG_RELIABLE;
     currentPenButtonState = penButtons;
 
