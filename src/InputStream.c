@@ -503,9 +503,10 @@ static void inputSendThreadProc(void* context) {
                         break;
                     }
 
-                    // If the buttons or event type is different, we cannot batch
+                    // If the buttons, event type, or reliability is different, we cannot batch
                     if (holder->packet.pen.penButtons != penBatchHolder->packet.pen.penButtons ||
-                        holder->packet.pen.eventType != penBatchHolder->packet.pen.eventType) {
+                        holder->packet.pen.eventType != penBatchHolder->packet.pen.eventType ||
+                        holder->enetPacketFlags != penBatchHolder->enetPacketFlags) {
                         break;
                     }
 
