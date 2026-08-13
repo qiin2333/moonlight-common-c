@@ -584,6 +584,28 @@ typedef struct _LI_CURSOR_UPDATE {
 } LI_CURSOR_UPDATE, *PLI_CURSOR_UPDATE;
 typedef void(*ConnListenerCursorUpdate)(const LI_CURSOR_UPDATE* update);
 
+// Authored DualSense haptics captured from the host's virtual USB audio
+// endpoint. PCM is signed 16-bit little-endian, interleaved haptic-left then
+// haptic-right. The buffer is valid only for the duration of the callback.
+// Packets are intentionally unreliable; use sequenceNumber and the
+// DISCONTINUITY flag to reset a client-side jitter buffer after loss.
+#define LI_DS5_HAPTICS_PCM_FLAG_STREAM_START  0x01
+#define LI_DS5_HAPTICS_PCM_FLAG_STREAM_END    0x02
+#define LI_DS5_HAPTICS_PCM_FLAG_DISCONTINUITY 0x04
+typedef struct _LI_DS5_HAPTICS_PCM_FRAME {
+    uint8_t flags;
+    uint16_t controllerNumber;
+    uint32_t sequenceNumber;
+    uint64_t presentationTimeUs;
+    uint32_t sampleRate;
+    uint16_t frameCount;
+    uint8_t channelCount;
+    uint8_t bitsPerSample;
+    const uint8_t* pcmData;
+    uint32_t pcmDataLength;
+} LI_DS5_HAPTICS_PCM_FRAME, *PLI_DS5_HAPTICS_PCM_FRAME;
+typedef void(*ConnListenerDs5HapticsPcm)(const LI_DS5_HAPTICS_PCM_FRAME* frame);
+
 typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerStageStarting stageStarting;
     ConnListenerStageComplete stageComplete;
@@ -601,6 +623,7 @@ typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerResolutionChanged resolutionChanged;
     ConnListenerClipboardData clipboardData;
     ConnListenerCursorUpdate cursorUpdate;
+    ConnListenerDs5HapticsPcm ds5HapticsPcm;
 } CONNECTION_LISTENER_CALLBACKS, *PCONNECTION_LISTENER_CALLBACKS;
 
 // Use this function to zero the connection callbacks when allocated on the stack or heap
@@ -907,6 +930,7 @@ int LiSendMultiControllerEvent(short controllerNumber, short activeGamepadMask,
 #define LI_CCAP_BATTERY_STATE   0x40 // Reports battery state via LiSendControllerBatteryEvent()
 #define LI_CCAP_RGB_LED         0x80 // Can set RGB LED state via ConnListenerSetControllerLED()
 #define LI_CCAP_DUAL_TOUCHPAD  0x100 // Reports touchpad events from 2 separate touchpads
+#define LI_CCAP_DS5_HAPTICS_PCM 0x200 // Can render authored DualSense stereo PCM feedback
 int LiSendControllerArrivalEvent(uint8_t controllerNumber, uint16_t activeGamepadMask, uint8_t type,
                                  uint32_t supportedButtonFlags, uint16_t capabilities);
 
@@ -1160,6 +1184,7 @@ void LiRequestIdrFrame(void);
 #define LI_FF_TOUCHPAD_EVENTS         0x10 // LiSendTouchpadEvent() supported
 #define LI_FF_TOUCHPAD_FRAME_EVENTS   0x20 // LiSendTouchpadFrameEvent() supported
 #define LI_FF_CURSOR_SHAPE            0x40 // Host can send local cursor shape updates
+#define LI_FF_DS5_HAPTICS_PCM         0x80 // Host can stream authored DualSense stereo PCM
 uint32_t LiGetHostFeatureFlags(void);
 
 // Select whether Sunshine composites the cursor into the video frame or sends
