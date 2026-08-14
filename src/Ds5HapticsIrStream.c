@@ -66,11 +66,12 @@ bool processDs5HapticsIrStreamPacket(const uint8_t* payload,
         outLane->zeroCrossingRateHz = readLeFloat(wireLane + 16);
         if (!isNormalized(outLane->rmsAmplitude) ||
                 !isNormalized(outLane->peakAmplitude) ||
+                outLane->rmsAmplitude > outLane->peakAmplitude ||
                 !isNormalized(outLane->transientStrength) ||
                 !isNormalized(outLane->lowBandRatio) ||
                 !isfinite(outLane->zeroCrossingRateHz) ||
                 outLane->zeroCrossingRateHz < 0.0f ||
-                outLane->zeroCrossingRateHz > 24000.0f) {
+                outLane->zeroCrossingRateHz > 48000.0f) {
             return false;
         }
     }

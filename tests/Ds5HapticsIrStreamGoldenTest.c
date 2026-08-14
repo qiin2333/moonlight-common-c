@@ -97,6 +97,10 @@ static void testMalformedFrames(void) {
     writeLe32(packet + 24, UINT32_C(0x7fc00000));
     CHECK(!processDs5HapticsIrStreamPacket(packet, sizeof(packet), captureFrame, &captured));
     makeValidPacket(packet);
+    writeLeFloat(packet + 24, 0.75f);
+    writeLeFloat(packet + 28, 0.5f);
+    CHECK(!processDs5HapticsIrStreamPacket(packet, sizeof(packet), captureFrame, &captured));
+    makeValidPacket(packet);
     writeLeFloat(packet + 64, 1.1f);
     CHECK(!processDs5HapticsIrStreamPacket(packet, sizeof(packet), captureFrame, &captured));
 }
