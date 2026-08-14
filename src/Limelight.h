@@ -606,6 +606,31 @@ typedef struct _LI_DS5_HAPTICS_PCM_FRAME {
 } LI_DS5_HAPTICS_PCM_FRAME, *PLI_DS5_HAPTICS_PCM_FRAME;
 typedef void(*ConnListenerDs5HapticsPcm)(const LI_DS5_HAPTICS_PCM_FRAME* frame);
 
+// Device-independent authored haptics used when the client selected simulated
+// DualSense mode. Values are normalized analysis features, not actuator
+// commands. The client owns device calibration and final rendering.
+#define LI_DS5_HAPTICS_IR_FLAG_DISCONTINUITY 0x01
+#define LI_DS5_HAPTICS_IR_FLAG_PARTIAL       0x02
+#define LI_DS5_HAPTICS_IR_FLAG_STREAM_END    0x04
+#define LI_DS5_HAPTICS_IR_FLAG_SILENT        0x08
+typedef struct _LI_DS5_HAPTICS_IR_LANE_V2 {
+    float rmsAmplitude;
+    float peakAmplitude;
+    float transientStrength;
+    float lowBandRatio;
+    float zeroCrossingRateHz;
+} LI_DS5_HAPTICS_IR_LANE_V2, *PLI_DS5_HAPTICS_IR_LANE_V2;
+typedef struct _LI_DS5_HAPTICS_IR_FRAME_V2 {
+    uint8_t flags;
+    uint16_t controllerNumber;
+    uint32_t sourceSequenceNumber;
+    uint64_t timestampUs;
+    uint32_t sourceFrameCount;
+    LI_DS5_HAPTICS_IR_LANE_V2 lanes[2];
+    float laneCorrelation;
+} LI_DS5_HAPTICS_IR_FRAME_V2, *PLI_DS5_HAPTICS_IR_FRAME_V2;
+typedef void(*ConnListenerDs5HapticsIrV2)(const LI_DS5_HAPTICS_IR_FRAME_V2* frame);
+
 typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerStageStarting stageStarting;
     ConnListenerStageComplete stageComplete;
@@ -624,6 +649,7 @@ typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerClipboardData clipboardData;
     ConnListenerCursorUpdate cursorUpdate;
     ConnListenerDs5HapticsPcm ds5HapticsPcm;
+    ConnListenerDs5HapticsIrV2 ds5HapticsIrV2;
 } CONNECTION_LISTENER_CALLBACKS, *PCONNECTION_LISTENER_CALLBACKS;
 
 // Use this function to zero the connection callbacks when allocated on the stack or heap
