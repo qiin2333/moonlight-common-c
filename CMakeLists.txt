@@ -132,4 +132,28 @@ if (BUILD_TESTING)
     target_compile_options(cursor-protocol-golden-tests PRIVATE -Wall -Wextra -Werror)
   endif()
   add_test(NAME cursor-protocol-golden-tests COMMAND cursor-protocol-golden-tests)
+
+  add_executable(ds5-haptics-protocol-golden-tests
+    tests/Ds5HapticsStreamGoldenTest.c
+    src/Ds5HapticsStream.c
+  )
+  target_include_directories(ds5-haptics-protocol-golden-tests PRIVATE src)
+  if(MSVC)
+    target_compile_options(ds5-haptics-protocol-golden-tests PRIVATE /W3 /WX)
+  else()
+    target_compile_options(ds5-haptics-protocol-golden-tests PRIVATE -Wall -Wextra -Werror)
+  endif()
+  add_test(NAME ds5-haptics-protocol-golden-tests COMMAND ds5-haptics-protocol-golden-tests)
+
+  add_executable(ds5-haptics-ir-protocol-golden-tests
+    tests/Ds5HapticsIrStreamGoldenTest.c
+    src/Ds5HapticsIrStream.c
+  )
+  target_include_directories(ds5-haptics-ir-protocol-golden-tests PRIVATE src)
+  if(MSVC)
+    target_compile_options(ds5-haptics-ir-protocol-golden-tests PRIVATE /W3 /WX)
+  else()
+    target_compile_options(ds5-haptics-ir-protocol-golden-tests PRIVATE -Wall -Wextra -Werror)
+  endif()
+  add_test(NAME ds5-haptics-ir-protocol-golden-tests COMMAND ds5-haptics-ir-protocol-golden-tests)
 endif()
