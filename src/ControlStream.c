@@ -1,4 +1,6 @@
 #include "Limelight-internal.h"
+#include "Ds5HapticsStream.h"
+#include "Ds5HapticsIrStream.h"
 
 // This is a private header, but it just contains some time macros
 #include <enet/time.h>
@@ -158,6 +160,10 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 #define IDX_MIC_CONFIG 17
 #define IDX_DYNAMIC_PARAM_CHANGE 18
 #define IDX_RESOLUTION_CHANGE 19
+#define IDX_CLIPBOARD 20
+#define IDX_CURSOR 21
+#define IDX_DS5_HAPTICS_PCM 22
+#define IDX_DS5_HAPTICS_IR_V2 23
 
 #define CONTROL_STREAM_TIMEOUT_SEC 10
 #define CONTROL_STREAM_LINGER_TIMEOUT_SEC 2
@@ -183,6 +189,10 @@ static const short packetTypesGen3[] = {
     -1,     // Microphone config (unused)
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
+    -1,     // Clipboard (unused)
+    -1,     // Cursor (unused)
+    -1,     // DualSense haptics PCM (unused)
+    -1,     // DualSense haptics IR v2 (unused)
 };
 static const short packetTypesGen4[] = {
     0x0606, // Start A (Gen4 uses IDR request here)
@@ -205,6 +215,10 @@ static const short packetTypesGen4[] = {
     -1,     // Microphone config (unused)
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
+    -1,     // Clipboard (unused)
+    -1,     // Cursor (unused)
+    -1,     // DualSense haptics PCM (unused)
+    -1,     // DualSense haptics IR v2 (unused)
 };
 static const short packetTypesGen5[] = {
     0x0305, // Start A
@@ -227,6 +241,10 @@ static const short packetTypesGen5[] = {
     -1,     // Microphone config (unused)
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
+    -1,     // Clipboard (unused)
+    -1,     // Cursor (unused)
+    -1,     // DualSense haptics PCM (unused)
+    -1,     // DualSense haptics IR v2 (unused)
 };
 static const short packetTypesGen7[] = {
     0x0305, // Start A
@@ -249,6 +267,10 @@ static const short packetTypesGen7[] = {
     -1,     // Microphone config (unused)
     -1,     // Dynamic parameter change (unused)
     -1,     // Resolution change (unused)
+    -1,     // Clipboard (unused)
+    -1,     // Cursor (unused)
+    -1,     // DualSense haptics PCM (unused)
+    -1,     // DualSense haptics IR v2 (unused)
 };
 static const short packetTypesGen7Enc[] = {
     0x0305, // Start A (index 0)
@@ -271,6 +293,10 @@ static const short packetTypesGen7Enc[] = {
     0x5505, // Microphone config (Sunshine protocol extension) (index 17)
     0x5506, // Dynamic parameter change (Sunshine protocol extension) (index 18)
     0x5507, // Resolution change (Sunshine protocol extension) (index 19)
+    -1,     // Clipboard sync (Sunshine protocol extension) (index 20) (unused)
+    -1,     // Local cursor mode/update (Sunshine protocol extension) (index 21) (unused)
+    0x550A, // Authored DualSense haptics PCM (Sunshine protocol extension) (index 22)
+    0x550B, // Device-independent DualSense haptics IR v2 (Sunshine protocol extension) (index 23)
 };
 
 static const char requestIdrFrameGen3[] = { 0, 0 };
@@ -305,6 +331,10 @@ static const short payloadLengthsGen3[] = {
     -1,                          // Microphone config
     -1,                          // Dynamic parameter change
     -1,                          // Resolution change
+    -1,                          // Clipboard
+    -1,                          // Cursor
+    -1,                          // DualSense haptics PCM (variable-length)
+    -1,                          // DualSense haptics IR v2 (fixed payload, validated by parser)
 };
 static const short payloadLengthsGen4[] = {
     sizeof(requestIdrFrameGen4), // Start A (Gen4 uses IDR request here)
@@ -327,6 +357,10 @@ static const short payloadLengthsGen4[] = {
     -1,                          // Microphone config
     -1,                          // Dynamic parameter change
     -1,                          // Resolution change
+    -1,                          // Clipboard
+    -1,                          // Cursor
+    -1,                          // DualSense haptics PCM (variable-length)
+    -1,                          // DualSense haptics IR v2 (fixed payload, validated by parser)
 };
 static const short payloadLengthsGen5[] = {
     sizeof(startAGen5), // Start A
@@ -349,6 +383,10 @@ static const short payloadLengthsGen5[] = {
     -1,                 // Microphone config
     -1,                 // Dynamic parameter change
     -1,                 // Resolution change
+    -1,                 // Clipboard
+    -1,                 // Cursor
+    -1,                 // DualSense haptics PCM (variable-length)
+    -1,                 // DualSense haptics IR v2 (fixed payload, validated by parser)
 };
 static const short payloadLengthsGen7[] = {
     sizeof(startAGen5), // Start A
@@ -371,6 +409,10 @@ static const short payloadLengthsGen7[] = {
     -1,                 // Microphone config
     -1,                 // Dynamic parameter change
     -1,                 // Resolution change
+    -1,                 // Clipboard
+    -1,                 // Cursor
+    -1,                 // DualSense haptics PCM (variable-length)
+    -1,                 // DualSense haptics IR v2 (fixed payload, validated by parser)
 };
 static const short payloadLengthsGen7Enc[] = {
     sizeof(startAGen5),             // Start A
@@ -393,6 +435,10 @@ static const short payloadLengthsGen7Enc[] = {
     -1,                             // Microphone config
     -1,                             // Dynamic parameter change
     -1,                             // Resolution change
+    -1,                             // Clipboard
+    -1,                             // Cursor
+    -1,                             // DualSense haptics PCM (variable-length)
+    -1,                             // DualSense haptics IR v2 (fixed payload, validated by parser)
 };
 
 static const char* preconstructedPayloadsGen3[] = {
@@ -416,6 +462,10 @@ static const char* preconstructedPayloadsGen3[] = {
     NULL,                // IDX_MIC_CONFIG
     NULL,                // IDX_DYNAMIC_PARAM_CHANGE
     NULL,                // IDX_RESOLUTION_CHANGE
+    NULL,                // IDX_CLIPBOARD
+    NULL,                // IDX_CURSOR
+    NULL,                // IDX_DS5_HAPTICS_PCM
+    NULL,                // IDX_DS5_HAPTICS_IR_V2
 };
 static const char* preconstructedPayloadsGen4[] = {
     requestIdrFrameGen4, // IDX_START_A
@@ -438,18 +488,24 @@ static const char* preconstructedPayloadsGen4[] = {
     NULL,                // IDX_MIC_CONFIG
     NULL,                // IDX_DYNAMIC_PARAM_CHANGE
     NULL,                // IDX_RESOLUTION_CHANGE
+    NULL,                // IDX_CLIPBOARD
+    NULL,                // IDX_CURSOR
+    NULL,                // IDX_DS5_HAPTICS_PCM
+    NULL,                // IDX_DS5_HAPTICS_IR_V2
 };
 static const char* preconstructedPayloadsGen5[] = {
     startAGen5, // IDX_START_A
     startBGen5, // IDX_START_B
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL, NULL, NULL, NULL,
 };
 static const char* preconstructedPayloadsGen7[] = {
     startAGen5, // IDX_START_A
     startBGen5, // IDX_START_B
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
     NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
+    NULL, NULL, NULL, NULL,
 };
 static const char* preconstructedPayloadsGen7Enc[] = {
     startAGen5,             // IDX_START_A
@@ -472,6 +528,10 @@ static const char* preconstructedPayloadsGen7Enc[] = {
     NULL,                   // IDX_MIC_CONFIG
     NULL,                   // IDX_DYNAMIC_PARAM_CHANGE
     NULL,                   // IDX_RESOLUTION_CHANGE
+    NULL,                   // IDX_CLIPBOARD
+    NULL,                   // IDX_CURSOR
+    NULL,                   // IDX_DS5_HAPTICS_PCM
+    NULL,                   // IDX_DS5_HAPTICS_IR_V2
 };
 
 static short* packetTypes;
@@ -1333,6 +1393,16 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
     }
 }
 
+static void dispatchDs5HapticsPcm(const LI_DS5_HAPTICS_PCM_FRAME* frame, void* context) {
+    LC_ASSERT(context == NULL);
+    ListenerCallbacks.ds5HapticsPcm(frame);
+}
+
+static void dispatchDs5HapticsIrV2(const LI_DS5_HAPTICS_IR_FRAME_V2* frame, void* context) {
+    LC_ASSERT(context == NULL);
+    ListenerCallbacks.ds5HapticsIrV2(frame);
+}
+
 static void controlReceiveThreadFunc(void* context) {
     int err;
 
@@ -1556,6 +1626,24 @@ static void controlReceiveThreadFunc(void* context) {
             // Process client callbacks in a separate thread
             if (needsAsyncCallback(ctlHdr->type)) {
                 queueAsyncCallback(ctlHdr, packetLength);
+            }
+            else if (ctlHdr->type == packetTypes[IDX_DS5_HAPTICS_PCM]) {
+                if (ListenerCallbacks.ds5HapticsPcm != NULL &&
+                        packetLength > (int)sizeof(*ctlHdr)) {
+                    processDs5HapticsStreamPacket((const uint8_t*)(ctlHdr + 1),
+                                                  packetLength - (int)sizeof(*ctlHdr),
+                                                  dispatchDs5HapticsPcm,
+                                                  NULL);
+                }
+            }
+            else if (ctlHdr->type == packetTypes[IDX_DS5_HAPTICS_IR_V2]) {
+                if (ListenerCallbacks.ds5HapticsIrV2 != NULL &&
+                        packetLength > (int)sizeof(*ctlHdr)) {
+                    processDs5HapticsIrStreamPacket((const uint8_t*)(ctlHdr + 1),
+                                                    packetLength - (int)sizeof(*ctlHdr),
+                                                    dispatchDs5HapticsIrV2,
+                                                    NULL);
+                }
             }
             else if (ctlHdr->type == packetTypes[IDX_TERMINATION]) {
                 BYTE_BUFFER bb;
