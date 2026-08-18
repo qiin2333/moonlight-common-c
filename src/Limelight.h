@@ -1211,7 +1211,18 @@ void LiRequestIdrFrame(void);
 #define LI_FF_TOUCHPAD_FRAME_EVENTS   0x20 // LiSendTouchpadFrameEvent() supported
 #define LI_FF_CURSOR_SHAPE            0x40 // Host can send local cursor shape updates
 #define LI_FF_DS5_HAPTICS_PCM         0x80 // Host can stream authored DualSense stereo PCM
+#define LI_FF_DYNAMIC_SDR_WHITE      0x100 // Host accepts runtime client SDR reference white updates
 uint32_t LiGetHostFeatureFlags(void);
+
+// Update the client's SDR reference white during an encrypted Sunshine HLG
+// session. This changes only the supported host conversion path; it does not
+// reconfigure the host display, VDD HDR capabilities, or encoder.
+#define LI_DYNAMIC_SDR_WHITE_OK                 0
+#define LI_DYNAMIC_SDR_WHITE_ERR_INVALID       -1
+#define LI_DYNAMIC_SDR_WHITE_ERR_UNSUPPORTED   -2
+#define LI_DYNAMIC_SDR_WHITE_ERR_NOT_CONNECTED -3
+#define LI_DYNAMIC_SDR_WHITE_ERR_SEND_FAILED   -4
+int LiSendClientSdrWhiteNits(float nits);
 
 // Select whether Sunshine composites the cursor into the video frame or sends
 // cursor shape updates for local rendering. This is only supported when the

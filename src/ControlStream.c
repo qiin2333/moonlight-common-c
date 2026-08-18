@@ -3,6 +3,8 @@
 #include "Ds5HapticsStream.h"
 #include "Ds5HapticsIrStream.h"
 
+#include <math.h>
+
 // This is a private header, but it just contains some time macros
 #include <enet/time.h>
 
@@ -113,6 +115,7 @@ static uint32_t currentResolutionHeight = 0;
 
 // Sunshine unified dynamic parameter change payload types (see Sunshine src/video.h)
 #define SS_DYNAMIC_PARAM_TYPE_RESOLUTION 0
+#define SS_DYNAMIC_PARAM_TYPE_CLIENT_SDR_WHITE_NITS 9
 
 static int intervalGoodFrameCount;
 static int intervalTotalFrameCount;
@@ -2142,6 +2145,34 @@ int LiSendClipboardData(const void* payload, int length) {
     }
 
     return 0;
+}
+
+int LiSendClientSdrWhiteNits(float nits) {
+    uint32_t payload[2];
+    uint32_t nitsBits;
+
+    if (!isfinite(nits) || nits < 1.0f || nits > 10000.0f) {
+        return LI_DYNAMIC_SDR_WHITE_ERR_INVALID;
+    }
+    if (!IS_SUNSHINE() || !encryptedControlStream ||
+            (SunshineFeatureFlags & LI_FF_DYNAMIC_SDR_WHITE) == 0 ||
+            AppVersionQuad[0] < 5 || packetTypes == NULL ||
+            packetTypes[IDX_DYNAMIC_PARAM_CHANGE] == -1) {
+        return LI_DYNAMIC_SDR_WHITE_ERR_UNSUPPORTED;
+    }
+    if (peer == NULL || peer->state != ENET_PEER_STATE_CONNECTED) {
+        return LI_DYNAMIC_SDR_WHITE_ERR_NOT_CONNECTED;
+    }
+
+    memcpy(&nitsBits, &nits, sizeof(nitsBits));
+    payload[0] = LE32(SS_DYNAMIC_PARAM_TYPE_CLIENT_SDR_WHITE_NITS);
+    payload[1] = LE32(nitsBits);
+    if (!sendMessageAndForget(packetTypes[IDX_DYNAMIC_PARAM_CHANGE], sizeof(payload), payload,
+                              CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false)) {
+        return LI_DYNAMIC_SDR_WHITE_ERR_SEND_FAILED;
+    }
+
+    return LI_DYNAMIC_SDR_WHITE_OK;
 }
 
 int LiSetCursorMode(int cursorMode) {
