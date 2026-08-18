@@ -2151,7 +2151,7 @@ int LiSendClientSdrWhiteNits(float nits) {
     uint32_t payload[2];
     uint32_t nitsBits;
 
-    if (!isfinite(nits) || nits < 1.0f || nits > 10000.0f) {
+    if (!isfinite(nits) || nits < 50.0f || nits > 1000.0f) {
         return LI_DYNAMIC_SDR_WHITE_ERR_INVALID;
     }
     if (!IS_SUNSHINE() || !encryptedControlStream ||
