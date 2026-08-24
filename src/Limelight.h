@@ -96,6 +96,20 @@ typedef struct _STREAM_CONFIGURATION {
     // the transfer characteristics of the encoded video stream.
     int hdrMode;
 
+    // Sunshine dynamic HDR negotiation (client opt-in). Leaving everything at
+    // zero makes this a legacy client: no negotiation attributes are sent and
+    // hosts keep their historical behavior.
+    //
+    // dynamicHdrCaps bits: 1 << 0 = HDR10+, 1 << 1 = HDR Vivid PQ,
+    // 1 << 2 = HDR Vivid HLG, 1 << 3 = Dolby Vision Profile 8.1.
+    // dynamicHdrPreference: 0 = automatic, 1 = Dolby Vision, 2 = HDR10+,
+    // 3 = HDR10 only. dolbyVisionMaxLevel/dolbyVisionDirectSurface qualify
+    // the Dolby Vision cap bit (see the Sunshine dynamic HDR docs).
+    int dynamicHdrCaps;
+    int dolbyVisionMaxLevel;
+    int dolbyVisionDirectSurface;
+    int dynamicHdrPreference;
+
     // Specifies the data streams where encryption may be enabled if supported
     // by the host PC. Ideally, you would pass ENCFLG_ALL to encrypt everything
     // that we support encrypting. However, lower performance hardware may not
@@ -1253,6 +1267,40 @@ int LiGetNegotiatedAudioCodec(void);
 // Returns the audio bitrate (bps) negotiated for AC3/E-AC3 sessions, or 0 when
 // audioCodec == AUDIO_CODEC_OPUS. Valid only after AudioRendererInit.
 int LiGetNegotiatedAudioBitrate(void);
+
+// Dynamic HDR format values for STREAM_CONFIGURATION.dynamicHdrCaps bits,
+// LiGetNegotiatedDynamicHdrFormat() results, and the X-SS-Dynamic-HDR wire
+// value. These match the Sunshine host's dynamic HDR selection.
+#define DYNAMIC_HDR_CAPS_HDR10_PLUS (1 << 0)
+#define DYNAMIC_HDR_CAPS_VIVID_PQ (1 << 1)
+#define DYNAMIC_HDR_CAPS_VIVID_HLG (1 << 2)
+#define DYNAMIC_HDR_CAPS_DOLBY_VISION_81 (1 << 3)
+
+#define DYNAMIC_HDR_FORMAT_NONE 0
+#define DYNAMIC_HDR_FORMAT_HDR10_PLUS 1
+#define DYNAMIC_HDR_FORMAT_VIVID_PQ 2
+#define DYNAMIC_HDR_FORMAT_VIVID_HLG 3
+#define DYNAMIC_HDR_FORMAT_DOLBY_VISION_PROFILE_81 4
+
+// Returns the dynamic HDR format the Sunshine host selected for this session,
+// parsed from the X-SS-Dynamic-HDR RTSP ANNOUNCE response header. Hosts
+// without the extension (or sessions that sent no capabilities) yield
+// DYNAMIC_HDR_FORMAT_NONE. Valid only after the RTSP handshake completes.
+int LiGetNegotiatedDynamicHdrFormat(void);
+
+// Returns the reason Dolby Vision was not selected despite the client asking
+// for it, parsed from X-SS-Dynamic-HDR-Fallback. Values match the host's
+// fallback order: 0 none, 1 host_disabled, 2 codec_unsupported,
+// 3 colorspace_unsupported, 4 client_caps_missing, 5 direct_surface_missing,
+// 6 preference.
+#define DYNAMIC_HDR_FALLBACK_NONE 0
+#define DYNAMIC_HDR_FALLBACK_HOST_DISABLED 1
+#define DYNAMIC_HDR_FALLBACK_CODEC_UNSUPPORTED 2
+#define DYNAMIC_HDR_FALLBACK_COLORSPACE_UNSUPPORTED 3
+#define DYNAMIC_HDR_FALLBACK_CLIENT_CAPS_MISSING 4
+#define DYNAMIC_HDR_FALLBACK_DIRECT_SURFACE_MISSING 5
+#define DYNAMIC_HDR_FALLBACK_PREFERENCE 6
+int LiGetNegotiatedDynamicHdrFallback(void);
 
 #ifdef __cplusplus
 }

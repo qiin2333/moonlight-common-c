@@ -27,6 +27,8 @@ bool AudioEncryptionEnabled;
 bool ReferenceFrameInvalidationSupported;
 int NegotiatedAudioCodec;
 int NegotiatedAudioBitrate;
+int NegotiatedDynamicHdrFormat;
+int NegotiatedDynamicHdrFallback;
 uint16_t RtspPortNumber;
 uint16_t ControlPortNumber;
 uint16_t AudioPortNumber;
