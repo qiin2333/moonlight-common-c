@@ -103,10 +103,10 @@ typedef struct _STREAM_CONFIGURATION {
     // dynamicHdrCaps bits: 1 << 0 = HDR10+, 1 << 1 = HDR Vivid PQ,
     // 1 << 2 = HDR Vivid HLG, 1 << 3 = Dolby Vision Profile 8.1.
     // dynamicHdrPreference: 0 = automatic, 1 = Dolby Vision, 2 = HDR10+,
-    // 3 = HDR10 only. dolbyVisionMaxLevel/dolbyVisionDirectSurface qualify
-    // the Dolby Vision cap bit (see the Sunshine dynamic HDR docs).
+    // 3 = HDR10 only. dolbyVisionDirectSurface qualifies the Dolby Vision
+    // cap bit (see the Sunshine dynamic HDR docs). Unknown capability bits
+    // are masked off by the host, so newer clients can safely set them.
     int dynamicHdrCaps;
-    int dolbyVisionMaxLevel;
     int dolbyVisionDirectSurface;
     int dynamicHdrPreference;
 

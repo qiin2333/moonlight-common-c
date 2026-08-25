@@ -336,8 +336,6 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         if (StreamConfig.dynamicHdrCaps != 0 || StreamConfig.dynamicHdrPreference != 0) {
             snprintf(payloadStr, sizeof(payloadStr), "%d", StreamConfig.dynamicHdrCaps);
             err |= addAttributeString(&optionHead, "x-ss-video[0].dynamicHdrCaps", payloadStr);
-            snprintf(payloadStr, sizeof(payloadStr), "%d", StreamConfig.dolbyVisionMaxLevel);
-            err |= addAttributeString(&optionHead, "x-ss-video[0].dolbyVisionMaxLevel", payloadStr);
             snprintf(payloadStr, sizeof(payloadStr), "%d", StreamConfig.dolbyVisionDirectSurface ? 1 : 0);
             err |= addAttributeString(&optionHead, "x-ss-video[0].dolbyVisionDirectSurface", payloadStr);
             snprintf(payloadStr, sizeof(payloadStr), "%d", StreamConfig.dynamicHdrPreference);
