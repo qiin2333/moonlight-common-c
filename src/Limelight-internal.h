@@ -35,6 +35,10 @@ extern bool ReferenceFrameInvalidationSupported;
 
 // Audio codec selected for this session (AUDIO_CODEC_*). Defaults to OPUS.
 extern int NegotiatedAudioCodec;
+// Dynamic HDR format/fallback negotiated in the RTSP ANNOUNCE response
+// (DYNAMIC_HDR_FORMAT_* / DYNAMIC_HDR_FALLBACK_*).
+extern int NegotiatedDynamicHdrFormat;
+extern int NegotiatedDynamicHdrFallback;
 // Audio bitrate (bps) selected for AC3/E-AC3 sessions. 0 when codec == OPUS.
 extern int NegotiatedAudioBitrate;
 

@@ -163,3 +163,11 @@ int LiGetNegotiatedAudioCodec(void) {
 int LiGetNegotiatedAudioBitrate(void) {
     return NegotiatedAudioBitrate;
 }
+
+int LiGetNegotiatedDynamicHdrFormat(void) {
+    return NegotiatedDynamicHdrFormat;
+}
+
+int LiGetNegotiatedDynamicHdrFallback(void) {
+    return NegotiatedDynamicHdrFallback;
+}
