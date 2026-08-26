@@ -1289,12 +1289,12 @@ int LiGetNegotiatedAudioBitrate(void);
 int LiGetNegotiatedDynamicHdrFormat(void);
 
 // Returns the reason Dolby Vision was not selected despite the client asking
-// for it, parsed from X-SS-Dynamic-HDR-Fallback. Values match the host's
-// fallback order: 0 none, 1 host_disabled, 2 codec_unsupported,
-// 3 colorspace_unsupported, 4 client_caps_missing, 5 direct_surface_missing,
-// 6 preference.
+// for it, parsed from X-SS-Dynamic-HDR-Fallback. The wire carries the enum
+// name string; these numbers are stable identities, so a removed member
+// leaves a gap instead of shifting the rest (1 was host_disabled, retired
+// when the host opened the negotiation unconditionally). Unknown names map
+// to DYNAMIC_HDR_FALLBACK_NONE.
 #define DYNAMIC_HDR_FALLBACK_NONE 0
-#define DYNAMIC_HDR_FALLBACK_HOST_DISABLED 1
 #define DYNAMIC_HDR_FALLBACK_CODEC_UNSUPPORTED 2
 #define DYNAMIC_HDR_FALLBACK_COLORSPACE_UNSUPPORTED 3
 #define DYNAMIC_HDR_FALLBACK_CLIENT_CAPS_MISSING 4

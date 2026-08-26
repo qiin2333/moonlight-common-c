@@ -652,9 +652,6 @@ static void parseDynamicHdrNegotiation(PRTSP_MESSAGE response) {
     if (fallbackOption == NULL) {
         NegotiatedDynamicHdrFallback = DYNAMIC_HDR_FALLBACK_NONE;
     }
-    else if (strcmp(fallbackOption, "host_disabled") == 0) {
-        NegotiatedDynamicHdrFallback = DYNAMIC_HDR_FALLBACK_HOST_DISABLED;
-    }
     else if (strcmp(fallbackOption, "codec_unsupported") == 0) {
         NegotiatedDynamicHdrFallback = DYNAMIC_HDR_FALLBACK_CODEC_UNSUPPORTED;
     }
