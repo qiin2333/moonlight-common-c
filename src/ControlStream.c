@@ -4,6 +4,7 @@
 #include "Ds5HapticsIrStream.h"
 
 #include <math.h>
+#include <stdatomic.h>
 
 // This is a private header, but it just contains some time macros
 #include <enet/time.h>
@@ -121,6 +122,7 @@ static int intervalGoodFrameCount;
 static int intervalTotalFrameCount;
 static uint64_t intervalStartTimeMs;
 static int lastIntervalLossPercentage;
+static atomic_uint lastIntervalLossBasisPoints;
 static int lastConnectionStatusUpdate;
 static uint32_t currentEnetSequenceNumber;
 static uint64_t firstFrameTimeMs;
@@ -609,6 +611,7 @@ int initializeControlStream(void) {
     intervalTotalFrameCount = 0;
     intervalStartTimeMs = 0;
     lastIntervalLossPercentage = 0;
+    atomic_store_explicit(&lastIntervalLossBasisPoints, 0, memory_order_relaxed);
     lastConnectionStatusUpdate = CONN_STATUS_OKAY;
     firstFrameTimeMs = 0;
     currentEnetSequenceNumber = 0;
@@ -752,6 +755,9 @@ void connectionSawFrame(uint32_t frameIndex) {
         if (intervalTotalFrameCount != 0) {
             // Notify the client of connection status changes based on frame loss rate
             int frameLossPercent = 100 - (intervalGoodFrameCount * 100) / intervalTotalFrameCount;
+            unsigned int frameLossBasisPoints = (unsigned int)llround(
+                10000.0 * (intervalTotalFrameCount - intervalGoodFrameCount) / intervalTotalFrameCount);
+            atomic_store_explicit(&lastIntervalLossBasisPoints, frameLossBasisPoints, memory_order_relaxed);
             if (lastConnectionStatusUpdate != CONN_STATUS_POOR &&
                     (frameLossPercent >= CONN_IMMEDIATE_POOR_LOSS_RATE ||
                      (frameLossPercent >= CONN_CONSECUTIVE_POOR_LOSS_RATE && lastIntervalLossPercentage >= CONN_CONSECUTIVE_POOR_LOSS_RATE))) {
@@ -775,6 +781,10 @@ void connectionSawFrame(uint32_t frameIndex) {
 
     intervalTotalFrameCount += frameIndex - lastSeenFrame;
     lastSeenFrame = frameIndex;
+}
+
+double LiGetEstimatedVideoFrameLossPercentage(void) {
+    return atomic_load_explicit(&lastIntervalLossBasisPoints, memory_order_relaxed) / 100.0;
 }
 
 // Reads an NV control stream packet from the TCP connection
