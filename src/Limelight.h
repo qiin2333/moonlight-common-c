@@ -746,8 +746,9 @@ typedef struct _LI_STREAM_SOCKET {
     uint16_t localPort;
 } LI_STREAM_SOCKET;
 
-// Describes the live streaming sockets. Video and audio RTP run over UDP;
-// the control stream runs over TCP.
+// Describes the live streaming sockets. Video and audio RTP run over UDP.
+// The control stream runs over UDP (ENet) on Gen5+ servers, or over TCP
+// on legacy ones.
 typedef struct _LI_STREAM_SOCKETS {
     LI_STREAM_SOCKET videoRtp;
     LI_STREAM_SOCKET audioRtp;
