@@ -2336,6 +2336,8 @@ int startControlStream(void) {
         // Ensure the connect verify ACK is sent immediately
         enet_host_flush(client);
 
+        LiRecordStreamSocket((SOCKET)client->socket, STREAM_SOCKET_SLOT_CONTROL);
+
 #ifdef __3DS__
         // Set the peer timeout to 1 minute and limit backoff to 2x RTT
         // The 3DS can take a bit longer to set up when starting fresh
@@ -2356,6 +2358,8 @@ int startControlStream(void) {
         }
 
         enableNoDelay(ctlSock);
+
+        LiRecordStreamSocket(ctlSock, STREAM_SOCKET_SLOT_CONTROL);
     }
 
     err = PltCreateThread("ControlRecv", controlReceiveThreadFunc, NULL, &controlReceiveThread);
