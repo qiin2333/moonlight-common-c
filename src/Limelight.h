@@ -1115,6 +1115,11 @@ typedef struct _RTP_VIDEO_STATS {
 
 const RTP_VIDEO_STATS* LiGetRTPVideoStats(void);
 
+// Returns the percentage of video frames lost by the network during the most
+// recent connection-status sampling interval. Decoder and renderer drops are
+// not included. The value is updated every 3 seconds after the stream settles.
+double LiGetEstimatedVideoFrameLossPercentage(void);
+
 // Port index flags for use with LiGetPortFromPortFlagIndex() and LiGetProtocolFromPortFlagIndex()
 #define ML_PORT_INDEX_TCP_47984 0
 #define ML_PORT_INDEX_TCP_47989 1
