@@ -334,6 +334,7 @@ int startVideoStream(void* rendererContext, int drFlags) {
         VideoCallbacks.cleanup();
         return LastSocketError();
     }
+    LiRecordStreamSocket(rtpSocket, STREAM_SOCKET_SLOT_VIDEO);
 
     VideoCallbacks.start();
 

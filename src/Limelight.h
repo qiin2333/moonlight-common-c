@@ -736,6 +736,29 @@ const char* LiGetStageName(int stage);
 // This function may only be called between LiStartConnection() and LiStopConnection().
 bool LiGetEstimatedRttInfo(uint32_t* estimatedRtt, uint32_t* estimatedRttVariance);
 
+// Describes a streaming socket created by LiStartConnection(). fd is -1 when
+// the socket is unavailable (stream not started or not applicable).
+typedef struct _LI_STREAM_SOCKET {
+    // OS file descriptor for the socket
+    int fd;
+
+    // Local port in host byte order (0 if unavailable)
+    uint16_t localPort;
+} LI_STREAM_SOCKET;
+
+// Describes the live streaming sockets. Video and audio RTP run over UDP;
+// the control stream runs over TCP.
+typedef struct _LI_STREAM_SOCKETS {
+    LI_STREAM_SOCKET videoRtp;
+    LI_STREAM_SOCKET audioRtp;
+    LI_STREAM_SOCKET control;
+} LI_STREAM_SOCKETS;
+
+// Populates the given struct with the live streaming sockets. Sockets that
+// are not currently open have fd set to -1. This function may only be called
+// between LiStartConnection() and LiStopConnection().
+void LiGetStreamSockets(LI_STREAM_SOCKETS* sockets);
+
 // This function queues a relative mouse move event to be sent to the remote server.
 int LiSendMouseMoveEvent(short deltaX, short deltaY);
 
