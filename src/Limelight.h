@@ -101,7 +101,8 @@ typedef struct _STREAM_CONFIGURATION {
     // hosts keep their historical behavior.
     //
     // dynamicHdrCaps bits: 1 << 0 = HDR10+, 1 << 1 = HDR Vivid PQ,
-    // 1 << 2 = HDR Vivid HLG, 1 << 3 = Dolby Vision Profile 8.1.
+    // 1 << 2 = HDR Vivid HLG, 1 << 3 = Dolby Vision Profile 8.1,
+    // 1 << 4 = Dolby Vision Profile 8.4 (HLG base layer).
     // dynamicHdrPreference: 0 = automatic, 1 = Dolby Vision, 2 = HDR10+,
     // 3 = HDR10 only. dolbyVisionDirectSurface qualifies the Dolby Vision
     // cap bit (see the Sunshine dynamic HDR docs). Unknown capability bits
@@ -1275,12 +1276,14 @@ int LiGetNegotiatedAudioBitrate(void);
 #define DYNAMIC_HDR_CAPS_VIVID_PQ (1 << 1)
 #define DYNAMIC_HDR_CAPS_VIVID_HLG (1 << 2)
 #define DYNAMIC_HDR_CAPS_DOLBY_VISION_81 (1 << 3)
+#define DYNAMIC_HDR_CAPS_DOLBY_VISION_84 (1 << 4)
 
 #define DYNAMIC_HDR_FORMAT_NONE 0
 #define DYNAMIC_HDR_FORMAT_HDR10_PLUS 1
 #define DYNAMIC_HDR_FORMAT_VIVID_PQ 2
 #define DYNAMIC_HDR_FORMAT_VIVID_HLG 3
 #define DYNAMIC_HDR_FORMAT_DOLBY_VISION_PROFILE_81 4
+#define DYNAMIC_HDR_FORMAT_DOLBY_VISION_PROFILE_84 5
 
 // Returns the dynamic HDR format the Sunshine host selected for this session,
 // parsed from the X-SS-Dynamic-HDR RTSP ANNOUNCE response header. Hosts
