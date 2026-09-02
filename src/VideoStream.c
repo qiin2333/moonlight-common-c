@@ -21,7 +21,7 @@ static PLT_THREAD decoderThread;
 static bool receivedDataFromPeer;
 static uint64_t firstDataTimeMs;
 static bool receivedFullFrame;
-static atomic_uint_fast64_t rtpVideoBytesReceived;
+static _Atomic uint64_t rtpVideoBytesReceived;
 
 // We can't request an IDR frame until the depacketizer knows
 // that a packet was lost. This timeout bounds the time that
@@ -164,6 +164,9 @@ static void VideoReceiveThreadProc(void* context) {
         // the plaintext size. This is local accounting only; it does not
         // affect the RTP protocol or packet processing.
         const int receivedPacketLength = err;
+        atomic_fetch_add_explicit(&rtpVideoBytesReceived,
+                                  (uint64_t)receivedPacketLength,
+                                  memory_order_relaxed);
 
         if (!receivedDataFromPeer) {
             receivedDataFromPeer = true;
@@ -186,10 +189,6 @@ static void VideoReceiveThreadProc(void* context) {
             // Runt packet
             continue;
         }
-
-        atomic_fetch_add_explicit(&rtpVideoBytesReceived,
-                                  (uint_fast64_t)receivedPacketLength,
-                                  memory_order_relaxed);
 
         // Decrypt the packet into the buffer if encryption is enabled
         if (encrypted) {
@@ -431,6 +430,6 @@ const RTP_VIDEO_STATS* LiGetRTPVideoStats(void) {
     return &rtpQueue.stats;
 }
 
-uint64_t LiGetRtpVideoBytesReceived(void) {
+uint64_t LiGetRTPVideoBytesReceived(void) {
     return atomic_load_explicit(&rtpVideoBytesReceived, memory_order_relaxed);
 }
