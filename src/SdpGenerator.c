@@ -280,6 +280,9 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         if (ListenerCallbacks.ds5HapticsIrV2 != NULL) {
             moonlightFeatureFlags |= ML_FF_DS5_HAPTICS_IR_V2;
         }
+        if (RemoteTextContextCallback != NULL) {
+            moonlightFeatureFlags |= ML_FF_REMOTE_TEXT_CONTEXT;
+        }
         snprintf(payloadStr, sizeof(payloadStr), "%" PRIu32, moonlightFeatureFlags);
         err |= addAttributeString(&optionHead, "x-ml-general.featureFlags", payloadStr);
 
