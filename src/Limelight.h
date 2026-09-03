@@ -1140,6 +1140,10 @@ typedef struct _RTP_VIDEO_STATS {
 
 const RTP_VIDEO_STATS* LiGetRTPVideoStats(void);
 
+// Returns the total wire-level bytes received on the video RTP socket for the
+// active stream. The counter is reset when the video stream is initialized.
+uint64_t LiGetRTPVideoBytesReceived(void);
+
 // Returns the percentage of video frames lost by the network during the most
 // recent connection-status sampling interval. Decoder and renderer drops are
 // not included. The value is updated every 3 seconds after the stream settles.

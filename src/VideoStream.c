@@ -1,5 +1,7 @@
 #include "Limelight-internal.h"
 
+#include <stdatomic.h>
+
 #define FIRST_FRAME_MAX 1500
 #define FIRST_FRAME_TIMEOUT_SEC 10
 
@@ -19,6 +21,7 @@ static PLT_THREAD decoderThread;
 static bool receivedDataFromPeer;
 static uint64_t firstDataTimeMs;
 static bool receivedFullFrame;
+static _Atomic uint64_t rtpVideoBytesReceived;
 
 // We can't request an IDR frame until the depacketizer knows
 // that a packet was lost. This timeout bounds the time that
@@ -39,6 +42,7 @@ void initializeVideoStream(void) {
     receivedDataFromPeer = false;
     firstDataTimeMs = 0;
     receivedFullFrame = false;
+    atomic_store_explicit(&rtpVideoBytesReceived, 0, memory_order_relaxed);
 }
 
 // Clean up the video stream
@@ -155,6 +159,14 @@ static void VideoReceiveThreadProc(void* context) {
             // Receive timed out; try again
             continue;
         }
+
+        // Keep the wire-level receive size before decryption changes `err` to
+        // the plaintext size. This is local accounting only; it does not
+        // affect the RTP protocol or packet processing.
+        const int receivedPacketLength = err;
+        atomic_fetch_add_explicit(&rtpVideoBytesReceived,
+                                  (uint64_t)receivedPacketLength,
+                                  memory_order_relaxed);
 
         if (!receivedDataFromPeer) {
             receivedDataFromPeer = true;
@@ -416,4 +428,8 @@ int startVideoStream(void* rendererContext, int drFlags) {
 
 const RTP_VIDEO_STATS* LiGetRTPVideoStats(void) {
     return &rtpQueue.stats;
+}
+
+uint64_t LiGetRTPVideoBytesReceived(void) {
+    return atomic_load_explicit(&rtpVideoBytesReceived, memory_order_relaxed);
 }
