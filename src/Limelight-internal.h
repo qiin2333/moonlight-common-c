@@ -21,6 +21,7 @@ extern SOCKADDR_LEN AddrLen;
 extern int AppVersionQuad[4];
 extern STREAM_CONFIGURATION StreamConfig;
 extern CONNECTION_LISTENER_CALLBACKS ListenerCallbacks;
+extern ConnListenerRemoteTextContext RemoteTextContextCallback;
 extern DECODER_RENDERER_CALLBACKS VideoCallbacks;
 extern AUDIO_RENDERER_CALLBACKS AudioCallbacks;
 extern int NegotiatedVideoFormat;
@@ -106,6 +107,7 @@ extern uint32_t EncryptionFeaturesEnabled;
 #define ML_FF_SESSION_ID_V1 0x02 // Client supports X-SS-Ping-Payload and X-SS-Connect-Data
 #define ML_FF_DS5_HAPTICS_PCM 0x04 // Client accepts authored DualSense PCM on the control stream
 #define ML_FF_DS5_HAPTICS_IR_V2 0x08 // Client selected simulated DualSense and accepts authored IR v2
+#define ML_FF_REMOTE_TEXT_CONTEXT 0x10 // Client accepts remote text context updates
 
 #define UDP_RECV_POLL_TIMEOUT_MS 100
 

@@ -646,6 +646,44 @@ typedef struct _LI_DS5_HAPTICS_IR_FRAME_V2 {
 } LI_DS5_HAPTICS_IR_FRAME_V2, *PLI_DS5_HAPTICS_IR_FRAME_V2;
 typedef void(*ConnListenerDs5HapticsIrV2)(const LI_DS5_HAPTICS_IR_FRAME_V2* frame);
 
+// A host-side text focus observation correlated with input from this client.
+// Coordinates use the capture coordinate space described by captureWidth/Height.
+#define LI_TEXT_CONTEXT_FLAG_ACTIVE        0x0001
+#define LI_TEXT_CONTEXT_FLAG_EDITABLE      0x0002
+#define LI_TEXT_CONTEXT_FLAG_PASSWORD      0x0004
+#define LI_TEXT_CONTEXT_FLAG_MULTILINE     0x0008
+#define LI_TEXT_CONTEXT_FLAG_ANCHOR_POINT  0x0010
+#define LI_TEXT_CONTEXT_FLAG_ELEMENT_RECT  0x0020
+#define LI_TEXT_CONTEXT_FLAG_CARET_RECT    0x0040
+#define LI_TEXT_CONTEXT_FLAG_INPUT_MATCHED 0x0080
+#define LI_TEXT_CONTEXT_FLAG_PANE_VISIBLE  0x0100
+#define LI_TEXT_CONTEXT_FLAG_AUTO_SHOW     0x0200
+#define LI_TEXT_CONTEXT_SOURCE_INPUT_PANE  1
+#define LI_TEXT_CONTEXT_SOURCE_UIA         2
+#define LI_TEXT_CONTEXT_CAUSE_REMOTE_TOUCH 1
+#define LI_TEXT_CONTEXT_CAUSE_REMOTE_MOUSE 2
+typedef struct _LI_REMOTE_TEXT_CONTEXT {
+    uint16_t flags;
+    uint32_t revision;
+    uint64_t activationId;
+    uint64_t inputToken;
+    uint8_t source;
+    uint8_t cause;
+    int32_t anchorX;
+    int32_t anchorY;
+    int32_t elementLeft;
+    int32_t elementTop;
+    int32_t elementRight;
+    int32_t elementBottom;
+    int32_t caretLeft;
+    int32_t caretTop;
+    int32_t caretRight;
+    int32_t caretBottom;
+    uint32_t captureWidth;
+    uint32_t captureHeight;
+} LI_REMOTE_TEXT_CONTEXT, *PLI_REMOTE_TEXT_CONTEXT;
+typedef void(*ConnListenerRemoteTextContext)(const LI_REMOTE_TEXT_CONTEXT* context);
+
 typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerStageStarting stageStarting;
     ConnListenerStageComplete stageComplete;
@@ -669,6 +707,11 @@ typedef struct _CONNECTION_LISTENER_CALLBACKS {
 
 // Use this function to zero the connection callbacks when allocated on the stack or heap
 void LiInitializeConnectionCallbacks(PCONNECTION_LISTENER_CALLBACKS clCallbacks);
+
+// Registers the optional remote text context callback without extending the
+// ABI-sensitive CONNECTION_LISTENER_CALLBACKS structure. Call before
+// LiStartConnection(). This function is not thread-safe.
+void LiSetRemoteTextContextCallback(ConnListenerRemoteTextContext callback);
 
 // ServerCodecModeSupport values
 #define SCM_H264            0x00000001
@@ -1260,6 +1303,7 @@ void LiRequestIdrFrame(void);
 #define LI_FF_TOUCHPAD_FRAME_EVENTS   0x20 // LiSendTouchpadFrameEvent() supported
 #define LI_FF_CURSOR_SHAPE            0x40 // Host can send local cursor shape updates
 #define LI_FF_DS5_HAPTICS_PCM         0x80 // Host can stream authored DualSense stereo PCM
+#define LI_FF_REMOTE_TEXT_CONTEXT     0x200 // Host can send InputPane/UIA text context updates
 #define LI_FF_DYNAMIC_SDR_WHITE      0x100 // Host accepts runtime client SDR reference white updates
 uint32_t LiGetHostFeatureFlags(void);
 
