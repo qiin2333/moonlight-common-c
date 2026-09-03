@@ -1752,8 +1752,10 @@ static void controlReceiveThreadFunc(void* context) {
                 }
             }
             else if (ctlHdr->type == packetTypes[IDX_REMOTE_TEXT_CONTEXT]) {
-                processRemoteTextContext((const uint8_t*)(ctlHdr + 1),
-                                         packetLength - (int)sizeof(*ctlHdr));
+                if (packetLength > (int)sizeof(*ctlHdr)) {
+                    processRemoteTextContext((const uint8_t*)(ctlHdr + 1),
+                                             packetLength - (int)sizeof(*ctlHdr));
+                }
             }
             else if (ctlHdr->type == packetTypes[IDX_TERMINATION]) {
                 BYTE_BUFFER bb;
