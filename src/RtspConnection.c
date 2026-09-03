@@ -1,3 +1,4 @@
+#include "DynamicHdr.h"
 #include "Limelight-internal.h"
 #include "Rtsp.h"
 
