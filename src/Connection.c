@@ -14,6 +14,7 @@ SOCKADDR_LEN AddrLen;
 int AppVersionQuad[4];
 STREAM_CONFIGURATION StreamConfig;
 CONNECTION_LISTENER_CALLBACKS ListenerCallbacks;
+ConnListenerRemoteTextContext RemoteTextContextCallback;
 DECODER_RENDERER_CALLBACKS VideoCallbacks;
 AUDIO_RENDERER_CALLBACKS AudioCallbacks;
 int NegotiatedVideoFormat;
@@ -27,6 +28,8 @@ bool AudioEncryptionEnabled;
 bool ReferenceFrameInvalidationSupported;
 int NegotiatedAudioCodec;
 int NegotiatedAudioBitrate;
+int NegotiatedDynamicHdrFormat;
+int NegotiatedDynamicHdrFallback;
 uint16_t RtspPortNumber;
 uint16_t ControlPortNumber;
 uint16_t AudioPortNumber;
@@ -74,6 +77,10 @@ void LiInterruptConnection(void) {
 void LiStopConnection(void) {
     // Disable termination callbacks now
     alreadyTerminated = true;
+
+    // Drop the stream socket registry before any socket is closed so
+    // consumers of LiGetStreamSockets() don't see dead descriptors
+    LiClearStreamSockets();
 
     // Set the interrupted flag
     LiInterruptConnection();
@@ -221,6 +228,10 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     PDECODER_RENDERER_CALLBACKS drCallbacks, PAUDIO_RENDERER_CALLBACKS arCallbacks, void* renderContext, int drFlags,
     void* audioContext, int arFlags) {
     int err;
+
+    // Start from a clean stream socket registry in case a prior session
+    // didn't go through LiStopConnection()
+    LiClearStreamSockets();
 
     if (drCallbacks != NULL && (drCallbacks->capabilities & CAPABILITY_PULL_RENDERER) && drCallbacks->submitDecodeUnit) {
         Limelog("CAPABILITY_PULL_RENDERER cannot be set with a submitDecodeUnit callback\n");

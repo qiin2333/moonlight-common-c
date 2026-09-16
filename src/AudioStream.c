@@ -103,6 +103,7 @@ int notifyAudioPortNegotiationComplete(void) {
     if (rtpSocket == INVALID_SOCKET) {
         return LastSocketFail();
     }
+    LiRecordStreamSocket(rtpSocket, STREAM_SOCKET_SLOT_AUDIO);
 
     // We may receive audio before our threads are started, but that's okay. We'll
     // drop the first 1 second of audio packets to catch up with the backlog.

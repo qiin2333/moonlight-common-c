@@ -120,6 +120,14 @@ void addrToUrlSafeString(struct sockaddr_storage* addr, char* string, size_t str
 #define SOCK_QOS_TYPE_AUDIO 1
 #define SOCK_QOS_TYPE_VIDEO 2
 
+// Stream socket registry slots for LiGetStreamSockets()
+#define STREAM_SOCKET_SLOT_VIDEO 0
+#define STREAM_SOCKET_SLOT_AUDIO 1
+#define STREAM_SOCKET_SLOT_CONTROL 2
+
+void LiRecordStreamSocket(SOCKET s, int slot);
+void LiClearStreamSockets(void);
+
 SOCKET createSocket(int addressFamily, int socketType, int protocol, bool nonBlocking);
 SOCKET connectTcpSocket(struct sockaddr_storage* dstaddr, SOCKADDR_LEN addrlen, unsigned short port, int timeoutSec);
 int getLocalAddressByUdpConnect(const struct sockaddr_storage* targetAddr, SOCKADDR_LEN targetAddrLen,  unsigned short targetPort,

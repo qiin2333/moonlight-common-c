@@ -2,8 +2,10 @@
 #include "CursorStream.h"
 #include "Ds5HapticsStream.h"
 #include "Ds5HapticsIrStream.h"
+#include "RemoteTextContextStream.h"
 
 #include <math.h>
+#include <stdatomic.h>
 
 // This is a private header, but it just contains some time macros
 #include <enet/time.h>
@@ -121,6 +123,7 @@ static int intervalGoodFrameCount;
 static int intervalTotalFrameCount;
 static uint64_t intervalStartTimeMs;
 static int lastIntervalLossPercentage;
+static atomic_uint lastIntervalLossBasisPoints;
 static int lastConnectionStatusUpdate;
 static uint32_t currentEnetSequenceNumber;
 static uint64_t firstFrameTimeMs;
@@ -168,6 +171,7 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 #define IDX_CURSOR 21
 #define IDX_DS5_HAPTICS_PCM 22
 #define IDX_DS5_HAPTICS_IR_V2 23
+#define IDX_REMOTE_TEXT_CONTEXT 24
 
 static CURSOR_STREAM_STATE cursorReassembly;
 
@@ -199,6 +203,7 @@ static const short packetTypesGen3[] = {
     -1,     // Cursor (unused)
     -1,     // DualSense haptics PCM (unused)
     -1,     // DualSense haptics IR v2 (unused)
+    -1,     // Remote text context (unused)
 };
 static const short packetTypesGen4[] = {
     0x0606, // Start A (Gen4 uses IDR request here)
@@ -225,6 +230,7 @@ static const short packetTypesGen4[] = {
     -1,     // Cursor (unused)
     -1,     // DualSense haptics PCM (unused)
     -1,     // DualSense haptics IR v2 (unused)
+    -1,     // Remote text context (unused)
 };
 static const short packetTypesGen5[] = {
     0x0305, // Start A
@@ -251,6 +257,7 @@ static const short packetTypesGen5[] = {
     -1,     // Cursor (unused)
     -1,     // DualSense haptics PCM (unused)
     -1,     // DualSense haptics IR v2 (unused)
+    -1,     // Remote text context (unused)
 };
 static const short packetTypesGen7[] = {
     0x0305, // Start A
@@ -277,6 +284,7 @@ static const short packetTypesGen7[] = {
     -1,     // Cursor (unused)
     -1,     // DualSense haptics PCM (unused)
     -1,     // DualSense haptics IR v2 (unused)
+    -1,     // Remote text context (unused)
 };
 static const short packetTypesGen7Enc[] = {
     0x0305, // Start A (index 0)
@@ -303,6 +311,7 @@ static const short packetTypesGen7Enc[] = {
     0x5509, // Local cursor mode/update (Sunshine protocol extension) (index 21)
     0x550A, // Authored DualSense haptics PCM (Sunshine protocol extension) (index 22)
     0x550B, // Device-independent DualSense haptics IR v2 (Sunshine protocol extension) (index 23)
+    0x550C, // Remote text context (Sunshine protocol extension) (index 24)
 };
 
 static const char requestIdrFrameGen3[] = { 0, 0 };
@@ -341,6 +350,7 @@ static const short payloadLengthsGen3[] = {
     -1,                          // Cursor (variable-length)
     -1,                          // DualSense haptics PCM (variable-length)
     -1,                          // DualSense haptics IR v2 (fixed payload, validated by parser)
+    -1,                          // Remote text context (fixed payload, validated by parser)
 };
 static const short payloadLengthsGen4[] = {
     sizeof(requestIdrFrameGen4), // Start A (Gen4 uses IDR request here)
@@ -367,6 +377,7 @@ static const short payloadLengthsGen4[] = {
     -1,                          // Cursor (variable-length)
     -1,                          // DualSense haptics PCM (variable-length)
     -1,                          // DualSense haptics IR v2 (fixed payload, validated by parser)
+    -1,                          // Remote text context (fixed payload, validated by parser)
 };
 static const short payloadLengthsGen5[] = {
     sizeof(startAGen5), // Start A
@@ -393,6 +404,7 @@ static const short payloadLengthsGen5[] = {
     -1,                 // Cursor (variable-length)
     -1,                 // DualSense haptics PCM (variable-length)
     -1,                 // DualSense haptics IR v2 (fixed payload, validated by parser)
+    -1,                 // Remote text context (fixed payload, validated by parser)
 };
 static const short payloadLengthsGen7[] = {
     sizeof(startAGen5), // Start A
@@ -419,6 +431,7 @@ static const short payloadLengthsGen7[] = {
     -1,                 // Cursor (variable-length)
     -1,                 // DualSense haptics PCM (variable-length)
     -1,                 // DualSense haptics IR v2 (fixed payload, validated by parser)
+    -1,                 // Remote text context (fixed payload, validated by parser)
 };
 static const short payloadLengthsGen7Enc[] = {
     sizeof(startAGen5),             // Start A
@@ -445,6 +458,7 @@ static const short payloadLengthsGen7Enc[] = {
     -1,                             // Cursor (variable-length)
     -1,                             // DualSense haptics PCM (variable-length)
     -1,                             // DualSense haptics IR v2 (fixed payload, validated by parser)
+    -1,                             // Remote text context (fixed payload, validated by parser)
 };
 
 static const char* preconstructedPayloadsGen3[] = {
@@ -472,6 +486,7 @@ static const char* preconstructedPayloadsGen3[] = {
     NULL,                // IDX_CURSOR
     NULL,                // IDX_DS5_HAPTICS_PCM
     NULL,                // IDX_DS5_HAPTICS_IR_V2
+    NULL,                // IDX_REMOTE_TEXT_CONTEXT
 };
 static const char* preconstructedPayloadsGen4[] = {
     requestIdrFrameGen4, // IDX_START_A
@@ -498,6 +513,7 @@ static const char* preconstructedPayloadsGen4[] = {
     NULL,                // IDX_CURSOR
     NULL,                // IDX_DS5_HAPTICS_PCM
     NULL,                // IDX_DS5_HAPTICS_IR_V2
+    NULL,                // IDX_REMOTE_TEXT_CONTEXT
 };
 static const char* preconstructedPayloadsGen5[] = {
     startAGen5, // IDX_START_A
@@ -508,6 +524,7 @@ static const char* preconstructedPayloadsGen5[] = {
     NULL, // IDX_CURSOR
     NULL, // IDX_DS5_HAPTICS_PCM
     NULL, // IDX_DS5_HAPTICS_IR_V2
+    NULL, // IDX_REMOTE_TEXT_CONTEXT
 };
 static const char* preconstructedPayloadsGen7[] = {
     startAGen5, // IDX_START_A
@@ -518,6 +535,7 @@ static const char* preconstructedPayloadsGen7[] = {
     NULL, // IDX_CURSOR
     NULL, // IDX_DS5_HAPTICS_PCM
     NULL, // IDX_DS5_HAPTICS_IR_V2
+    NULL, // IDX_REMOTE_TEXT_CONTEXT
 };
 static const char* preconstructedPayloadsGen7Enc[] = {
     startAGen5,             // IDX_START_A
@@ -544,6 +562,7 @@ static const char* preconstructedPayloadsGen7Enc[] = {
     NULL,                   // IDX_CURSOR
     NULL,                   // IDX_DS5_HAPTICS_PCM
     NULL,                   // IDX_DS5_HAPTICS_IR_V2
+    NULL,                   // IDX_REMOTE_TEXT_CONTEXT
 };
 
 static short* packetTypes;
@@ -609,6 +628,7 @@ int initializeControlStream(void) {
     intervalTotalFrameCount = 0;
     intervalStartTimeMs = 0;
     lastIntervalLossPercentage = 0;
+    atomic_store_explicit(&lastIntervalLossBasisPoints, 0, memory_order_relaxed);
     lastConnectionStatusUpdate = CONN_STATUS_OKAY;
     firstFrameTimeMs = 0;
     currentEnetSequenceNumber = 0;
@@ -752,6 +772,9 @@ void connectionSawFrame(uint32_t frameIndex) {
         if (intervalTotalFrameCount != 0) {
             // Notify the client of connection status changes based on frame loss rate
             int frameLossPercent = 100 - (intervalGoodFrameCount * 100) / intervalTotalFrameCount;
+            unsigned int frameLossBasisPoints = (unsigned int)llround(
+                10000.0 * (intervalTotalFrameCount - intervalGoodFrameCount) / intervalTotalFrameCount);
+            atomic_store_explicit(&lastIntervalLossBasisPoints, frameLossBasisPoints, memory_order_relaxed);
             if (lastConnectionStatusUpdate != CONN_STATUS_POOR &&
                     (frameLossPercent >= CONN_IMMEDIATE_POOR_LOSS_RATE ||
                      (frameLossPercent >= CONN_CONSECUTIVE_POOR_LOSS_RATE && lastIntervalLossPercentage >= CONN_CONSECUTIVE_POOR_LOSS_RATE))) {
@@ -775,6 +798,10 @@ void connectionSawFrame(uint32_t frameIndex) {
 
     intervalTotalFrameCount += frameIndex - lastSeenFrame;
     lastSeenFrame = frameIndex;
+}
+
+double LiGetEstimatedVideoFrameLossPercentage(void) {
+    return atomic_load_explicit(&lastIntervalLossBasisPoints, memory_order_relaxed) / 100.0;
 }
 
 // Reads an NV control stream packet from the TCP connection
@@ -1455,6 +1482,16 @@ static void dispatchDs5HapticsIrV2(const LI_DS5_HAPTICS_IR_FRAME_V2* frame, void
     ListenerCallbacks.ds5HapticsIrV2(frame);
 }
 
+static void processRemoteTextContext(const uint8_t* payload, int payloadLength) {
+    LI_REMOTE_TEXT_CONTEXT context;
+
+    if (RemoteTextContextCallback == NULL ||
+            !decodeRemoteTextContextPacket(payload, (size_t)payloadLength, &context)) {
+        return;
+    }
+    RemoteTextContextCallback(&context);
+}
+
 static void controlReceiveThreadFunc(void* context) {
     int err;
 
@@ -1712,6 +1749,12 @@ static void controlReceiveThreadFunc(void* context) {
                                                     packetLength - (int)sizeof(*ctlHdr),
                                                     dispatchDs5HapticsIrV2,
                                                     NULL);
+                }
+            }
+            else if (ctlHdr->type == packetTypes[IDX_REMOTE_TEXT_CONTEXT]) {
+                if (packetLength > (int)sizeof(*ctlHdr)) {
+                    processRemoteTextContext((const uint8_t*)(ctlHdr + 1),
+                                             packetLength - (int)sizeof(*ctlHdr));
                 }
             }
             else if (ctlHdr->type == packetTypes[IDX_TERMINATION]) {
@@ -2326,6 +2369,8 @@ int startControlStream(void) {
         // Ensure the connect verify ACK is sent immediately
         enet_host_flush(client);
 
+        LiRecordStreamSocket((SOCKET)client->socket, STREAM_SOCKET_SLOT_CONTROL);
+
 #ifdef __3DS__
         // Set the peer timeout to 1 minute and limit backoff to 2x RTT
         // The 3DS can take a bit longer to set up when starting fresh
@@ -2346,6 +2391,8 @@ int startControlStream(void) {
         }
 
         enableNoDelay(ctlSock);
+
+        LiRecordStreamSocket(ctlSock, STREAM_SOCKET_SLOT_CONTROL);
     }
 
     err = PltCreateThread("ControlRecv", controlReceiveThreadFunc, NULL, &controlReceiveThread);

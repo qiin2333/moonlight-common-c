@@ -96,6 +96,21 @@ typedef struct _STREAM_CONFIGURATION {
     // the transfer characteristics of the encoded video stream.
     int hdrMode;
 
+    // Sunshine dynamic HDR negotiation (client opt-in). Leaving everything at
+    // zero makes this a legacy client: no negotiation attributes are sent and
+    // hosts keep their historical behavior.
+    //
+    // dynamicHdrCaps bits: 1 << 0 = HDR10+, 1 << 1 = HDR Vivid PQ,
+    // 1 << 2 = HDR Vivid HLG, 1 << 3 = Dolby Vision Profile 8.1,
+    // 1 << 4 = Dolby Vision Profile 8.4 (HLG base layer).
+    // dynamicHdrPreference: 0 = automatic, 1 = Dolby Vision, 2 = HDR10+,
+    // 3 = HDR10 only. dolbyVisionDirectSurface qualifies the Dolby Vision
+    // cap bit (see the Sunshine dynamic HDR docs). Unknown capability bits
+    // are masked off by the host, so newer clients can safely set them.
+    int dynamicHdrCaps;
+    int dolbyVisionDirectSurface;
+    int dynamicHdrPreference;
+
     // Specifies the data streams where encryption may be enabled if supported
     // by the host PC. Ideally, you would pass ENCFLG_ALL to encrypt everything
     // that we support encrypting. However, lower performance hardware may not
@@ -631,6 +646,44 @@ typedef struct _LI_DS5_HAPTICS_IR_FRAME_V2 {
 } LI_DS5_HAPTICS_IR_FRAME_V2, *PLI_DS5_HAPTICS_IR_FRAME_V2;
 typedef void(*ConnListenerDs5HapticsIrV2)(const LI_DS5_HAPTICS_IR_FRAME_V2* frame);
 
+// A host-side text focus observation correlated with input from this client.
+// Coordinates use the capture coordinate space described by captureWidth/Height.
+#define LI_TEXT_CONTEXT_FLAG_ACTIVE        0x0001
+#define LI_TEXT_CONTEXT_FLAG_EDITABLE      0x0002
+#define LI_TEXT_CONTEXT_FLAG_PASSWORD      0x0004
+#define LI_TEXT_CONTEXT_FLAG_MULTILINE     0x0008
+#define LI_TEXT_CONTEXT_FLAG_ANCHOR_POINT  0x0010
+#define LI_TEXT_CONTEXT_FLAG_ELEMENT_RECT  0x0020
+#define LI_TEXT_CONTEXT_FLAG_CARET_RECT    0x0040
+#define LI_TEXT_CONTEXT_FLAG_INPUT_MATCHED 0x0080
+#define LI_TEXT_CONTEXT_FLAG_PANE_VISIBLE  0x0100
+#define LI_TEXT_CONTEXT_FLAG_AUTO_SHOW     0x0200
+#define LI_TEXT_CONTEXT_SOURCE_INPUT_PANE  1
+#define LI_TEXT_CONTEXT_SOURCE_UIA         2
+#define LI_TEXT_CONTEXT_CAUSE_REMOTE_TOUCH 1
+#define LI_TEXT_CONTEXT_CAUSE_REMOTE_MOUSE 2
+typedef struct _LI_REMOTE_TEXT_CONTEXT {
+    uint16_t flags;
+    uint32_t revision;
+    uint64_t activationId;
+    uint64_t inputToken;
+    uint8_t source;
+    uint8_t cause;
+    int32_t anchorX;
+    int32_t anchorY;
+    int32_t elementLeft;
+    int32_t elementTop;
+    int32_t elementRight;
+    int32_t elementBottom;
+    int32_t caretLeft;
+    int32_t caretTop;
+    int32_t caretRight;
+    int32_t caretBottom;
+    uint32_t captureWidth;
+    uint32_t captureHeight;
+} LI_REMOTE_TEXT_CONTEXT, *PLI_REMOTE_TEXT_CONTEXT;
+typedef void(*ConnListenerRemoteTextContext)(const LI_REMOTE_TEXT_CONTEXT* context);
+
 typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerStageStarting stageStarting;
     ConnListenerStageComplete stageComplete;
@@ -654,6 +707,11 @@ typedef struct _CONNECTION_LISTENER_CALLBACKS {
 
 // Use this function to zero the connection callbacks when allocated on the stack or heap
 void LiInitializeConnectionCallbacks(PCONNECTION_LISTENER_CALLBACKS clCallbacks);
+
+// Registers the optional remote text context callback without extending the
+// ABI-sensitive CONNECTION_LISTENER_CALLBACKS structure. Call before
+// LiStartConnection(). This function is not thread-safe.
+void LiSetRemoteTextContextCallback(ConnListenerRemoteTextContext callback);
 
 // ServerCodecModeSupport values
 #define SCM_H264            0x00000001
@@ -721,6 +779,30 @@ const char* LiGetStageName(int stage);
 // ENet for the control stream (very old versions), or if the ENet peer is not connected.
 // This function may only be called between LiStartConnection() and LiStopConnection().
 bool LiGetEstimatedRttInfo(uint32_t* estimatedRtt, uint32_t* estimatedRttVariance);
+
+// Describes a streaming socket created by LiStartConnection(). fd is -1 when
+// the socket is unavailable (stream not started or not applicable).
+typedef struct _LI_STREAM_SOCKET {
+    // OS file descriptor for the socket
+    int fd;
+
+    // Local port in host byte order (0 if unavailable)
+    uint16_t localPort;
+} LI_STREAM_SOCKET;
+
+// Describes the live streaming sockets. Video and audio RTP run over UDP.
+// The control stream runs over UDP (ENet) on Gen5+ servers, or over TCP
+// on legacy ones.
+typedef struct _LI_STREAM_SOCKETS {
+    LI_STREAM_SOCKET videoRtp;
+    LI_STREAM_SOCKET audioRtp;
+    LI_STREAM_SOCKET control;
+} LI_STREAM_SOCKETS;
+
+// Populates the given struct with the live streaming sockets. Sockets that
+// are not currently open have fd set to -1. This function may only be called
+// between LiStartConnection() and LiStopConnection().
+void LiGetStreamSockets(LI_STREAM_SOCKETS* sockets);
 
 // This function queues a relative mouse move event to be sent to the remote server.
 int LiSendMouseMoveEvent(short deltaX, short deltaY);
@@ -1101,6 +1183,15 @@ typedef struct _RTP_VIDEO_STATS {
 
 const RTP_VIDEO_STATS* LiGetRTPVideoStats(void);
 
+// Returns the total wire-level bytes received on the video RTP socket for the
+// active stream. The counter is reset when the video stream is initialized.
+uint64_t LiGetRTPVideoBytesReceived(void);
+
+// Returns the percentage of video frames lost by the network during the most
+// recent connection-status sampling interval. Decoder and renderer drops are
+// not included. The value is updated every 3 seconds after the stream settles.
+double LiGetEstimatedVideoFrameLossPercentage(void);
+
 // Port index flags for use with LiGetPortFromPortFlagIndex() and LiGetProtocolFromPortFlagIndex()
 #define ML_PORT_INDEX_TCP_47984 0
 #define ML_PORT_INDEX_TCP_47989 1
@@ -1212,6 +1303,7 @@ void LiRequestIdrFrame(void);
 #define LI_FF_TOUCHPAD_FRAME_EVENTS   0x20 // LiSendTouchpadFrameEvent() supported
 #define LI_FF_CURSOR_SHAPE            0x40 // Host can send local cursor shape updates
 #define LI_FF_DS5_HAPTICS_PCM         0x80 // Host can stream authored DualSense stereo PCM
+#define LI_FF_REMOTE_TEXT_CONTEXT     0x200 // Host can send InputPane/UIA text context updates
 #define LI_FF_DYNAMIC_SDR_WHITE      0x100 // Host accepts runtime client SDR reference white updates
 uint32_t LiGetHostFeatureFlags(void);
 
@@ -1253,6 +1345,26 @@ int LiGetNegotiatedAudioCodec(void);
 // Returns the audio bitrate (bps) negotiated for AC3/E-AC3 sessions, or 0 when
 // audioCodec == AUDIO_CODEC_OPUS. Valid only after AudioRendererInit.
 int LiGetNegotiatedAudioBitrate(void);
+
+// The DYNAMIC_HDR_CAPS_*/FORMAT_*/FALLBACK_* wire constants live in the
+// opt-in header DynamicHdr.h. Object-like macros with those names collide
+// textually with the Sunshine host's C++ enumerators in
+// hdr/dynamic_hdr_selection.h when both headers meet in one translation
+// unit, so they must not leak out of this kitchen-sink header.
+
+// Returns the dynamic HDR format the Sunshine host selected for this session,
+// parsed from the X-SS-Dynamic-HDR RTSP ANNOUNCE response header. Hosts
+// without the extension (or sessions that sent no capabilities) yield
+// DYNAMIC_HDR_FORMAT_NONE. Valid only after the RTSP handshake completes.
+int LiGetNegotiatedDynamicHdrFormat(void);
+
+// Returns the reason Dolby Vision was not selected despite the client asking
+// for it, parsed from X-SS-Dynamic-HDR-Fallback. The wire carries the enum
+// name string; these numbers are stable identities, so a removed member
+// leaves a gap instead of shifting the rest (1 was host_disabled, retired
+// when the host opened the negotiation unconditionally). Unknown names map
+// to DYNAMIC_HDR_FALLBACK_NONE.
+int LiGetNegotiatedDynamicHdrFallback(void);
 
 #ifdef __cplusplus
 }

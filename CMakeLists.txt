@@ -133,6 +133,18 @@ if (BUILD_TESTING)
   endif()
   add_test(NAME cursor-protocol-golden-tests COMMAND cursor-protocol-golden-tests)
 
+  add_executable(remote-text-context-protocol-golden-tests
+    tests/RemoteTextContextStreamGoldenTest.c
+    src/RemoteTextContextStream.c
+  )
+  target_include_directories(remote-text-context-protocol-golden-tests PRIVATE src)
+  if(MSVC)
+    target_compile_options(remote-text-context-protocol-golden-tests PRIVATE /W3 /WX)
+  else()
+    target_compile_options(remote-text-context-protocol-golden-tests PRIVATE -Wall -Wextra -Werror)
+  endif()
+  add_test(NAME remote-text-context-protocol-golden-tests COMMAND remote-text-context-protocol-golden-tests)
+
   add_executable(ds5-haptics-protocol-golden-tests
     tests/Ds5HapticsStreamGoldenTest.c
     src/Ds5HapticsStream.c

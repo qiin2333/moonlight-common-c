@@ -140,6 +140,10 @@ void LiInitializeConnectionCallbacks(PCONNECTION_LISTENER_CALLBACKS clCallbacks)
     memset(clCallbacks, 0, sizeof(*clCallbacks));
 }
 
+void LiSetRemoteTextContextCallback(ConnListenerRemoteTextContext callback) {
+    RemoteTextContextCallback = callback;
+}
+
 void LiInitializeServerInformation(PSERVER_INFORMATION serverInfo) {
     memset(serverInfo, 0, sizeof(*serverInfo));
 }
@@ -162,4 +166,12 @@ int LiGetNegotiatedAudioCodec(void) {
 
 int LiGetNegotiatedAudioBitrate(void) {
     return NegotiatedAudioBitrate;
+}
+
+int LiGetNegotiatedDynamicHdrFormat(void) {
+    return NegotiatedDynamicHdrFormat;
+}
+
+int LiGetNegotiatedDynamicHdrFallback(void) {
+    return NegotiatedDynamicHdrFallback;
 }
