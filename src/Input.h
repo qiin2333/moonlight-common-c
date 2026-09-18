@@ -252,4 +252,15 @@ typedef struct _MIC_STREAM_CONFIGURATION {
     int bitrate;
 } MIC_STREAM_CONFIGURATION, *PMIC_STREAM_CONFIGURATION;
 
+// Negotiated by ML_FF_CONTROLLER_HAPTICS / LI_FF_CONTROLLER_HAPTICS.
+// Same reliable ENet channel as this player's arrival/removal. Reserved bytes
+// must be zero; ready is 0 or 1. No button state or capability mutation.
+#define SS_CONTROLLER_HAPTICS_MAGIC 0x5500000B
+typedef struct _SS_CONTROLLER_HAPTICS_PACKET {
+    NV_INPUT_HEADER header;
+    uint8_t controllerNumber;
+    uint8_t ready;
+    uint8_t reserved[2];
+} SS_CONTROLLER_HAPTICS_PACKET, *PSS_CONTROLLER_HAPTICS_PACKET;
+
 #pragma pack(pop)

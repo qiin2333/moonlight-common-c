@@ -121,6 +121,10 @@ target_include_directories(moonlight-common-c SYSTEM PRIVATE
 target_compile_definitions(moonlight-common-c PRIVATE HAS_SOCKLEN_T)
 
 if (BUILD_TESTING)
+  add_executable(controller-haptics-tests tests/ControllerHapticsTest.c)
+  target_include_directories(controller-haptics-tests PRIVATE src)
+  add_test(NAME controller-haptics-tests COMMAND controller-haptics-tests)
+
   add_executable(cursor-protocol-golden-tests
     tests/CursorStreamGoldenTest.c
     src/CursorStream.c

@@ -73,6 +73,7 @@ typedef struct _PACKET_HOLDER {
         SS_TOUCHPAD_FRAME_PACKET touchpadFrame;
         SS_PEN_PACKET pen;
         SS_CONTROLLER_ARRIVAL_PACKET controllerArrival;
+        SS_CONTROLLER_HAPTICS_PACKET controllerHaptics;
         SS_CONTROLLER_TOUCH_PACKET controllerTouch;
         SS_CONTROLLER_MOTION_PACKET controllerMotion;
         SS_CONTROLLER_BATTERY_PACKET controllerBattery;
@@ -1566,6 +1567,26 @@ int LiSendPenEvent(uint8_t eventType, uint8_t toolType, uint8_t penButtons,
         freePacketHolder(holder);
     }
 
+    return err;
+}
+
+int LiSendControllerHapticsState(uint8_t controllerNumber, bool ready) {
+    if (!initialized) return -2;
+    if (!StreamConfig.perControllerHaptics || ListenerCallbacks.ds5HapticsPcm == NULL ||
+        !(SunshineFeatureFlags & LI_FF_CONTROLLER_HAPTICS)) return LI_ERR_UNSUPPORTED;
+    if (controllerNumber >= MAX_GAMEPADS) return -3;
+
+    PPACKET_HOLDER holder = allocatePacketHolder(0);
+    if (holder == NULL) return -1;
+    holder->channelId = CTRL_CHANNEL_GAMEPAD_BASE + controllerNumber;
+    holder->enetPacketFlags = ENET_PACKET_FLAG_RELIABLE;
+    memset(&holder->packet.controllerHaptics, 0, sizeof(SS_CONTROLLER_HAPTICS_PACKET));
+    holder->packet.controllerHaptics.header.size = BE32(sizeof(SS_CONTROLLER_HAPTICS_PACKET) - sizeof(uint32_t));
+    holder->packet.controllerHaptics.header.magic = LE32(SS_CONTROLLER_HAPTICS_MAGIC);
+    holder->packet.controllerHaptics.controllerNumber = controllerNumber;
+    holder->packet.controllerHaptics.ready = ready ? 1 : 0;
+    int err = LbqOfferQueueItem(&packetQueue, holder, &holder->entry);
+    if (err != LBQ_SUCCESS) freePacketHolder(holder);
     return err;
 }
 

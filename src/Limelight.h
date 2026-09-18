@@ -151,6 +151,11 @@ typedef struct _STREAM_CONFIGURATION {
     // 0 means "host default" (Sunshine uses 640000 for AC3, 384000 for E-AC3).
     // Ignored when audioCodec == OPUS.
     int audioBitrate;
+
+    // Opt into per-controller PCM readiness. Requires ds5HapticsPcm callback.
+    // On older hosts PCM is NOT advertised, preserving host rumble synthesis.
+    // Zero retains the historical session-wide PCM behavior for existing clients.
+    bool perControllerHaptics;
 } STREAM_CONFIGURATION, *PSTREAM_CONFIGURATION;
 
 // Use this function to zero the stream configuration when allocated on the stack or heap
@@ -1040,8 +1045,16 @@ int LiSendMultiControllerEvent(short controllerNumber, short activeGamepadMask,
 #define LI_CCAP_RGB_LED         0x80 // Can set RGB LED state via ConnListenerSetControllerLED()
 #define LI_CCAP_DUAL_TOUCHPAD  0x100 // Reports touchpad events from 2 separate touchpads
 #define LI_CCAP_DS5_HAPTICS_PCM 0x200 // Can render authored DualSense stereo PCM feedback
+#define LI_CCAP_PREFER_DS5     0x8000 // Prefer DS5 in host auto mode; not a PCM readiness declaration
 int LiSendControllerArrivalEvent(uint8_t controllerNumber, uint16_t activeGamepadMask, uint8_t type,
                                  uint32_t supportedButtonFlags, uint16_t capabilities);
+
+// Dynamically declare an operational PCM output for an allocated player (0..15).
+// Reliable and ordered with that player's arrival/removal; does not alter buttons
+// or recreate the virtual controller. Initially false, reset on controller removal.
+// Return 0 means queued, NOT a host acknowledgement. In-flight PCM may still arrive
+// after disabling. Requires perControllerHaptics and LI_FF_CONTROLLER_HAPTICS.
+int LiSendControllerHapticsState(uint8_t controllerNumber, bool ready);
 
 // This function is similar to LiSendTouchEvent(), but the touch events are associated with a
 // touchpad device present on a game controller instead of a touchscreen.
@@ -1304,6 +1317,7 @@ void LiRequestIdrFrame(void);
 #define LI_FF_CURSOR_SHAPE            0x40 // Host can send local cursor shape updates
 #define LI_FF_DS5_HAPTICS_PCM         0x80 // Host can stream authored DualSense stereo PCM
 #define LI_FF_REMOTE_TEXT_CONTEXT     0x200 // Host can send InputPane/UIA text context updates
+#define LI_FF_CONTROLLER_HAPTICS      0x400 // Negotiated per-player PCM readiness input messages
 #define LI_FF_DYNAMIC_SDR_WHITE      0x100 // Host accepts runtime client SDR reference white updates
 uint32_t LiGetHostFeatureFlags(void);
 
