@@ -78,7 +78,9 @@ static int addPacket(RTP_VIDEO_QUEUE* queue, uint16_t sequence, uint32_t frame,
     nv->flags = FLAG_CONTAINS_PIC_DATA | (index == 0 ? FLAG_SOF : 0) | (index == 3 ? FLAG_EOF : 0);
     nv->multiFecFlags = 0x10;
     nv->multiFecBlocks = (block << 4) | (1 << 6);
-    nv->fecInfo = LE32((4U << 22) | (index << 12) | (25U << 4));
+    // Exercise the ordinary no-recovery path in both builds. Debug enables
+    // synthetic recovery validation when FEC is present, requiring parity.
+    nv->fecInfo = LE32((4U << 22) | (index << 12));
     const int ret = RtpvAddPacket(queue, rtp, size, (PRTPV_QUEUE_ENTRY)(buffer + size));
     if (ret != RTPF_RET_QUEUED) {
         free(buffer);
@@ -89,6 +91,7 @@ static int addPacket(RTP_VIDEO_QUEUE* queue, uint16_t sequence, uint32_t frame,
 static void testRealQueueReportsNormalAndFailedBlocksOnce(void) {
     RTP_VIDEO_QUEUE queue;
     LI_VIDEO_NETWORK_SNAPSHOT snapshot;
+    CHECK(initializeControlStream() == 0);
     initializeVideoStream();
     RtpvInitializeQueue(&queue);
     for (uint32_t i = 0; i < 4; i++) {
@@ -98,8 +101,8 @@ static void testRealQueueReportsNormalAndFailedBlocksOnce(void) {
     CHECK(snapshot.completedBlocks == 1); // The no-recovery path is observed.
     CHECK(snapshot.completedFrames == 0); // Block 1 is still outstanding.
     CHECK(addPacket(&queue, 100, 1, 0, 0) == RTPF_RET_REJECTED);
-    CHECK(addPacket(&queue, 105, 1, 1, 0) == RTPF_RET_QUEUED);
-    CHECK(addPacket(&queue, 110, 2, 0, 0) == RTPF_RET_QUEUED);
+    CHECK(addPacket(&queue, 104, 1, 1, 0) == RTPF_RET_QUEUED);
+    CHECK(addPacket(&queue, 108, 2, 0, 0) == RTPF_RET_QUEUED);
     CHECK(LiGetVideoNetworkSnapshot(&snapshot));
     CHECK(snapshot.completedBlocks == 1);
     CHECK(snapshot.failedObservedBlocks == 1);
@@ -107,6 +110,7 @@ static void testRealQueueReportsNormalAndFailedBlocksOnce(void) {
     CHECK(snapshot.uniquePackets == 0); // Queue callbacks cannot create arrivals.
     RtpvCleanupQueue(&queue);
     destroyVideoStream();
+    destroyControlStream();
 }
 
 static void testReaderDuringDestructionAndReconnect(void) {
@@ -139,6 +143,7 @@ static void testRealRsRecoveryPreservesPayload(void) {
     const int payloadOffset = MAX_RTP_HEADER_SIZE + sizeof(NV_VIDEO_PACKET);
     RTP_VIDEO_QUEUE queue;
     LI_VIDEO_NETWORK_SNAPSHOT snapshot;
+    CHECK(initializeControlStream() == 0);
     initializeVideoStream();
     RtpvInitializeQueue(&queue);
     for (unsigned i = 0; i < total; i++) {
@@ -214,6 +219,7 @@ cleanup:
     }
     RtpvCleanupQueue(&queue);
     destroyVideoStream();
+    destroyControlStream();
 }
 
 int main(void) {
@@ -224,13 +230,11 @@ int main(void) {
     AppVersionQuad[1] = 1;
     AppVersionQuad[2] = 431;
     AppVersionQuad[3] = 0;
-    CHECK(initializeControlStream() == 0);
     testSamplingLifecycle();
     testRealQueueReportsNormalAndFailedBlocksOnce();
     testRealRsRecoveryPreservesPayload();
     testReaderDuringDestructionAndReconnect();
     CHECK(LiSetVideoNetworkObservationEnabled(false));
-    destroyControlStream();
     cleanupPlatform();
     printf("Video network lifecycle: 4 scenarios, %d failures\n", failures);
     return failures != 0;

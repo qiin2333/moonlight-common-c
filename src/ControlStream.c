@@ -557,7 +557,9 @@ static void resetCursorReassembly(void) {
 
 // Initializes the control stream
 int initializeControlStream(void) {
-    stopping = false;
+    // Initialization may be unwound before startControlStream() is reached.
+    // No worker owns these resources until startup begins.
+    stopping = true;
     PltCreateEvent(&idrFrameRequiredEvent);
     LbqInitializeLinkedBlockingQueue(&referenceFrameControlQueue, 20);
     LbqInitializeLinkedBlockingQueue(&frameFecStatusQueue, 8); // Limits number of frame status reports per periodic ping interval
@@ -2308,6 +2310,8 @@ bool LiGetEstimatedRttInfo(uint32_t* estimatedRtt, uint32_t* estimatedRttVarianc
 // Starts the control stream
 int startControlStream(void) {
     int err;
+
+    stopping = false;
 
     if (AppVersionQuad[0] >= 5) {
         ENetAddress remoteAddress, localAddress;
