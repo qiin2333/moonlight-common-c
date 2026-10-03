@@ -60,3 +60,17 @@ Configure with `-DBUILD_TESTING=ON` and run `ctest --test-dir build` to execute
 wire, observer, lifecycle and negotiation regression targets, including policy
 notice golden bytes and rejection/lifetime tests. These tests do not establish
 application/device operation, resource cost or QoE performance.
+
+The MbedTLS backend already uses PSA multipart AEAD. Configuration now checks
+that the installed crypto library can link that API; headers alone are not
+sufficient. CI builds the official MbedTLS 3.6.7 source archive with its pinned
+SHA-256 instead of the incompatible Ubuntu 2.28 package. The crypto regression
+executes an AES-128-GCM known-answer vector, rejects a modified authentication
+tag, and checks context reuse with a new nonce and a non-block-aligned payload.
+OpenSSL and MbedTLS run the same test without changing the production cipher.
+
+MSVC shared builds export library symbols. Tests that access internal connection
+globals use a private static library built from the same configured sources and
+dependencies, while the production DLL is still built. This avoids adding
+`dllimport` declarations to internal connection state. Run both Debug and Release
+tests; Debug retains assertions and the queue's synthetic RS recovery validation.
