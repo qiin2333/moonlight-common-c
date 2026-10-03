@@ -74,3 +74,10 @@ globals use a private static library built from the same configured sources and
 dependencies, while the production DLL is still built. This avoids adding
 `dllimport` declarations to internal connection state. Run both Debug and Release
 tests; Debug retains assertions and the queue's synthetic RS recovery validation.
+
+Observer locking remains independent of stream lifetime, so snapshot reads can
+race destruction without accessing a destroyed platform mutex. After 64 failed
+atomic attempts a contender uses the existing platform sleep for a nominal 1 ms
+pause and retries. This prevents an unbounded tight spin during report-history
+scans; it does not guarantee lock fairness, a 1 ms wake-up, or packet latency.
+Scheduler granularity and receive-delay cost still require device measurement.

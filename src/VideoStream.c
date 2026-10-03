@@ -54,7 +54,14 @@ static TPS_STATUS_RECEIVER transportPolicyStatus;
 // Lifetime-independent lock: the snapshot API may race stream destruction,
 // but it never touches a destroyed platform mutex or freed observer storage.
 static void lockNetworkObserver(void) {
-    while (atomic_flag_test_and_set_explicit(&networkObserverLock, memory_order_acquire)) {}
+    unsigned spins = 0;
+    while (atomic_flag_test_and_set_explicit(&networkObserverLock, memory_order_acquire)) {
+        // Let the owner run when report preparation contends with receive/API reads.
+        if (++spins >= 64) {
+            PltSleepMs(1);
+            spins = 0;
+        }
+    }
 }
 
 static void unlockNetworkObserver(void) {
