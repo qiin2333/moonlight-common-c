@@ -54,6 +54,9 @@ jobs:
             cmake_args: -DUSE_MBEDTLS=ON
             mbedtls: true
     runs-on: ${{ matrix.os }}
+    env:
+      CC: ${{ matrix.cc }}
+      CXX: ${{ matrix.cxx }}
     name: Build
     steps:
       - name: Checkout
