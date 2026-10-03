@@ -161,6 +161,27 @@ void notifyFrameLost(unsigned int frameNumber, bool speculative);
 void initializeVideoStream(void);
 void destroyVideoStream(void);
 void notifyKeyFrameReceived(void);
+void notifyVideoNetworkBlockResult(uint32_t dataPackets, uint32_t receivedDataPackets,
+                                   bool complete, bool lastBlock);
+bool isVideoPacketFeedbackRequested(void);
+bool isVideoPacketControlRequested(void);
+bool shouldAnnounceVideoPacketControl(void);
+void confirmVideoPacketControlNegotiation(const char* controlVersion);
+void resetVideoPacketControlNegotiation(void);
+void beginVideoPacketFeedbackConnection(void);
+void endVideoPacketFeedbackConnection(void);
+uint32_t parseVideoPacketControlSupportedVersion(const char* payload);
+extern uint32_t VideoPacketControlSupportedVersion;
+extern uint32_t TransportPolicyStatusSupportedVersion;
+bool shouldAnnounceTransportPolicyStatus(void);
+void confirmTransportPolicyStatusNegotiation(const char* version);
+void notifyTransportPolicyStatus(const uint8_t* payload, size_t length);
+extern uint32_t VideoPacketFeedbackSupportedVersion;
+extern uint64_t VideoPacketFeedbackConnectionEpoch;
+void notifyVideoPacketFeedbackReady(const uint8_t* payload, size_t length);
+struct _TF_PACKET_REPORT;
+bool prepareVideoPacketFeedbackReport(struct _TF_PACKET_REPORT* report);
+void commitVideoPacketFeedbackReport(const struct _TF_PACKET_REPORT* report);
 int startVideoStream(void* rendererContext, int drFlags);
 void stopVideoStream(void);
 

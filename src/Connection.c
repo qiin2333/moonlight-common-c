@@ -75,6 +75,7 @@ void LiInterruptConnection(void) {
 
 // Stop the connection by undoing the step at the current stage and those before it
 void LiStopConnection(void) {
+    resetVideoPacketControlNegotiation();
     // Disable termination callbacks now
     alreadyTerminated = true;
 
@@ -159,6 +160,7 @@ void LiStopConnection(void) {
         free(RemoteAddrString);
         RemoteAddrString = NULL;
     }
+    endVideoPacketFeedbackConnection();
 }
 
 static void terminationCallbackThreadFunc(void* context)
@@ -228,6 +230,9 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     PDECODER_RENDERER_CALLBACKS drCallbacks, PAUDIO_RENDERER_CALLBACKS arCallbacks, void* renderContext, int drFlags,
     void* audioContext, int arFlags) {
     int err;
+
+    // Freeze opt-in configuration before any handshake can read it.
+    beginVideoPacketFeedbackConnection();
 
     // Start from a clean stream socket registry in case a prior session
     // didn't go through LiStopConnection()

@@ -4,6 +4,7 @@
 #include "Ds5HapticsStream.h"
 #include "Ds5HapticsIrStream.h"
 #include "RemoteTextContextStream.h"
+#include "TransportFeedbackWire.h"
 
 #include <math.h>
 #include <stdatomic.h>
@@ -1007,6 +1008,12 @@ static bool sendMessageEnet(short ptype, int paylen, const void* payload, uint8_
         PltLockMutex(&enetMutex);
 
         encPacket = (PNVCTL_ENCRYPTED_PACKET_HEADER)enetPacket->data;
+        if (VideoPacketFeedbackConnectionEpoch && currentEnetSequenceNumber == UINT32_MAX) {
+            if (tempBuffer != tempBufferStack) free(tempBuffer);
+            enet_packet_destroy(enetPacket);
+            PltUnlockMutex(&enetMutex);
+            return false;
+        }
         encPacket->encryptedHeaderType = 0x0001;
         encPacket->length = encryptedLength;
         encPacket->seq = currentEnetSequenceNumber++;
@@ -1703,6 +1710,16 @@ static void controlReceiveThreadFunc(void* context) {
             if (needsAsyncCallback(ctlHdr->type)) {
                 queueAsyncCallback(ctlHdr, packetLength);
             }
+            else if (ctlHdr->type == TPS_STATUS_PACKET_TYPE) {
+                if (IS_SUNSHINE() && encryptedControlStream && (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2) &&
+                    VideoPacketFeedbackConnectionEpoch && packetLength == (int)(sizeof(*ctlHdr) + TPS_STATUS_BYTES))
+                    notifyTransportPolicyStatus((const uint8_t*)(ctlHdr + 1), TPS_STATUS_BYTES);
+            }
+            else if (ctlHdr->type == TF_READY_PACKET_TYPE) {
+                if (IS_SUNSHINE() && encryptedControlStream && (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2) &&
+                    VideoPacketFeedbackConnectionEpoch && packetLength == (int)(sizeof(*ctlHdr) + TF_READY_BYTES))
+                    notifyVideoPacketFeedbackReady((const uint8_t*)(ctlHdr + 1), TF_READY_BYTES);
+            }
             else if (ctlHdr->type == packetTypes[IDX_CLIPBOARD]) {
                 // Sunshine clipboard sync (0x5508). The payload is opaque (currently
                 // a v1 wire frame) and forwarded verbatim to the client. We dispatch
@@ -1872,6 +1889,17 @@ static void lossStatsThreadFunc(void* context) {
                 }
             }
 
+            if (IS_SUNSHINE() && encryptedControlStream && VideoPacketFeedbackConnectionEpoch) {
+                for (unsigned i = 0; i < 8; ++i) {
+                    TF_PACKET_REPORT report;
+                    if (!prepareVideoPacketFeedbackReport(&report)) break;
+                    uint8_t payload[TF_MAX_REPORT_BYTES];
+                    const size_t length = TfEncodeReport(&report, payload, sizeof(payload));
+                    if (!length || !sendMessageEnet(TF_REPORT_PACKET_TYPE, (short)length, payload,
+                        CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_UNSEQUENCED, false)) break;
+                    commitVideoPacketFeedbackReport(&report);
+                }
+            }
             // Send the message (and don't expect a response)
             //
             // NB: We send this periodic message as reliable to ensure the RTT is recomputed
@@ -1890,7 +1918,7 @@ static void lossStatsThreadFunc(void* context) {
             }
 
             // Wait a bit
-            PltSleepMsInterruptible(&lossStatsThread, PERIODIC_PING_INTERVAL_MS);
+            PltSleepMsInterruptible(&lossStatsThread, VideoPacketFeedbackConnectionEpoch ? 50 : PERIODIC_PING_INTERVAL_MS);
         }
     }
     else {

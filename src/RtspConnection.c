@@ -1,6 +1,7 @@
 #include "DynamicHdr.h"
 #include "Limelight-internal.h"
 #include "Rtsp.h"
+#include "TransportFeedbackWire.h"
 
 #define RTSP_CONNECT_TIMEOUT_SEC 10
 #define RTSP_RECEIVE_TIMEOUT_SEC 15
@@ -1091,6 +1092,29 @@ bool parseSdpAttributeToInt(const char* payload, const char* name, int* val) {
     return true;
 }
 
+// An authorization capability must be an exact SDP line/value, not a substring
+// or a permissively parsed integer prefix. Ambiguous duplicate offers fall back.
+uint32_t parseVideoPacketControlSupportedVersion(const char* payload) {
+    static const char attribute[] = "a=x-ss-video[0].packetControlVersion:";
+    bool found = false;
+    if (payload == NULL) return 0;
+    for (const char* line = payload; *line != '\0';) {
+        const char* end = strchr(line, '\n');
+        if (end == NULL) end = line + strlen(line);
+        if ((size_t)(end - line) >= sizeof(attribute) - 1 &&
+            memcmp(line, attribute, sizeof(attribute) - 1) == 0) {
+            const char* value = line + sizeof(attribute) - 1;
+            if (found || value == end || *value++ != '1') return 0;
+            while (value < end && (*value == ' ' || *value == '\t' || *value == '\r')) value++;
+            if (value != end) return 0;
+            found = true;
+        }
+        if (*end == '\0') break;
+        line = end + 1;
+    }
+    return found ? 1 : 0;
+}
+
 // Perform RTSP Handshake with the streaming server machine as part of the connection process
 int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
     int ret;
@@ -1103,6 +1127,11 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
     hasSessionId = false;
     controlStreamId = APP_VERSION_AT_LEAST(7, 1, 431) ? "streamid=control/13/0" : "streamid=control/1/0";
     AudioEncryptionEnabled = false;
+    VideoPacketFeedbackSupportedVersion = 0;
+    VideoPacketFeedbackConnectionEpoch = 0;
+    VideoPacketControlSupportedVersion = 0;
+    TransportPolicyStatusSupportedVersion = 0;
+    resetVideoPacketControlNegotiation();
     MicPortNumber = 0;
     encryptedRtspEnabled = serverInfo->rtspSessionUrl && strstr(serverInfo->rtspSessionUrl, "rtspenc://");
     encryptionCtx = PltCreateCryptoContext();
@@ -1358,6 +1387,11 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             EncryptionFeaturesRequested = 0;
         }
         EncryptionFeaturesEnabled = 0;
+        if (!parseSdpAttributeToUInt(response.payload, "x-ss-video[0].packetFeedbackVersion", &VideoPacketFeedbackSupportedVersion))
+            VideoPacketFeedbackSupportedVersion = 0;
+        VideoPacketControlSupportedVersion = parseVideoPacketControlSupportedVersion(response.payload);
+        if (!parseSdpAttributeToUInt(response.payload, "x-ss-video[0].policyStatusVersion", &TransportPolicyStatusSupportedVersion))
+            TransportPolicyStatusSupportedVersion = 0;
 
         // Parse the Opus surround parameters out of the RTSP DESCRIBE response.
         ret = parseOpusConfigurations(&response);
@@ -1630,7 +1664,21 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         // extension send no X-SS-Dynamic-HDR header; that is the legacy
         // outcome (DYNAMIC_HDR_FORMAT_NONE) rather than an error.
         parseDynamicHdrNegotiation(&response);
+        const char* feedbackVersion = getOptionContent(response.options, "X-SS-Packet-Feedback");
+        if (feedbackVersion != NULL) {
+            const char* epoch = getOptionContent(response.options, "X-SS-Transport-Epoch");
+            if (strcmp(feedbackVersion, TF_PACKET_FEEDBACK_PROFILE_VERSION_STRING) != 0 || !isVideoPacketFeedbackRequested() ||
+                VideoPacketFeedbackSupportedVersion != TF_PACKET_FEEDBACK_PROFILE_VERSION || StreamConfig.controlOnly ||
+                !(EncryptionFeaturesEnabled & SS_ENC_VIDEO) || !(EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2) ||
+                !TfParseEpoch(epoch, &VideoPacketFeedbackConnectionEpoch)) {
+                freeMessage(&response);
+                ret = -1;
+                goto Exit;
+            }
+        }
 
+        confirmVideoPacketControlNegotiation(getOptionContent(response.options, "X-SS-Packet-Control"));
+        confirmTransportPolicyStatusNegotiation(getOptionContent(response.options, "X-SS-Policy-Status"));
         freeMessage(&response);
     }
 
@@ -1731,6 +1779,7 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
     ret = 0;
 
 Exit:
+    if (ret != 0) resetVideoPacketControlNegotiation();
     // Cleanup the ENet stuff
     if (useEnet) {
         if (peer != NULL) {

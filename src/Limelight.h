@@ -6,6 +6,8 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "VideoNetworkSnapshot.h"
+#include "TransportPolicyStatus.h"
 
 #include "PyrowaveProtocol.h"
 
@@ -1194,6 +1196,31 @@ const RTP_VIDEO_STATS* LiGetRTPVideoStats(void);
 // Returns the total wire-level bytes received on the video RTP socket for the
 // active stream. The counter is reset when the video stream is initialized.
 uint64_t LiGetRTPVideoBytesReceived(void);
+
+// Opt-in sampling, disabled by default. Configure before starting a connection.
+// Returns false while connecting or connected; its receive path is frozen.
+// Sampling authenticates old-frame FEC tails and can cost additional CPU.
+bool LiSetVideoNetworkObservationEnabled(bool enabled);
+// Experimental measurement transport; disabled by default and frozen at start.
+// Requires negotiated video/control encryption and enables raw observation.
+bool LiSetVideoPacketFeedbackEnabled(bool enabled);
+// Separate, explicit authorization for experimental host network control.
+// Disabled by default; configure before connection start. Measurement alone
+// never grants control. Returns false while connecting or connected.
+bool LiSetVideoPacketControlEnabled(bool enabled);
+// True only after the host confirms control version 1 and encrypted profile 2
+// feedback with a nonzero transport epoch. Cleared on failure, stop/reconnect.
+bool LiGetVideoPacketControlNegotiated(void);
+
+// Copies an internally synchronized, versioned snapshot. Returns false if
+// sampling is disabled or the stream has been destroyed. These sequence-hole
+// counters are candidates, not a sender-confirmed network loss percentage.
+bool LiGetVideoNetworkSnapshot(LI_VIDEO_NETWORK_SNAPSHOT* snapshot);
+
+// Latest independently negotiated authenticated policy notice. This is a
+// query invalidation/progress hint, never a lease grant or operation receipt.
+// The copied value belongs to its connectionEpoch; stop/reconnect clears it.
+bool LiGetTransportPolicyStatusNotice(TPS_STATUS_NOTICE* notice);
 
 // Returns the percentage of video frames lost by the network during the most
 // recent connection-status sampling interval. Decoder and renderer drops are

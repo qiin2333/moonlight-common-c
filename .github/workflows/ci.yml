@@ -71,9 +71,11 @@ jobs:
           mkdir build_debug
           cmake ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Debug -B build_debug -S .
           cmake --build build_debug --config Debug
+          ctest --test-dir build_debug --build-config Debug --output-on-failure
 
       - name: Build Release
         run: |
           mkdir build_release
           cmake ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release -B build_release -S .
           cmake --build build_release --config Release
+          ctest --test-dir build_release --build-config Release --output-on-failure
