@@ -170,3 +170,27 @@ bool TfParseEpoch(const char* decimal, uint64_t* epoch) {
     *epoch = value;
     return true;
 }
+
+size_t TfEncodeProbePadding(uint16_t rtpSequence, size_t paddingBytes, uint8_t* output, size_t capacity) {
+    if (paddingBytes == 0 || paddingBytes > TF_PROBE_PADDING_MAX_BYTES || output == NULL) return 0;
+    const size_t length = TF_PROBE_PADDING_HEADER_BYTES + paddingBytes;
+    if (capacity < length) return 0;
+    memset(output, 0, length);
+    output[0] = 0xa0;
+    output[1] = TF_PROBE_PADDING_PAYLOAD_TYPE;
+    writeInteger(output + 2, rtpSequence, 2);
+    output[length - 1] = (uint8_t)paddingBytes;
+    return length;
+}
+
+bool TfDecodeProbePadding(const uint8_t* payload, size_t length, uint16_t* rtpSequence) {
+    if (payload == NULL || length <= TF_PROBE_PADDING_HEADER_BYTES ||
+        length > TF_PROBE_PADDING_HEADER_BYTES + TF_PROBE_PADDING_MAX_BYTES ||
+        payload[0] != 0xa0 || payload[1] != TF_PROBE_PADDING_PAYLOAD_TYPE ||
+        payload[length - 1] != length - TF_PROBE_PADDING_HEADER_BYTES) return false;
+    for (size_t i = 4; i < length - 1; ++i) {
+        if (payload[i] != 0) return false;
+    }
+    if (rtpSequence != NULL) *rtpSequence = (uint16_t)readInteger(payload + 2, 2);
+    return true;
+}

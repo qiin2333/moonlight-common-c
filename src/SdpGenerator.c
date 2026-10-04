@@ -361,6 +361,8 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
             err |= addAttributeString(&optionHead, "x-ss-video[0].packetFeedbackVersion", TF_PACKET_FEEDBACK_PROFILE_VERSION_STRING);
         if (shouldAnnounceVideoPacketControl())
             err |= addAttributeString(&optionHead, "x-ss-video[0].packetControlVersion", "1");
+        if (shouldAnnounceVideoProbePadding())
+            err |= addAttributeString(&optionHead, "x-ss-video[0].packetProbeVersion", "1");
         if (shouldAnnounceTransportPolicyStatus())
             err |= addAttributeString(&optionHead, "x-ss-video[0].policyStatusVersion", "1");
 

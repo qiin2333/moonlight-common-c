@@ -43,10 +43,12 @@ static bool packetFeedbackRequested;
 static bool packetFeedbackConnectionActive;
 static bool packetControlRequested;
 static bool packetControlNegotiated;
+static bool probePaddingNegotiated;
 static VIDEO_PACKET_FEEDBACK packetFeedback;
 uint32_t VideoPacketFeedbackSupportedVersion;
 uint64_t VideoPacketFeedbackConnectionEpoch;
 uint32_t VideoPacketControlSupportedVersion;
+uint32_t VideoProbePaddingSupportedVersion;
 uint32_t TransportPolicyStatusSupportedVersion;
 static bool transportPolicyStatusNegotiated;
 static TPS_STATUS_RECEIVER transportPolicyStatus;
@@ -109,6 +111,7 @@ void beginVideoPacketFeedbackConnection(void) {
     lockNetworkObserver();
     packetFeedbackConnectionActive = true;
     packetControlNegotiated = false;
+    probePaddingNegotiated = false;
     transportPolicyStatusNegotiated = false;
     TpsInitializeReceiver(&transportPolicyStatus, 0);
     unlockNetworkObserver();
@@ -117,6 +120,7 @@ void beginVideoPacketFeedbackConnection(void) {
 void endVideoPacketFeedbackConnection(void) {
     lockNetworkObserver();
     packetControlNegotiated = false;
+    probePaddingNegotiated = false;
     packetFeedbackConnectionActive = false;
     transportPolicyStatusNegotiated = false;
     TpsInitializeReceiver(&transportPolicyStatus, 0);
@@ -126,6 +130,7 @@ void endVideoPacketFeedbackConnection(void) {
 void resetVideoPacketControlNegotiation(void) {
     lockNetworkObserver();
     packetControlNegotiated = false;
+    probePaddingNegotiated = false;
     transportPolicyStatusNegotiated = false;
     TpsInitializeReceiver(&transportPolicyStatus, 0);
     unlockNetworkObserver();
@@ -165,6 +170,33 @@ bool isVideoPacketFeedbackRequested(void) {
     const bool requested = packetFeedbackRequested;
     unlockNetworkObserver();
     return requested;
+}
+
+static bool probePaddingAnnounceEligibleLocked(void) {
+    return packetFeedbackRequested && VideoProbePaddingSupportedVersion == TF_PROBE_PADDING_PROFILE_VERSION &&
+        VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION && !StreamConfig.controlOnly &&
+        (EncryptionFeaturesEnabled & SS_ENC_VIDEO) && (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2);
+}
+
+bool shouldAnnounceVideoProbePadding(void) {
+    lockNetworkObserver();
+    const bool eligible = probePaddingAnnounceEligibleLocked();
+    unlockNetworkObserver();
+    return eligible;
+}
+
+void confirmVideoProbePaddingNegotiation(const char* version) {
+    lockNetworkObserver();
+    probePaddingNegotiated = packetFeedbackConnectionActive && probePaddingAnnounceEligibleLocked() &&
+        VideoPacketFeedbackConnectionEpoch && version != NULL && strcmp(version, "1") == 0;
+    unlockNetworkObserver();
+}
+
+bool isVideoProbePaddingNegotiated(void) {
+    lockNetworkObserver();
+    const bool negotiated = packetFeedbackConnectionActive && probePaddingNegotiated;
+    unlockNetworkObserver();
+    return negotiated;
 }
 
 static bool policyStatusAnnounceEligibleLocked(void) {
@@ -301,6 +333,7 @@ void destroyVideoStream(void) {
     lockNetworkObserver();
     videoStreamInitialized = false;
     packetControlNegotiated = false;
+    probePaddingNegotiated = false;
     unlockNetworkObserver();
     PltDestroyCryptoContext(decryptionCtx);
     destroyVideoDepacketizer();
@@ -349,7 +382,11 @@ static void VideoReceiveThreadProc(void* context) {
     bool encrypted;
 
     encrypted = !!(EncryptionFeaturesEnabled & SS_ENC_VIDEO);
-    decryptedSize = StreamConfig.packetSize + MAX_RTP_HEADER_SIZE +
+    const bool probePadding = isVideoProbePaddingNegotiated();
+    decryptedSize = StreamConfig.packetSize + MAX_RTP_HEADER_SIZE;
+    if (probePadding && decryptedSize < TF_PROBE_PADDING_HEADER_BYTES + TF_PROBE_PADDING_MAX_BYTES)
+        decryptedSize = TF_PROBE_PADDING_HEADER_BYTES + TF_PROBE_PADDING_MAX_BYTES;
+    decryptedSize +=
         (VideoPacketFeedbackConnectionEpoch ? TF_VIDEO_IDENTITY_BYTES : 0);
     minSize = sizeof(RTP_PACKET) + ((EncryptionFeaturesEnabled & SS_ENC_VIDEO) ? sizeof(ENC_VIDEO_HEADER) : 0);
     receiveSize = decryptedSize + ((EncryptionFeaturesEnabled & SS_ENC_VIDEO) ? sizeof(ENC_VIDEO_HEADER) : 0);
@@ -515,6 +552,22 @@ static void VideoReceiveThreadProc(void* context) {
             }
             err -= TF_VIDEO_IDENTITY_BYTES;
             memmove(buffer, buffer + TF_VIDEO_IDENTITY_BYTES, (size_t)err);
+        }
+        // Padding belongs only to the separately negotiated authenticated
+        // transport. Observe its full identity before discarding it; it must
+        // never enter the RS queue, media frame numbering or depacketizer.
+        if (probePadding && encrypted && VideoPacketFeedbackConnectionEpoch && err > 0 &&
+            ((((const uint8_t*)buffer)[0] & 0x20) || (err > 1 &&
+                (((const uint8_t*)buffer)[1] & 0x7f) == TF_PROBE_PADDING_PAYLOAD_TYPE))) {
+            uint16_t sequence;
+            lockNetworkObserver();
+            const bool valid = TfDecodeProbePadding((const uint8_t*)buffer, (size_t)err, &sequence) &&
+                sequence == (uint16_t)transportSequence &&
+                VfObserveAuthenticated(&packetFeedback, &networkObserver, transportEpoch, transportSequence,
+                    (uint32_t)receivedPacketLength, arrivalUs);
+            if (!valid) networkObserver.snapshot.invalidPackets++;
+            unlockNetworkObserver();
+            continue;
         }
         bool validTransportIdentity = true;
         if (networkObservationEnabled) {

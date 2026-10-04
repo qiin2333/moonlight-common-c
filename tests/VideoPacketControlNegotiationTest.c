@@ -68,6 +68,54 @@ static void testStrictCapabilityParser(void) {
     CHECK(parseVideoPacketControlSupportedVersion("a=x-ss-video[0].packetControlVersion:1\r\na=x-ss-video[0].packetControlVersion:1\r\n") == 0);
 }
 
+static void testProbePaddingNegotiation(void) {
+    scenarios++;
+    CHECK(parseVideoProbePaddingSupportedVersion(NULL) == 0);
+    CHECK(parseVideoProbePaddingSupportedVersion("a=x-ss-video[0].packetProbeVersion:1\r\n") == 1);
+    const char* invalid[] = {"a=x-ss-video[0].packetProbeVersion:01\r\n", "a=x-ss-video[0].packetProbeVersion:2\r\n",
+        "a=x-ss-video[0].packetProbeVersion:1x\r\n", "a=x-ss-video[0].packetProbeVersion:1\r\na=x-ss-video[0].packetProbeVersion:1\r\n"};
+    for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i)
+        CHECK(parseVideoProbePaddingSupportedVersion(invalid[i]) == 0);
+    for (unsigned capability = 0; capability <= 2; ++capability) {
+        configure(true, true, 1, 2, SS_ENC_VIDEO | SS_ENC_CONTROL_V2, false);
+        VideoProbePaddingSupportedVersion = capability;
+        beginVideoPacketFeedbackConnection();
+        int length = 0;
+        char* sdp = getSdpPayloadForStreamConfig(14, &length);
+        CHECK(sdp != NULL);
+        if (sdp) {
+            CHECK((strstr(sdp, "a=x-ss-video[0].packetProbeVersion:1 ") != NULL) == (capability == 1));
+            free(sdp);
+        }
+        CHECK(!isVideoProbePaddingNegotiated());
+        confirmVideoProbePaddingNegotiation("1");
+        CHECK(!isVideoProbePaddingNegotiated()); // An acknowledged feedback epoch is required.
+        VideoPacketFeedbackConnectionEpoch = 42;
+        const char* rejected[] = {NULL, "0", "2", "01", "1x", "1 "};
+        for (unsigned i = 0; i < sizeof(rejected) / sizeof(rejected[0]); ++i) {
+            confirmVideoProbePaddingNegotiation(rejected[i]);
+            CHECK(!isVideoProbePaddingNegotiated());
+        }
+        confirmVideoProbePaddingNegotiation("1");
+        CHECK(isVideoProbePaddingNegotiated() == (capability == 1));
+        resetVideoPacketControlNegotiation();
+        CHECK(!isVideoProbePaddingNegotiated());
+        endVideoPacketFeedbackConnection();
+    }
+    for (unsigned gate = 0; gate < 5; ++gate) {
+        configure(false, gate != 0, 1, gate == 1 ? 1 : 2, SS_ENC_VIDEO | SS_ENC_CONTROL_V2, gate == 2);
+        VideoProbePaddingSupportedVersion = 1;
+        EncryptionFeaturesEnabled = gate == 3 ? SS_ENC_VIDEO : gate == 4 ? SS_ENC_CONTROL_V2 : SS_ENC_VIDEO | SS_ENC_CONTROL_V2;
+        beginVideoPacketFeedbackConnection();
+        VideoPacketFeedbackConnectionEpoch = 42;
+        CHECK(!shouldAnnounceVideoProbePadding());
+        confirmVideoProbePaddingNegotiation("1");
+        CHECK(!isVideoProbePaddingNegotiated());
+        endVideoPacketFeedbackConnection();
+    }
+    VideoProbePaddingSupportedVersion = 0;
+}
+
 static void testAcknowledgementAndLifecycle(void) {
     scenarios++;
     configure(true, true, 1, 2, SS_ENC_VIDEO | SS_ENC_CONTROL_V2, false);
@@ -162,6 +210,7 @@ int main(void) {
     announceScenario("missing-control-encryption", true, true, 1, 2, SS_ENC_VIDEO, false, false, false, 1392);
     announceScenario("control-only", true, true, 1, 2, encrypted, true, false, false, 1392);
     testStrictCapabilityParser();
+    testProbePaddingNegotiation();
     testAcknowledgementAndLifecycle();
     testAckRequiresEveryGate();
     CHECK(LiSetVideoPacketControlEnabled(false));

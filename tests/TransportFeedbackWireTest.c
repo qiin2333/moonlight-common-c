@@ -124,8 +124,52 @@ static void videoIdentityAndEpoch(void) {
     }
 }
 
+static void probePadding(void) {
+    const uint8_t golden[] = {0xa0,127,0x12,0x34,0,0,0,0,0,0,0,0,1};
+    uint16_t sequence = 0;
+    CHECK(TfDecodeProbePadding(golden, sizeof(golden), &sequence) && sequence == 0x1234);
+    CHECK(TfDecodeProbePadding(golden, sizeof(golden), NULL));
+    uint8_t bytes[TF_PROBE_PADDING_HEADER_BYTES + TF_PROBE_PADDING_MAX_BYTES];
+    CHECK(TfEncodeProbePadding(0x1234, 1, bytes, sizeof(bytes)) == sizeof(golden));
+    CHECK(memcmp(bytes, golden, sizeof(golden)) == 0);
+    for (size_t padding = 1; padding <= TF_PROBE_PADDING_MAX_BYTES; ++padding) {
+        const size_t length = TfEncodeProbePadding(UINT16_MAX, padding, bytes, sizeof(bytes));
+        CHECK(length == TF_PROBE_PADDING_HEADER_BYTES + padding);
+        CHECK(TfDecodeProbePadding(bytes, length, &sequence) && sequence == UINT16_MAX);
+    }
+}
+
+static void invalidProbePadding(void) {
+    uint8_t bytes[TF_PROBE_PADDING_HEADER_BYTES + TF_PROBE_PADDING_MAX_BYTES + 1];
+    uint8_t original[sizeof(bytes)];
+    memset(bytes, 0xa5, sizeof(bytes));
+    memcpy(original, bytes, sizeof(bytes));
+    CHECK(TfEncodeProbePadding(1, 0, bytes, sizeof(bytes)) == 0);
+    CHECK(TfEncodeProbePadding(1, 256, bytes, sizeof(bytes)) == 0);
+    CHECK(TfEncodeProbePadding(1, SIZE_MAX, bytes, sizeof(bytes)) == 0);
+    CHECK(TfEncodeProbePadding(1, 255, bytes, TF_PROBE_PADDING_HEADER_BYTES + 254) == 0);
+    CHECK(TfEncodeProbePadding(1, 1, NULL, sizeof(bytes)) == 0);
+    CHECK(memcmp(bytes, original, sizeof(bytes)) == 0);
+    const size_t length = TfEncodeProbePadding(0xffff, 255, bytes, sizeof(bytes));
+    CHECK(length == sizeof(bytes) - 1);
+    uint16_t sequence = 0xa55a;
+    CHECK(!TfDecodeProbePadding(NULL, length, &sequence) && sequence == 0xa55a);
+    for (size_t n = 0; n <= sizeof(bytes); ++n) {
+        if (n == length) continue;
+        CHECK(!TfDecodeProbePadding(bytes, n, &sequence) && sequence == 0xa55a);
+    }
+    for (size_t n = 0; n < length; ++n) {
+        if (n == 2 || n == 3) continue;
+        bytes[n] ^= 1;
+        CHECK(!TfDecodeProbePadding(bytes, length, &sequence) && sequence == 0xa55a);
+        bytes[n] ^= 1;
+    }
+    CHECK(TfDecodeProbePadding(bytes, length, &sequence) && sequence == 0xffff);
+}
+
 int main(void) {
     golden(); allSizes(); atomicFailure(); readyAndWrap(); mutations(); videoIdentityAndEpoch();
-    printf("Transport feedback wire: 6 scenarios, %d failures\n", failures);
+    probePadding(); invalidProbePadding();
+    printf("Transport feedback wire: 8 scenarios, %d failures\n", failures);
     return failures != 0;
 }

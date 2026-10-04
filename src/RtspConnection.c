@@ -1094,16 +1094,16 @@ bool parseSdpAttributeToInt(const char* payload, const char* name, int* val) {
 
 // An authorization capability must be an exact SDP line/value, not a substring
 // or a permissively parsed integer prefix. Ambiguous duplicate offers fall back.
-uint32_t parseVideoPacketControlSupportedVersion(const char* payload) {
-    static const char attribute[] = "a=x-ss-video[0].packetControlVersion:";
+static uint32_t parseExactVersionOne(const char* payload, const char* attribute) {
+    const size_t attributeLength = strlen(attribute);
     bool found = false;
     if (payload == NULL) return 0;
     for (const char* line = payload; *line != '\0';) {
         const char* end = strchr(line, '\n');
         if (end == NULL) end = line + strlen(line);
-        if ((size_t)(end - line) >= sizeof(attribute) - 1 &&
-            memcmp(line, attribute, sizeof(attribute) - 1) == 0) {
-            const char* value = line + sizeof(attribute) - 1;
+        if ((size_t)(end - line) >= attributeLength &&
+            memcmp(line, attribute, attributeLength) == 0) {
+            const char* value = line + attributeLength;
             if (found || value == end || *value++ != '1') return 0;
             while (value < end && (*value == ' ' || *value == '\t' || *value == '\r')) value++;
             if (value != end) return 0;
@@ -1113,6 +1113,14 @@ uint32_t parseVideoPacketControlSupportedVersion(const char* payload) {
         line = end + 1;
     }
     return found ? 1 : 0;
+}
+
+uint32_t parseVideoPacketControlSupportedVersion(const char* payload) {
+    return parseExactVersionOne(payload, "a=x-ss-video[0].packetControlVersion:");
+}
+
+uint32_t parseVideoProbePaddingSupportedVersion(const char* payload) {
+    return parseExactVersionOne(payload, "a=x-ss-video[0].packetProbeVersion:");
 }
 
 // Perform RTSP Handshake with the streaming server machine as part of the connection process
@@ -1130,6 +1138,7 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
     VideoPacketFeedbackSupportedVersion = 0;
     VideoPacketFeedbackConnectionEpoch = 0;
     VideoPacketControlSupportedVersion = 0;
+    VideoProbePaddingSupportedVersion = 0;
     TransportPolicyStatusSupportedVersion = 0;
     resetVideoPacketControlNegotiation();
     MicPortNumber = 0;
@@ -1390,6 +1399,7 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         if (!parseSdpAttributeToUInt(response.payload, "x-ss-video[0].packetFeedbackVersion", &VideoPacketFeedbackSupportedVersion))
             VideoPacketFeedbackSupportedVersion = 0;
         VideoPacketControlSupportedVersion = parseVideoPacketControlSupportedVersion(response.payload);
+        VideoProbePaddingSupportedVersion = parseVideoProbePaddingSupportedVersion(response.payload);
         if (!parseSdpAttributeToUInt(response.payload, "x-ss-video[0].policyStatusVersion", &TransportPolicyStatusSupportedVersion))
             TransportPolicyStatusSupportedVersion = 0;
 
@@ -1678,6 +1688,7 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         }
 
         confirmVideoPacketControlNegotiation(getOptionContent(response.options, "X-SS-Packet-Control"));
+        confirmVideoProbePaddingNegotiation(getOptionContent(response.options, "X-SS-Packet-Probe"));
         confirmTransportPolicyStatusNegotiation(getOptionContent(response.options, "X-SS-Policy-Status"));
         freeMessage(&response);
     }

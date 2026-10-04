@@ -26,6 +26,10 @@ extern "C" {
 #define TF_MAX_REPORT_BYTES (TF_REPORT_HEADER_BYTES + TF_MAX_PACKETS / 4 + TF_MAX_PACKETS * 3)
 #define TF_READY_BYTES 40
 #define TF_VIDEO_IDENTITY_BYTES 16
+#define TF_PROBE_PADDING_HEADER_BYTES 12
+#define TF_PROBE_PADDING_MAX_BYTES 255
+#define TF_PROBE_PADDING_PAYLOAD_TYPE 127
+#define TF_PROBE_PADDING_PROFILE_VERSION 1
 #define TF_MAX_ARRIVAL_AGE_US 0xffffffu
 #define TF_NO_ARRIVAL UINT64_MAX
 
@@ -70,6 +74,15 @@ bool TfDecodeReady(const uint8_t* payload, size_t length, TF_READY* ready);
 size_t TfEncodeVideoIdentity(uint64_t connectionEpoch, uint64_t sequence, uint8_t* output, size_t capacity);
 bool TfDecodeVideoIdentity(const uint8_t* payload, size_t length, uint64_t* connectionEpoch, uint64_t* sequence);
 bool TfParseEpoch(const char* decimal, uint64_t* epoch);
+
+// Canonical RTP padding-only packet: V2/P, no extension/CSRC/marker/media,
+// negotiated PT 127, zero timestamp/SSRC/padding, and the final padding count.
+// The caller must negotiate this separately, authenticate the full identity,
+// and observe then discard it before RS/codec processing. No nonce is allocated
+// here. RTP sequence must match the authenticated transport sequence's low bits.
+// Failure leaves output/sequence untouched. Decode allows a NULL sequence.
+size_t TfEncodeProbePadding(uint16_t rtpSequence, size_t paddingBytes, uint8_t* output, size_t capacity);
+bool TfDecodeProbePadding(const uint8_t* payload, size_t length, uint16_t* rtpSequence);
 
 // Diagnostic helper only; negotiated attribution uses the full video identity.
 // Use an authenticated sender watermark or a previously unambiguous packet as
