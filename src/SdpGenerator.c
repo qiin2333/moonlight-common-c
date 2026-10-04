@@ -283,6 +283,10 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         snprintf(payloadStr, sizeof(payloadStr), "%" PRIu32, moonlightFeatureFlags);
         err |= addAttributeString(&optionHead, "x-ml-general.featureFlags", payloadStr);
 
+        // Sunshine replies with x-ss-general.penBarrelRoll only when it can
+        // parse SS_PEN_BARREL_ROLL_PACKET and route the value to its pen backend.
+        err |= addAttributeString(&optionHead, "x-ml-general.penBarrelRoll", "1");
+
         // New-style control stream encryption is low overhead, so we enable it any time it is supported
         if (EncryptionFeaturesSupported & SS_ENC_CONTROL_V2) {
             EncryptionFeaturesEnabled |= SS_ENC_CONTROL_V2;

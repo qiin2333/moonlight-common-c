@@ -68,6 +68,7 @@ typedef struct _PACKET_HOLDER {
         NV_HAPTICS_PACKET haptics;
         SS_TOUCH_PACKET touch;
         SS_PEN_PACKET pen;
+        SS_PEN_BARREL_ROLL_PACKET penBarrelRoll;
         SS_CONTROLLER_ARRIVAL_PACKET controllerArrival;
         SS_CONTROLLER_TOUCH_PACKET controllerTouch;
         SS_CONTROLLER_MOTION_PACKET controllerMotion;
@@ -469,7 +470,9 @@ static void inputSendThreadProc(void* context) {
             lastMousePacketTime = now;
         }
         // If it's a pen packet, we should only send the latest move or hover events
-        else if (holder->packet.header.magic == LE32(SS_PEN_MAGIC) && TOUCH_EVENT_IS_BATCHABLE(holder->packet.pen.eventType)) {
+        else if ((holder->packet.header.magic == LE32(SS_PEN_MAGIC) ||
+                  holder->packet.header.magic == LE32(SS_PEN_BARREL_ROLL_MAGIC)) &&
+                 TOUCH_EVENT_IS_BATCHABLE(holder->packet.pen.eventType)) {
             uint64_t now = PltGetMillis();
 
             // Delay for batching if required
@@ -488,7 +491,8 @@ static void inputSendThreadProc(void* context) {
                 }
 
                 // If it's not a pen packet, we're done
-                if (penBatchHolder->packet.header.magic != LE32(SS_PEN_MAGIC)) {
+                if (penBatchHolder->packet.header.magic != LE32(SS_PEN_MAGIC) &&
+                    penBatchHolder->packet.header.magic != LE32(SS_PEN_BARREL_ROLL_MAGIC)) {
                     break;
                 }
 
@@ -1384,10 +1388,11 @@ int LiSendTouchEvent(uint8_t eventType, uint32_t pointerId, float x, float y, fl
     return err;
 }
 
-int LiSendPenEvent(uint8_t eventType, uint8_t toolType, uint8_t penButtons,
-                   float x, float y, float pressureOrDistance,
-                   float contactAreaMajor, float contactAreaMinor,
-                   uint16_t rotation, uint8_t tilt) {
+static int sendPenEvent(uint8_t eventType, uint8_t toolType, uint8_t penButtons,
+                        float x, float y, float pressureOrDistance,
+                        float contactAreaMajor, float contactAreaMinor,
+                        uint16_t rotation, uint8_t tilt, uint16_t barrelRoll,
+                        bool includeBarrelRoll) {
     PPACKET_HOLDER holder;
     int err;
 
@@ -1412,8 +1417,9 @@ int LiSendPenEvent(uint8_t eventType, uint8_t toolType, uint8_t penButtons,
     holder->enetPacketFlags = (TOUCH_EVENT_IS_BATCHABLE(eventType) && !(penButtons ^ currentPenButtonState)) ? 0 : ENET_PACKET_FLAG_RELIABLE;
     currentPenButtonState = penButtons;
 
-    holder->packet.pen.header.size = BE32(sizeof(SS_PEN_PACKET) - sizeof(uint32_t));
-    holder->packet.pen.header.magic = LE32(SS_PEN_MAGIC);
+    bool sendBarrelRoll = includeBarrelRoll && SunshinePenBarrelRollSupported;
+    holder->packet.pen.header.size = BE32((sendBarrelRoll ? sizeof(SS_PEN_BARREL_ROLL_PACKET) : sizeof(SS_PEN_PACKET)) - sizeof(uint32_t));
+    holder->packet.pen.header.magic = LE32(sendBarrelRoll ? SS_PEN_BARREL_ROLL_MAGIC : SS_PEN_MAGIC);
     holder->packet.pen.eventType = eventType;
     holder->packet.pen.toolType = toolType;
     holder->packet.pen.penButtons = penButtons;
@@ -1426,6 +1432,10 @@ int LiSendPenEvent(uint8_t eventType, uint8_t toolType, uint8_t penButtons,
     memset(holder->packet.pen.zero2, 0, sizeof(holder->packet.pen.zero2));
     floatToNetfloat(contactAreaMajor, holder->packet.pen.contactAreaMajor);
     floatToNetfloat(contactAreaMinor, holder->packet.pen.contactAreaMinor);
+    if (sendBarrelRoll) {
+        holder->packet.penBarrelRoll.barrelRoll = LE16(barrelRoll);
+        memset(holder->packet.penBarrelRoll.zero3, 0, sizeof(holder->packet.penBarrelRoll.zero3));
+    }
 
     err = LbqOfferQueueItem(&packetQueue, holder, &holder->entry);
     if (err != LBQ_SUCCESS) {
@@ -1435,6 +1445,24 @@ int LiSendPenEvent(uint8_t eventType, uint8_t toolType, uint8_t penButtons,
     }
 
     return err;
+}
+
+int LiSendPenEvent(uint8_t eventType, uint8_t toolType, uint8_t penButtons,
+                   float x, float y, float pressureOrDistance,
+                   float contactAreaMajor, float contactAreaMinor,
+                   uint16_t rotation, uint8_t tilt) {
+    return sendPenEvent(eventType, toolType, penButtons, x, y, pressureOrDistance,
+                        contactAreaMajor, contactAreaMinor, rotation, tilt,
+                        LI_BARREL_ROLL_UNKNOWN, false);
+}
+
+int LiSendPenEventWithBarrelRoll(uint8_t eventType, uint8_t toolType, uint8_t penButtons,
+                                 float x, float y, float pressureOrDistance,
+                                 float contactAreaMajor, float contactAreaMinor,
+                                 uint16_t rotation, uint8_t tilt, uint16_t barrelRoll) {
+    return sendPenEvent(eventType, toolType, penButtons, x, y, pressureOrDistance,
+                        contactAreaMajor, contactAreaMinor, rotation, tilt,
+                        barrelRoll, true);
 }
 
 int LiSendControllerArrivalEvent(uint8_t controllerNumber, uint16_t activeGamepadMask, uint8_t type,

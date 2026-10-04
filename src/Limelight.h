@@ -751,10 +751,20 @@ int LiSendTouchEvent(uint8_t eventType, uint32_t pointerId, float x, float y, fl
 #define LI_PEN_BUTTON_SECONDARY 0x02
 #define LI_PEN_BUTTON_TERTIARY  0x04
 #define LI_TILT_UNKNOWN 0xFF
+#define LI_BARREL_ROLL_UNKNOWN LI_ROT_UNKNOWN
 int LiSendPenEvent(uint8_t eventType, uint8_t toolType, uint8_t penButtons,
                    float x, float y, float pressureOrDistance,
                    float contactAreaMajor, float contactAreaMinor,
                    uint16_t rotation, uint8_t tilt);
+
+// This variant preserves the legacy rotation field (stylus azimuth) and adds
+// barrel roll in degrees (0..359). If the host doesn't explicitly negotiate
+// x-ss-general.penBarrelRoll, the event is sent as a legacy pen packet and
+// barrelRoll is ignored.
+int LiSendPenEventWithBarrelRoll(uint8_t eventType, uint8_t toolType, uint8_t penButtons,
+                                 float x, float y, float pressureOrDistance,
+                                 float contactAreaMajor, float contactAreaMinor,
+                                 uint16_t rotation, uint8_t tilt, uint16_t barrelRoll);
 
 // This function queues a mouse button event to be sent to the remote server.
 #define BUTTON_ACTION_PRESS 0x07

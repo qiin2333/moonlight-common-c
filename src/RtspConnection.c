@@ -1150,6 +1150,12 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             SunshineFeatureFlags = 0;
         }
 
+        // Barrel roll uses its own SDP capability instead of a reused feature
+        // flag bit, so older Sunshine releases always receive the legacy pen
+        // packet even if they set unrelated, unknown feature bits.
+        uint32_t penBarrelRollSupported;
+        SunshinePenBarrelRollSupported = parseSdpAttributeToUInt(response.payload, "x-ss-general.penBarrelRoll", &penBarrelRollSupported) && penBarrelRollSupported != 0;
+
         // Look for the Sunshine encryption flags in the SDP attributes
         if (!parseSdpAttributeToUInt(response.payload, "x-ss-general.encryptionSupported", &EncryptionFeaturesSupported)) {
             EncryptionFeaturesSupported = 0;

@@ -154,6 +154,27 @@ typedef struct _SS_PEN_PACKET {
     netfloat contactAreaMinor;
 } SS_PEN_PACKET, *PSS_PEN_PACKET;
 
+// Extended pen packet that adds barrel-roll data without changing the legacy
+// SS_PEN_PACKET layout. Hosts advertise support before clients send this packet.
+#define SS_PEN_BARREL_ROLL_MAGIC 0x5500000B
+typedef struct _SS_PEN_BARREL_ROLL_PACKET {
+    NV_INPUT_HEADER header;
+    uint8_t eventType;
+    uint8_t toolType;
+    uint8_t penButtons;
+    uint8_t zero[1]; // Alignment/reserved
+    netfloat x;
+    netfloat y;
+    netfloat pressureOrDistance;
+    uint16_t rotation; // Stylus azimuth, in degrees
+    uint8_t tilt;
+    uint8_t zero2[1];
+    netfloat contactAreaMajor;
+    netfloat contactAreaMinor;
+    uint16_t barrelRoll; // Stylus barrel roll, in degrees
+    uint16_t zero3[1]; // Alignment/reserved
+} SS_PEN_BARREL_ROLL_PACKET, *PSS_PEN_BARREL_ROLL_PACKET;
+
 #define SS_CONTROLLER_ARRIVAL_MAGIC 0x55000004
 typedef struct _SS_CONTROLLER_ARRIVAL_PACKET {
     NV_INPUT_HEADER header;

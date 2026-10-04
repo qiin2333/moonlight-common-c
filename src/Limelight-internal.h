@@ -45,6 +45,7 @@ extern SS_PING MicPingPayload;
 extern uint32_t ControlConnectData;
 
 extern uint32_t SunshineFeatureFlags;
+extern bool SunshinePenBarrelRollSupported;
 
 // Encryption flags shared by Sunshine and Moonlight in RTSP
 #define SS_ENC_CONTROL_V2 0x01
