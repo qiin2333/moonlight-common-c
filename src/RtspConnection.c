@@ -1376,7 +1376,6 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         RTSP_MESSAGE response;
         char* sessionId;
         char* pingPayload;
-        char* sessionToken;
         int error = -1;
         char* strtokCtx = NULL;
 
