@@ -1022,7 +1022,7 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
 
         encPacket = (PNVCTL_ENCRYPTED_PACKET_HEADER)enetPacket->data;
         encPacket->encryptedHeaderType = 0x0001;
-        encPacket->length = sizeof(encPacket->seq) + AES_GCM_TAG_LENGTH + plaintextLen;
+        encPacket->length = (unsigned short)(sizeof(encPacket->seq) + AES_GCM_TAG_LENGTH + plaintextLen);
         encPacket->seq = currentEnetSequenceNumber++;
 
         // Construct the plaintext data for encryption
