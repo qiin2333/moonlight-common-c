@@ -1242,7 +1242,56 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             goto Exit;
         }
 
-        if ((StreamConfig.supportedVideoFormats & VIDEO_FORMAT_MASK_AV1) && strstr(response.payload, "AV1/90000")) {
+        uint32_t pyrowaveProtocolVersion = 0;
+        uint32_t pyrowaveBitstreamVersion = 0;
+        uint32_t pyrowavePayloadVersion = 0;
+        uint32_t pyrowaveCapabilities = 0;
+        uint32_t pyrowaveMaxPacketSize = 0;
+        LI_PYROWAVE_CAPABILITIES pyrowaveServerCapabilities = { 0 };
+        LI_PYROWAVE_CAPABILITIES pyrowaveClientCapabilities = { 0 };
+        LI_PYROWAVE_CAPABILITIES pyrowaveNegotiatedCapabilities = { 0 };
+        const bool pyrowaveAdvertised =
+            parseSdpAttributeToUInt(response.payload, "x-ss-pyrowave.protocolVersion", &pyrowaveProtocolVersion) &&
+            parseSdpAttributeToUInt(response.payload, "x-ss-pyrowave.bitstreamVersion", &pyrowaveBitstreamVersion) &&
+            parseSdpAttributeToUInt(response.payload, "x-ss-pyrowave.payloadVersion", &pyrowavePayloadVersion) &&
+            parseSdpAttributeToUInt(response.payload, "x-ss-pyrowave.capabilityFlags", &pyrowaveCapabilities) &&
+            parseSdpAttributeToUInt(response.payload, "x-ss-pyrowave.maxPacketSize", &pyrowaveMaxPacketSize);
+        const bool pyrowaveVersionFieldsFit =
+            pyrowaveProtocolVersion <= UINT16_MAX &&
+            pyrowaveBitstreamVersion <= UINT16_MAX &&
+            pyrowavePayloadVersion <= UINT16_MAX;
+        if (pyrowaveAdvertised && pyrowaveVersionFieldsFit) {
+            pyrowaveServerCapabilities.protocolVersion = (uint16_t)pyrowaveProtocolVersion;
+            pyrowaveServerCapabilities.bitstreamVersion = (uint16_t)pyrowaveBitstreamVersion;
+            pyrowaveServerCapabilities.payloadVersion = (uint16_t)pyrowavePayloadVersion;
+            pyrowaveServerCapabilities.capabilityFlags = pyrowaveCapabilities;
+            pyrowaveServerCapabilities.maxPacketSize = pyrowaveMaxPacketSize;
+        }
+        pyrowaveClientCapabilities.protocolVersion = LI_PYROWAVE_PROTOCOL_VERSION;
+        pyrowaveClientCapabilities.bitstreamVersion = LI_PYROWAVE_BITSTREAM_VERSION;
+        pyrowaveClientCapabilities.payloadVersion = LI_PYROWAVE_PAYLOAD_VERSION;
+        const uint32_t pyrowaveRangeCapability =
+            StreamConfig.colorRange == COLOR_RANGE_FULL
+                ? LI_PYROWAVE_CAPABILITY_YUV_FULL_RANGE
+                : LI_PYROWAVE_CAPABILITY_YUV_LIMITED_RANGE;
+        const uint32_t pyrowaveRequiredCapabilities =
+            (StreamConfig.hdrMode == 1 ? LI_PYROWAVE_REQUIRED_HDR10_BASE_CAPABILITIES :
+             StreamConfig.hdrMode == 2 ? LI_PYROWAVE_REQUIRED_HLG_BASE_CAPABILITIES :
+             LI_PYROWAVE_REQUIRED_SDR_BASE_CAPABILITIES) |
+            pyrowaveRangeCapability;
+        pyrowaveClientCapabilities.capabilityFlags = pyrowaveRequiredCapabilities;
+        pyrowaveClientCapabilities.maxPacketSize = LI_PYROWAVE_MAX_PACKET_SIZE;
+        if ((StreamConfig.supportedVideoFormats & VIDEO_FORMAT_PYROWAVE) != 0 &&
+                (VideoCallbacks.capabilities & CAPABILITY_PYROWAVE) != 0 &&
+                pyrowaveAdvertised && pyrowaveVersionFieldsFit &&
+                LiPyrowaveNegotiate(
+                    &pyrowaveServerCapabilities,
+                    &pyrowaveClientCapabilities,
+                    pyrowaveRequiredCapabilities,
+                    &pyrowaveNegotiatedCapabilities) == LI_PYROWAVE_NEGOTIATION_OK) {
+            NegotiatedVideoFormat = VIDEO_FORMAT_PYROWAVE;
+        }
+        else if ((StreamConfig.supportedVideoFormats & VIDEO_FORMAT_MASK_AV1) && strstr(response.payload, "AV1/90000")) {
             if ((serverInfo->serverCodecModeSupport & SCM_AV1_HIGH10_444) && (StreamConfig.supportedVideoFormats & VIDEO_FORMAT_AV1_HIGH10_444)) {
                 NegotiatedVideoFormat = VIDEO_FORMAT_AV1_HIGH10_444;
             }

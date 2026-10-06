@@ -168,4 +168,29 @@ if (BUILD_TESTING)
     target_compile_options(ds5-haptics-ir-protocol-golden-tests PRIVATE -Wall -Wextra -Werror)
   endif()
   add_test(NAME ds5-haptics-ir-protocol-golden-tests COMMAND ds5-haptics-ir-protocol-golden-tests)
+
+  add_executable(pyrowave-protocol-golden-tests
+    tests/PyrowaveProtocolGoldenTest.c
+    src/PyrowaveProtocol.c
+  )
+  target_include_directories(pyrowave-protocol-golden-tests PRIVATE src)
+  if(MSVC)
+    target_compile_options(pyrowave-protocol-golden-tests PRIVATE /W3 /WX)
+  else()
+    target_compile_options(pyrowave-protocol-golden-tests PRIVATE -Wall -Wextra -Werror)
+  endif()
+  add_test(NAME pyrowave-protocol-golden-tests COMMAND pyrowave-protocol-golden-tests)
+
+  add_executable(pyrowave-reassembly-golden-tests
+    tests/PyrowaveReassemblyGoldenTest.c
+    src/PyrowaveProtocol.c
+    src/PyrowaveReassembly.c
+  )
+  target_include_directories(pyrowave-reassembly-golden-tests PRIVATE src)
+  if(MSVC)
+    target_compile_options(pyrowave-reassembly-golden-tests PRIVATE /W3 /WX)
+  else()
+    target_compile_options(pyrowave-reassembly-golden-tests PRIVATE -Wall -Wextra -Werror)
+  endif()
+  add_test(NAME pyrowave-reassembly-golden-tests COMMAND pyrowave-reassembly-golden-tests)
 endif()

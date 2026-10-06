@@ -18,6 +18,16 @@ static PLT_THREAD udpPingThread;
 static PLT_THREAD receiveThread;
 static PLT_THREAD decoderThread;
 
+// Pyrowave is intentionally queued even when the renderer advertises
+// CAPABILITY_DIRECT_SUBMIT for legacy codecs. Its decode/present callback is
+// synchronous, so it must be consumed by the decoder thread rather than the
+// receive thread.
+static bool videoNeedsDecoderThread(void) {
+    return (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE &&
+                (VideoCallbacks.capabilities & CAPABILITY_PULL_RENDERER) == 0) ||
+           (VideoCallbacks.capabilities & (CAPABILITY_DIRECT_SUBMIT | CAPABILITY_PULL_RENDERER)) == 0;
+}
+
 static bool receivedDataFromPeer;
 static uint64_t firstDataTimeMs;
 static bool receivedFullFrame;
@@ -296,7 +306,7 @@ void stopVideoStream(void) {
 
     PltInterruptThread(&udpPingThread);
     PltInterruptThread(&receiveThread);
-    if ((VideoCallbacks.capabilities & (CAPABILITY_DIRECT_SUBMIT | CAPABILITY_PULL_RENDERER)) == 0) {
+    if (videoNeedsDecoderThread()) {
         PltInterruptThread(&decoderThread);
     }
 
@@ -306,7 +316,7 @@ void stopVideoStream(void) {
 
     PltJoinThread(&udpPingThread);
     PltJoinThread(&receiveThread);
-    if ((VideoCallbacks.capabilities & (CAPABILITY_DIRECT_SUBMIT | CAPABILITY_PULL_RENDERER)) == 0) {
+    if (videoNeedsDecoderThread()) {
         PltJoinThread(&decoderThread);
     }
 
@@ -358,7 +368,7 @@ int startVideoStream(void* rendererContext, int drFlags) {
         return err;
     }
 
-    if ((VideoCallbacks.capabilities & (CAPABILITY_DIRECT_SUBMIT | CAPABILITY_PULL_RENDERER)) == 0) {
+    if (videoNeedsDecoderThread()) {
         err = PltCreateThread("VideoDec", VideoDecoderThreadProc, NULL, &decoderThread);
         if (err != 0) {
             VideoCallbacks.stop();
@@ -378,11 +388,11 @@ int startVideoStream(void* rendererContext, int drFlags) {
             VideoCallbacks.stop();
             stopVideoDepacketizer();
             PltInterruptThread(&receiveThread);
-            if ((VideoCallbacks.capabilities & (CAPABILITY_DIRECT_SUBMIT | CAPABILITY_PULL_RENDERER)) == 0) {
+            if (videoNeedsDecoderThread()) {
                 PltInterruptThread(&decoderThread);
             }
             PltJoinThread(&receiveThread);
-            if ((VideoCallbacks.capabilities & (CAPABILITY_DIRECT_SUBMIT | CAPABILITY_PULL_RENDERER)) == 0) {
+            if (videoNeedsDecoderThread()) {
                 PltJoinThread(&decoderThread);
             }
             closeSocket(rtpSocket);
@@ -398,11 +408,11 @@ int startVideoStream(void* rendererContext, int drFlags) {
         VideoCallbacks.stop();
         stopVideoDepacketizer();
         PltInterruptThread(&receiveThread);
-        if ((VideoCallbacks.capabilities & (CAPABILITY_DIRECT_SUBMIT | CAPABILITY_PULL_RENDERER)) == 0) {
+        if (videoNeedsDecoderThread()) {
             PltInterruptThread(&decoderThread);
         }
         PltJoinThread(&receiveThread);
-        if ((VideoCallbacks.capabilities & (CAPABILITY_DIRECT_SUBMIT | CAPABILITY_PULL_RENDERER)) == 0) {
+        if (videoNeedsDecoderThread()) {
             PltJoinThread(&decoderThread);
         }
         closeSocket(rtpSocket);

@@ -283,6 +283,32 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         if (RemoteTextContextCallback != NULL) {
             moonlightFeatureFlags |= ML_FF_REMOTE_TEXT_CONTEXT;
         }
+        if ((StreamConfig.supportedVideoFormats & VIDEO_FORMAT_PYROWAVE) != 0 &&
+                (VideoCallbacks.capabilities & CAPABILITY_PYROWAVE) != 0) {
+            moonlightFeatureFlags |= ML_FF_PYROWAVE;
+            snprintf(payloadStr, sizeof(payloadStr), "%u", LI_PYROWAVE_PROTOCOL_VERSION);
+            err |= addAttributeString(&optionHead, "x-ml-pyrowave.protocolVersion", payloadStr);
+            snprintf(payloadStr, sizeof(payloadStr), "%u", LI_PYROWAVE_BITSTREAM_VERSION);
+            err |= addAttributeString(&optionHead, "x-ml-pyrowave.bitstreamVersion", payloadStr);
+            snprintf(payloadStr, sizeof(payloadStr), "%u", LI_PYROWAVE_PAYLOAD_VERSION);
+            err |= addAttributeString(&optionHead, "x-ml-pyrowave.payloadVersion", payloadStr);
+            const uint32_t pyrowaveRangeCapability =
+                StreamConfig.colorRange == COLOR_RANGE_FULL
+                    ? LI_PYROWAVE_CAPABILITY_YUV_FULL_RANGE
+                    : LI_PYROWAVE_CAPABILITY_YUV_LIMITED_RANGE;
+            uint32_t pyrowaveCapabilities =
+                LI_PYROWAVE_REQUIRED_SDR_BASE_CAPABILITIES | pyrowaveRangeCapability;
+            if (StreamConfig.hdrMode == 1) {
+                pyrowaveCapabilities |= LI_PYROWAVE_CAPABILITY_HDR10_PQ_BT2020;
+            }
+            else if (StreamConfig.hdrMode == 2) {
+                pyrowaveCapabilities |= LI_PYROWAVE_CAPABILITY_HLG_BT2020;
+            }
+            snprintf(payloadStr, sizeof(payloadStr), "%u", pyrowaveCapabilities);
+            err |= addAttributeString(&optionHead, "x-ml-pyrowave.capabilityFlags", payloadStr);
+            snprintf(payloadStr, sizeof(payloadStr), "%u", LI_PYROWAVE_MAX_PACKET_SIZE);
+            err |= addAttributeString(&optionHead, "x-ml-pyrowave.maxPacketSize", payloadStr);
+        }
         snprintf(payloadStr, sizeof(payloadStr), "%" PRIu32, moonlightFeatureFlags);
         err |= addAttributeString(&optionHead, "x-ml-general.featureFlags", payloadStr);
 
@@ -465,7 +491,11 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         snprintf(payloadStr, sizeof(payloadStr), "%d", slicesPerFrame);
         err |= addAttributeString(&optionHead, "x-nv-video[0].videoEncoderSlicesPerFrame", payloadStr);
 
-        if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_AV1) {
+        if (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE) {
+            snprintf(payloadStr, sizeof(payloadStr), "%u", VIDEO_FORMAT_PYROWAVE);
+            err |= addAttributeString(&optionHead, "x-nv-vqos[0].bitStreamFormat", payloadStr);
+        }
+        else if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_AV1) {
             err |= addAttributeString(&optionHead, "x-nv-vqos[0].bitStreamFormat", "2");
         }
         else if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_H265) {
@@ -488,7 +518,15 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         if (AppVersionQuad[0] >= 7) {
             // Enable HDR if requested
             // dynamicRangeMode: 0 = SDR, 1 = HDR10/PQ, 2 = HLG
-            if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_10BIT) {
+            if (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE) {
+                // Pyrowave supports SDR BT.709 and static HDR10/PQ/HLG BT.2020,
+                // with the selected limited/full range carried separately.
+                // Dynamic HDR metadata and Dolby Vision remain on the legacy codec path.
+                err |= addAttributeString(&optionHead, "x-nv-video[0].dynamicRangeMode",
+                                          StreamConfig.hdrMode == 1 ? "1" :
+                                          StreamConfig.hdrMode == 2 ? "2" : "0");
+            }
+            else if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_10BIT) {
                 // Use the hdrMode from StreamConfig to determine the exact HDR type
                 // This allows the client to request HLG (mode 2) if supported
                 char hdrModeStr[2];
@@ -602,7 +640,15 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
     }
 
     if (AppVersionQuad[0] >= 7) {
-        snprintf(payloadStr, sizeof(payloadStr), "%d", (StreamConfig.colorSpace << 1) | StreamConfig.colorRange);
+        const int pyrowaveColorSpace =
+            (StreamConfig.hdrMode == 1 || StreamConfig.hdrMode == 2)
+                ? COLORSPACE_REC_2020
+                : COLORSPACE_REC_709;
+        const int encoderCscMode = NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE
+            ? ((pyrowaveColorSpace << 1) |
+               (StreamConfig.colorRange == COLOR_RANGE_FULL ? COLOR_RANGE_FULL : COLOR_RANGE_LIMITED))
+            : ((StreamConfig.colorSpace << 1) | StreamConfig.colorRange);
+        snprintf(payloadStr, sizeof(payloadStr), "%d", encoderCscMode);
         err |= addAttributeString(&optionHead, "x-nv-video[0].encoderCscMode", payloadStr);
     }
 
