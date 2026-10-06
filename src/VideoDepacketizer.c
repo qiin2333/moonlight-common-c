@@ -1,5 +1,7 @@
 #include "Limelight-internal.h"
 
+#include <limits.h>
+
 // Uncomment to test 3 byte Annex B start sequences with GFE
 //#define FORCE_3_BYTE_START_SEQUENCES
 
