@@ -1111,7 +1111,8 @@ int LiSendHScrollEvent(signed char scrollClicks);
 int LiSendHighResHScrollEvent(short scrollAmount);
 
 // Send an opaque clipboard payload to the host. `length` must be > 0 and
-// <= 65535. The host (AlkaidLab Sunshine fork) forwards the payload verbatim
+// <= 65511, leaving room for the encrypted control frame's 24-byte overhead.
+// The host (AlkaidLab Sunshine fork) forwards the payload verbatim
 // to its user-session GUI agent over an in-process bridge; the wire format
 // of the payload itself is defined by the GUI agent (currently v1: u8 version,
 // u8 kind, u32 token, u32 length, bytes payload, little-endian).

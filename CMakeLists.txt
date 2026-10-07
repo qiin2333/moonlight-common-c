@@ -121,6 +121,17 @@ target_include_directories(moonlight-common-c SYSTEM PRIVATE
 target_compile_definitions(moonlight-common-c PRIVATE HAS_SOCKLEN_T)
 
 if (BUILD_TESTING)
+  add_executable(control-stream-packet-tests
+    tests/ControlStreamPacketTest.c
+  )
+  target_include_directories(control-stream-packet-tests PRIVATE src)
+  if(MSVC)
+    target_compile_options(control-stream-packet-tests PRIVATE /W3 /WX)
+  else()
+    target_compile_options(control-stream-packet-tests PRIVATE -Wall -Wextra -Werror)
+  endif()
+  add_test(NAME control-stream-packet-tests COMMAND control-stream-packet-tests)
+
   add_executable(cursor-protocol-golden-tests
     tests/CursorStreamGoldenTest.c
     src/CursorStream.c
