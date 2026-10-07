@@ -59,7 +59,7 @@ static void atomicFailure(void) {
     for (size_t i = 0; i < sizeof(bytes); ++i) CHECK(bytes[i] == 0xab);
 }
 
-static void readyAndWrap(void) {
+static void ready(void) {
     TF_READY r = {UINT64_MAX, UINT64_MAX, INT64_MAX, 50, 256, 125000};
     uint8_t bytes[TF_READY_BYTES];
     CHECK(TfEncodeReady(&r, bytes, sizeof(bytes)) == sizeof(bytes));
@@ -67,12 +67,6 @@ static void readyAndWrap(void) {
     CHECK(TfDecodeReady(bytes, sizeof(bytes), &decoded));
     CHECK(decoded.connectionEpoch == UINT64_MAX && decoded.submittedThroughExclusive == UINT64_MAX);
     CHECK(decoded.senderSampleTimeUs == INT64_MAX && decoded.maxFeedbackWireBytesPerSecond == 125000);
-    uint64_t sequence = 123;
-    CHECK(TfUnwrapSequence24(2, 0xfffffe, &sequence) && sequence == 0x1000002);
-    CHECK(TfUnwrapSequence24(0xfffffe, 0x1000002, &sequence) && sequence == 0xfffffe);
-    CHECK(!TfUnwrapSequence24(0x800000, 0, &sequence) && sequence == 0xfffffe);
-    CHECK(!TfUnwrapSequence24(0, UINT64_MAX, &sequence));
-    CHECK(!TfUnwrapSequence24(0xffffff, 0, &sequence));
 }
 
 static void mutations(void) {
@@ -168,7 +162,7 @@ static void invalidProbePadding(void) {
 }
 
 int main(void) {
-    golden(); allSizes(); atomicFailure(); readyAndWrap(); mutations(); videoIdentityAndEpoch();
+    golden(); allSizes(); atomicFailure(); ready(); mutations(); videoIdentityAndEpoch();
     probePadding(); invalidProbePadding();
     printf("Transport feedback wire: 8 scenarios, %d failures\n", failures);
     return failures != 0;

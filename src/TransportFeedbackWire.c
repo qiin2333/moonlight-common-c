@@ -126,22 +126,6 @@ bool TfDecodeReady(const uint8_t* payload, size_t length, TF_READY* ready) {
     return true;
 }
 
-bool TfUnwrapSequence24(uint32_t wireSequence, uint64_t reference, uint64_t* sequence) {
-    if (sequence == NULL || wireSequence > 0xffffffu) return false;
-    const uint32_t delta = (wireSequence - ((uint32_t)reference & 0xffffffu)) & 0xffffffu;
-    if (delta == 0x800000u) return false;
-    if (delta > 0x800000u) {
-        const uint32_t backwards = 0x1000000u - delta;
-        if (reference < backwards) return false;
-        *sequence = reference - backwards;
-    }
-    else {
-        if (reference > UINT64_MAX - delta) return false;
-        *sequence = reference + delta;
-    }
-    return true;
-}
-
 size_t TfEncodeVideoIdentity(uint64_t epoch, uint64_t sequence, uint8_t* output, size_t capacity) {
     if (!epoch || sequence == UINT64_MAX || output == NULL || capacity < TF_VIDEO_IDENTITY_BYTES) return 0;
     writeInteger(output, epoch, 8);

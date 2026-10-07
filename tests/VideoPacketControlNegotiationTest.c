@@ -2,6 +2,9 @@
 #include "TransportFeedbackWire.h"
 #include <stdio.h>
 
+static const char controlAttribute[] = "a=x-ss-video[0].packetControlVersion:";
+static const char probeAttribute[] = "a=x-ss-video[0].packetProbeVersion:";
+
 static unsigned checks;
 static unsigned failures;
 static unsigned scenarios;
@@ -54,28 +57,59 @@ static void announceScenario(const char* name, bool control, bool feedback, uint
 
 static void testStrictCapabilityParser(void) {
     scenarios++;
-    CHECK(parseVideoPacketControlSupportedVersion(NULL) == 0);
-    CHECK(parseVideoPacketControlSupportedVersion("a=x-ss-video[0].packetFeedbackVersion:2\r\n") == 0);
-    CHECK(parseVideoPacketControlSupportedVersion("a=x-ss-video[0].packetControlVersion:1\r\n") == 1);
-    CHECK(parseVideoPacketControlSupportedVersion("v=0\r\na=x-ss-video[0].packetControlVersion:1 \r\n") == 1);
-    CHECK(parseVideoPacketControlSupportedVersion("a=x-ss-video[0].packetControlVersion:1") == 1);
-    CHECK(parseVideoPacketControlSupportedVersion("a=x-ss-video[0].packetControlVersion:0\r\n") == 0);
-    CHECK(parseVideoPacketControlSupportedVersion("a=x-ss-video[0].packetControlVersion:2\r\n") == 0);
-    CHECK(parseVideoPacketControlSupportedVersion("a=x-ss-video[0].packetControlVersion:01\r\n") == 0);
-    CHECK(parseVideoPacketControlSupportedVersion("a=x-ss-video[0].packetControlVersion:1unknown\r\n") == 0);
-    CHECK(parseVideoPacketControlSupportedVersion("a=unknownx-ss-video[0].packetControlVersion:1\r\n") == 0);
-    CHECK(parseVideoPacketControlSupportedVersion("a=x-ss-video[0].packetControlVersion:1\r\na=x-ss-video[0].packetControlVersion:0\r\n") == 0);
-    CHECK(parseVideoPacketControlSupportedVersion("a=x-ss-video[0].packetControlVersion:1\r\na=x-ss-video[0].packetControlVersion:1\r\n") == 0);
+    const struct { const char* attribute; const char* version; } extensions[] = {
+        {"a=x-ss-video[0].packetFeedbackVersion:", TF_PACKET_FEEDBACK_PROFILE_VERSION_STRING},
+        {"a=x-ss-video[0].policyStatusVersion:", "1"},
+    };
+    CHECK(!parseSdpAttributeVersion("v=0", NULL, "1"));
+    CHECK(!parseSdpAttributeVersion("v=0", controlAttribute, NULL));
+    CHECK(!parseSdpAttributeVersion("v=0", "", "1"));
+    CHECK(!parseSdpAttributeVersion("v=0", controlAttribute, ""));
+    for (unsigned i = 0; i < sizeof(extensions) / sizeof(extensions[0]); ++i) {
+        const char* attribute = extensions[i].attribute;
+        const char* version = extensions[i].version;
+        char payload[256];
+        snprintf(payload, sizeof(payload), "%s%s\r\n", attribute, version);
+        CHECK(parseSdpAttributeVersion(payload, attribute, version));
+        snprintf(payload, sizeof(payload), "v=0\r\n%s%s \t\r\n", attribute, version);
+        CHECK(parseSdpAttributeVersion(payload, attribute, version));
+        snprintf(payload, sizeof(payload), "%s", attribute);
+        CHECK(!parseSdpAttributeVersion(payload, attribute, version));
+        snprintf(payload, sizeof(payload), "%s0%s\r\n", attribute, version);
+        CHECK(!parseSdpAttributeVersion(payload, attribute, version));
+        snprintf(payload, sizeof(payload), "%s%sjunk\r\n", attribute, version);
+        CHECK(!parseSdpAttributeVersion(payload, attribute, version));
+        snprintf(payload, sizeof(payload), "unknown%s%s\r\n", attribute, version);
+        CHECK(!parseSdpAttributeVersion(payload, attribute, version));
+        snprintf(payload, sizeof(payload), "%s9\r\n", attribute);
+        CHECK(!parseSdpAttributeVersion(payload, attribute, version));
+        snprintf(payload, sizeof(payload), "%s%s\r\n%s%s\r\n", attribute, version, attribute, version);
+        CHECK(!parseSdpAttributeVersion(payload, attribute, version));
+        snprintf(payload, sizeof(payload), "%s%s\r\n%s0\r\n", attribute, version, attribute);
+        CHECK(!parseSdpAttributeVersion(payload, attribute, version));
+    }
+    CHECK(parseSdpAttributeVersion(NULL, controlAttribute, "1") == 0);
+    CHECK(parseSdpAttributeVersion("a=x-ss-video[0].packetFeedbackVersion:2\r\n", controlAttribute, "1") == 0);
+    CHECK(parseSdpAttributeVersion("a=x-ss-video[0].packetControlVersion:1\r\n", controlAttribute, "1") == 1);
+    CHECK(parseSdpAttributeVersion("v=0\r\na=x-ss-video[0].packetControlVersion:1 \r\n", controlAttribute, "1") == 1);
+    CHECK(parseSdpAttributeVersion("a=x-ss-video[0].packetControlVersion:1", controlAttribute, "1") == 1);
+    CHECK(parseSdpAttributeVersion("a=x-ss-video[0].packetControlVersion:0\r\n", controlAttribute, "1") == 0);
+    CHECK(parseSdpAttributeVersion("a=x-ss-video[0].packetControlVersion:2\r\n", controlAttribute, "1") == 0);
+    CHECK(parseSdpAttributeVersion("a=x-ss-video[0].packetControlVersion:01\r\n", controlAttribute, "1") == 0);
+    CHECK(parseSdpAttributeVersion("a=x-ss-video[0].packetControlVersion:1unknown\r\n", controlAttribute, "1") == 0);
+    CHECK(parseSdpAttributeVersion("a=unknownx-ss-video[0].packetControlVersion:1\r\n", controlAttribute, "1") == 0);
+    CHECK(parseSdpAttributeVersion("a=x-ss-video[0].packetControlVersion:1\r\na=x-ss-video[0].packetControlVersion:0\r\n", controlAttribute, "1") == 0);
+    CHECK(parseSdpAttributeVersion("a=x-ss-video[0].packetControlVersion:1\r\na=x-ss-video[0].packetControlVersion:1\r\n", controlAttribute, "1") == 0);
 }
 
 static void testProbePaddingNegotiation(void) {
     scenarios++;
-    CHECK(parseVideoProbePaddingSupportedVersion(NULL) == 0);
-    CHECK(parseVideoProbePaddingSupportedVersion("a=x-ss-video[0].packetProbeVersion:1\r\n") == 1);
+    CHECK(parseSdpAttributeVersion(NULL, probeAttribute, "1") == 0);
+    CHECK(parseSdpAttributeVersion("a=x-ss-video[0].packetProbeVersion:1\r\n", probeAttribute, "1") == 1);
     const char* invalid[] = {"a=x-ss-video[0].packetProbeVersion:01\r\n", "a=x-ss-video[0].packetProbeVersion:2\r\n",
         "a=x-ss-video[0].packetProbeVersion:1x\r\n", "a=x-ss-video[0].packetProbeVersion:1\r\na=x-ss-video[0].packetProbeVersion:1\r\n"};
     for (unsigned i = 0; i < sizeof(invalid) / sizeof(invalid[0]); ++i)
-        CHECK(parseVideoProbePaddingSupportedVersion(invalid[i]) == 0);
+        CHECK(parseSdpAttributeVersion(invalid[i], probeAttribute, "1") == 0);
     for (unsigned capability = 0; capability <= 2; ++capability) {
         configure(true, true, 1, 2, SS_ENC_VIDEO | SS_ENC_CONTROL_V2, false);
         VideoProbePaddingSupportedVersion = capability;

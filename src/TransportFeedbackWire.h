@@ -84,13 +84,6 @@ bool TfParseEpoch(const char* decimal, uint64_t* epoch);
 size_t TfEncodeProbePadding(uint16_t rtpSequence, size_t paddingBytes, uint8_t* output, size_t capacity);
 bool TfDecodeProbePadding(const uint8_t* payload, size_t length, uint16_t* rtpSequence);
 
-// Diagnostic helper only; negotiated attribution uses the full video identity.
-// Use an authenticated sender watermark or a previously unambiguous packet as
-// the reference. A half-cycle tie, invalid 24-bit input, underflow or overflow
-// is unknown rather than a guessed wrap. A stale reference beyond half a cycle
-// cannot be repaired by this helper; the caller must request a new watermark.
-bool TfUnwrapSequence24(uint32_t wireSequence, uint64_t reference, uint64_t* sequence);
-
 #ifdef __cplusplus
 }
 #endif
