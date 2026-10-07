@@ -15,11 +15,11 @@ Pyrowave wire contract. It provides bounds-checked packet framing, capability
 intersection, and bounded frame reassembly. The RTSP/depacketizer integration
 is still opt-in: it is selected only when the application advertises the
 experimental format, the server supplies matching version/capability fields,
-  and a compatible decoder is available. Version 1 supports SDR BT.709 YUV420
-  and static HDR10/PQ or HLG BT.2020, each with either the negotiated limited or
-  full YUV range. The selected session carries that range in the existing
-  `encoderCscMode`; the legacy color-range preference is not changed. Legacy
-  video formats are unchanged.
+and a compatible decoder is available. Protocol 2 (bitstream 2, payload 3)
+supports SDR BT.709 YUV420 and static HDR10/PQ or HLG BT.2020, each with either
+the negotiated limited or full YUV range. The selected session carries that
+range in the existing `encoderCscMode`; the legacy color-range preference is
+not changed. Legacy video formats are unchanged.
 The corresponding `pyrowave-protocol-golden-tests` and
 `pyrowave-reassembly-golden-tests` targets are covered by CTest when
 `BUILD_TESTING=ON`.

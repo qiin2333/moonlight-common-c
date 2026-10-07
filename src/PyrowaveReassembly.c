@@ -263,9 +263,8 @@ LI_PYROWAVE_REASSEMBLY_RESULT LiPyrowaveReassemblyPush(
             header->metadataLength != state->metadataLength ||
             header->metadataFlags != state->metadataFlags ||
             header->protectedPayloadLength != state->framePayloadLength ||
-            header->fecScheme != state->fecScheme ||
-            (state->fecEnabled && (header->protectedPayloadLength != state->framePayloadLength ||
-                                   header->fecBlockPayloadSize != state->fecBlockPayloadSize))) {
+            header->fecBlockPayloadSize != state->fecBlockPayloadSize ||
+            header->fecScheme != state->fecScheme) {
         LiPyrowaveReassemblyReset(state);
         return LI_PYROWAVE_REASSEMBLY_INVALID_PACKET;
     }
@@ -420,8 +419,7 @@ LI_PYROWAVE_REASSEMBLY_RESULT LiPyrowaveReassemblyPushBytes(
             return LI_PYROWAVE_REASSEMBLY_INVALID_PACKET;
         }
         lastResult = LiPyrowaveReassemblyPush(state, &header, payload, nowUs, deadlineUs);
-        if (lastResult < LI_PYROWAVE_REASSEMBLY_ACCEPTED ||
-                lastResult == LI_PYROWAVE_REASSEMBLY_STALE) {
+        if (lastResult < LI_PYROWAVE_REASSEMBLY_ACCEPTED) {
             return lastResult;
         }
         state->wireLength -= packetLength;
@@ -509,6 +507,10 @@ LI_PYROWAVE_REASSEMBLY_RESULT LiPyrowaveReassemblyCopyFrame(
             memcpy(output + output_offset, state->blocks[index] + (copy_begin - block_begin), copyLength);
             output_offset += copyLength;
         }
+    }
+    if (output_offset != frameLength) {
+        clearFrameStorage(state);
+        return LI_PYROWAVE_REASSEMBLY_INVALID_PACKET;
     }
     *outputLength = output_offset;
     if (frameId != NULL) {

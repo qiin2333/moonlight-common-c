@@ -108,7 +108,8 @@ LI_PYROWAVE_REASSEMBLY_RESULT LiPyrowaveReassemblyCopyMetadata(
     size_t* outputLength,
     uint16_t* metadataFlags);
 
-/* Copy blocks in index order; a successful copy resets the state. */
+/* Copy blocks in index order; a successful copy clears the assembled frame,
+ * retaining any buffered bytes belonging to the next packet. */
 LI_PYROWAVE_REASSEMBLY_RESULT LiPyrowaveReassemblyCopyFrame(
     LI_PYROWAVE_REASSEMBLY_STATE* state,
     uint8_t* output,

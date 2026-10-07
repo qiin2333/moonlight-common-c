@@ -152,7 +152,12 @@ bool LiPyrowaveValidatePacketHeader(const LI_PYROWAVE_PACKET_HEADER* header) {
     else {
         if ((header->flags & LI_PYROWAVE_FLAG_FEC_PARITY) != 0 ||
                 header->blockIndex >= header->dataBlockCount ||
-                header->payloadLength > header->fecBlockPayloadSize) {
+                header->payloadLength > header->fecBlockPayloadSize ||
+                (header->blockIndex + 1u < header->dataBlockCount &&
+                 header->payloadLength != header->fecBlockPayloadSize) ||
+                (header->blockIndex + 1u == header->dataBlockCount &&
+                 (uint64_t)header->payloadLength < header->protectedPayloadLength -
+                     (uint64_t)header->blockIndex * header->fecBlockPayloadSize)) {
             return false;
         }
         if (header->fecScheme == LI_PYROWAVE_FEC_SCHEME_XOR &&

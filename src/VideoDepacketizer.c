@@ -760,14 +760,11 @@ static bool queueOwnedFrame(uint8_t* data, size_t length) {
         return false;
     }
 
-    entry = (PLENTRY_INTERNAL)malloc(sizeof(*entry));
-    if (entry == NULL) {
-        free(data);
-        return false;
-    }
-
+    // The allocation contains both the chain entry and the codec bytes, so
+    // the existing allocPtr cleanup owns the complete allocation.
+    entry = (PLENTRY_INTERNAL)data;
     entry->entry.next = NULL;
-    entry->entry.data = (char*)data;
+    entry->entry.data = (char*)(entry + 1);
     entry->entry.length = (int)length;
     entry->entry.bufferType = BUFFER_TYPE_PICDATA;
     entry->allocPtr = data;
@@ -884,7 +881,6 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
     uint8_t flags;
     uint8_t extraFlags;
     bool firstPacket, lastPacket;
-    bool pyrowaveSyntheticFirstPacket;
     uint32_t streamPacketIndex;
     uint8_t fecCurrentBlockNumber;
     uint8_t fecLastBlockNumber;
@@ -904,11 +900,6 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
     extraFlags = videoPacket->extraFlags;
     firstPacket = isFirstPacket(flags, fecCurrentBlockNumber);
     lastPacket = (flags & FLAG_EOF) && fecCurrentBlockNumber == fecLastBlockNumber;
-    pyrowaveSyntheticFirstPacket = NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE &&
-        !firstPacket && (!decodingFrame || frameIndex != startFrameNumber);
-    if (pyrowaveSyntheticFirstPacket) {
-        firstPacket = true;
-    }
 
     LC_ASSERT_VT((flags & ~(FLAG_SOF | FLAG_EOF | FLAG_CONTAINS_PIC_DATA)) == 0);
 
@@ -917,6 +908,19 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
     // Drop packets from a previously corrupt frame
     if (isBefore32(frameIndex, nextFrameNumber)) {
         return;
+    }
+
+    if (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE) {
+        if (decodingFrame && frameIndex != nextFrameNumber) {
+            logPyrowaveReassemblyFailure(
+                LI_PYROWAVE_REASSEMBLY_NOT_READY, nextFrameNumber, receiveTimeUs);
+            decodingFrame = false;
+            nextFrameNumber++;
+            dropFrameState();
+        }
+        // The inner frame is self-contained and may begin with a reordered
+        // data/parity packet. Duplicate SOF packets must not restart its clock.
+        firstPacket = !decodingFrame;
     }
 
     // The FEC queue can sometimes recover corrupt frames (see comments in RtpFecQueue).
@@ -992,7 +996,7 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
     // If this is the first packet, skip the frame header (if one exists)
     uint32_t frameHeaderSize = 0;
     LC_ASSERT_VT(currentPos.length > 0);
-    if (firstPacket && !pyrowaveSyntheticFirstPacket &&
+    if (firstPacket &&
             NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE && currentPos.length > 0) {
         // Parse the frame type from the header
         LC_ASSERT_VT(currentPos.length >= 4);
@@ -1151,17 +1155,6 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
         uint8_t* frameData = NULL;
         size_t copiedSize = 0;
 
-        if (lastPacket && NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE) {
-            if (lastPacketPayloadLength <= frameHeaderSize ||
-                    lastPacketPayloadLength - frameHeaderSize > currentPos.length) {
-                decodingFrame = false;
-                nextFrameNumber = frameIndex + 1;
-                dropFrameState();
-                return;
-            }
-            currentPos.length = lastPacketPayloadLength - frameHeaderSize;
-        }
-
         reassemblyResult = LiPyrowaveReassemblyPushBytes(
             &pyrowaveReassembly,
             (const uint8_t*)currentPos.data + currentPos.offset,
@@ -1180,14 +1173,8 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
         }
 
         if (!LiPyrowaveReassemblyIsComplete(&pyrowaveReassembly)) {
-            if (!lastPacket) {
-                return;
-            }
-            decodingFrame = false;
-            nextFrameNumber = frameIndex + 1;
-            logPyrowaveReassemblyFailure(
-                LI_PYROWAVE_REASSEMBLY_NOT_READY, frameIndex, receiveTimeUs);
-            dropFrameState();
+            // Outer EOF can arrive ahead of data/parity. Let the inner FEC
+            // finish, expire at its deadline, or yield to the next frame.
             return;
         }
 
@@ -1197,12 +1184,12 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
         nextFrameNumber = frameIndex + 1;
 
         frameSize = pyrowaveReassembly.totalPayloadLength;
-        frameData = (uint8_t*)malloc(frameSize);
+        frameData = (uint8_t*)malloc(sizeof(LENTRY_INTERNAL) + frameSize);
         const LI_PYROWAVE_REASSEMBLY_RESULT copyResult = frameData == NULL
             ? LI_PYROWAVE_REASSEMBLY_OUT_OF_MEMORY
             : LiPyrowaveReassemblyCopyFrame(
                 &pyrowaveReassembly,
-                frameData,
+                frameData + sizeof(LENTRY_INTERNAL),
                 frameSize,
                 &copiedSize,
                 NULL);
@@ -1218,6 +1205,7 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
             return;
         }
 
+        LiPyrowaveReassemblyReset(&pyrowaveReassembly);
         frameType = FRAME_TYPE_IDR;
         waitingForIdrFrame = false;
         waitingForRefInvalFrame = false;

@@ -137,6 +137,90 @@ int main(void) {
         CHECK(frameId == 11);
         CHECK(memcmp(output, firstPayload, sizeof(firstPayload)) == 0);
     }
+    LiPyrowaveReassemblyReset(&state);
+    {
+        LI_PYROWAVE_PACKET_HEADER current = makeHeader(11, 0, 2, sizeof(firstPayload));
+        LI_PYROWAVE_PACKET_HEADER tail = makeHeader(11, 1, 2, sizeof(secondPayload));
+        uint8_t currentPacket[sizeof(firstPacket)];
+        uint8_t tailPacket[sizeof(secondPacket)];
+        uint8_t combined[sizeof(firstPacket) + sizeof(secondPacket)];
+        size_t currentLength = 0;
+        size_t tailLength = 0;
+
+        CHECK(LiPyrowaveBuildPacket(&current, firstPayload, sizeof(firstPayload),
+                                    currentPacket, sizeof(currentPacket), &currentLength) ==
+              LI_PYROWAVE_PACKET_OK);
+        CHECK(LiPyrowaveBuildPacket(&tail, secondPayload, sizeof(secondPayload),
+                                    tailPacket, sizeof(tailPacket), &tailLength) ==
+              LI_PYROWAVE_PACKET_OK);
+        CHECK(LiPyrowaveReassemblyPushBytes(&state, currentPacket, currentLength, 700, 2000) ==
+              LI_PYROWAVE_REASSEMBLY_ACCEPTED);
+        CHECK(LiPyrowaveReassemblyPushBytes(&state, firstPacket, firstLength, 710, 2000) ==
+              LI_PYROWAVE_REASSEMBLY_STALE);
+        CHECK(state.wireLength == 0 && state.frameId == 11 && state.receivedCount == 1);
+
+        memcpy(combined, firstPacket, firstLength);
+        memcpy(combined + firstLength, tailPacket, tailLength);
+        CHECK(LiPyrowaveReassemblyPushBytes(
+                  &state, combined, firstLength + tailLength, 720, 2000) ==
+              LI_PYROWAVE_REASSEMBLY_COMPLETE);
+        CHECK(LiPyrowaveReassemblyCopyFrame(
+                  &state, output, sizeof(output), &outputLength, &frameId) ==
+              LI_PYROWAVE_REASSEMBLY_COMPLETE);
+        CHECK(frameId == 11 && outputLength == sizeof(expected));
+        CHECK(memcmp(output, expected, sizeof(expected)) == 0);
+    }
+
+    LiPyrowaveReassemblyReset(&state);
+    {
+        const uint8_t payload[5] = { 1, 2, 3, 4, 5 };
+        LI_PYROWAVE_PACKET_HEADER header = makeHeader(12, 0, 3, sizeof(payload));
+        header.codecPayloadLength = header.protectedPayloadLength = 14;
+        header.payloadLength = 4;
+        CHECK(!LiPyrowaveValidatePacketHeader(&header));
+        CHECK(LiPyrowaveReassemblyPush(&state, &header, payload, 730, 2000) ==
+              LI_PYROWAVE_REASSEMBLY_INVALID_PACKET);
+
+        header.payloadLength = 5;
+        CHECK(LiPyrowaveReassemblyPush(&state, &header, payload, 730, 2000) ==
+              LI_PYROWAVE_REASSEMBLY_ACCEPTED);
+        header.blockIndex = 1;
+        header.flags = 0;
+        CHECK(LiPyrowaveReassemblyPush(&state, &header, payload, 740, 2000) ==
+              LI_PYROWAVE_REASSEMBLY_ACCEPTED);
+        header.blockIndex = 2;
+        header.flags = LI_PYROWAVE_FLAG_END_OF_FRAME;
+        header.payloadLength = 3;
+        CHECK(!LiPyrowaveValidatePacketHeader(&header));
+        header.payloadLength = 4;
+        CHECK(LiPyrowaveValidatePacketHeader(&header));
+        CHECK(LiPyrowaveReassemblyPush(&state, &header, payload, 750, 2000) ==
+              LI_PYROWAVE_REASSEMBLY_COMPLETE);
+        CHECK(LiPyrowaveReassemblyCopyFrame(
+                  &state, output, sizeof(output), &outputLength, &frameId) ==
+              LI_PYROWAVE_REASSEMBLY_COMPLETE);
+        CHECK(outputLength == 14);
+
+        header = makeHeader(13, 0, 2, sizeof(payload));
+        CHECK(LiPyrowaveReassemblyPush(&state, &header, payload, 760, 2000) ==
+              LI_PYROWAVE_REASSEMBLY_ACCEPTED);
+        header.blockIndex = 1;
+        header.flags = LI_PYROWAVE_FLAG_END_OF_FRAME;
+        header.fecBlockPayloadSize = 6;
+        CHECK(LiPyrowaveValidatePacketHeader(&header));
+        CHECK(LiPyrowaveReassemblyPush(&state, &header, payload, 770, 2000) ==
+              LI_PYROWAVE_REASSEMBLY_INVALID_PACKET);
+
+        header = makeHeader(14, 0, 1, sizeof(payload));
+        CHECK(LiPyrowaveReassemblyPush(&state, &header, payload, 780, 2000) ==
+              LI_PYROWAVE_REASSEMBLY_COMPLETE);
+        state.blockLengths[0]--;
+        CHECK(LiPyrowaveReassemblyCopyFrame(
+                  &state, output, sizeof(output), &outputLength, &frameId) ==
+              LI_PYROWAVE_REASSEMBLY_INVALID_PACKET);
+        CHECK(outputLength == 0 && !LiPyrowaveReassemblyIsComplete(&state));
+    }
+
     /* Exercise the largest wire block count. A wider loop counter makes the
        boundary explicit; a < 65535 loop does not increment past 65535. */
     LiPyrowaveReassemblyReset(&state);
