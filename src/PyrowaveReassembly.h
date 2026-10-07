@@ -1,6 +1,6 @@
 /**
  * @file PyrowaveReassembly.h
- * @brief Bounded, transport-only Pyrowave frame reassembly.
+ * @brief Bounded, transport-only PyroWave frame reassembly.
  */
 #pragma once
 

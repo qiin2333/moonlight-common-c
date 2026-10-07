@@ -1,6 +1,6 @@
 /**
  * @file PyrowaveReassembly.c
- * @brief Bounded, transport-only Pyrowave frame reassembly.
+ * @brief Bounded, transport-only PyroWave frame reassembly.
  */
 #include "PyrowaveReassembly.h"
 

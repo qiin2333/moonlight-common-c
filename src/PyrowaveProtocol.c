@@ -1,6 +1,6 @@
 /**
  * @file PyrowaveProtocol.c
- * @brief Bounds-checked Pyrowave transport packet contract.
+ * @brief Bounds-checked PyroWave transport packet contract.
  */
 #include "PyrowaveProtocol.h"
 

@@ -109,7 +109,7 @@ extern uint32_t EncryptionFeaturesEnabled;
 #define ML_FF_DS5_HAPTICS_PCM 0x04 // Client accepts authored DualSense PCM on the control stream
 #define ML_FF_DS5_HAPTICS_IR_V2 0x08 // Client selected simulated DualSense and accepts authored IR v2
 #define ML_FF_REMOTE_TEXT_CONTEXT 0x10 // Client accepts remote text context updates
-#define ML_FF_PYROWAVE 0x20 // Client accepts the experimental Pyrowave video contract
+#define ML_FF_PYROWAVE 0x20 // Client accepts the experimental PyroWave video contract
 
 #define UDP_RECV_POLL_TIMEOUT_MS 100
 

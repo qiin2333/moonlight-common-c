@@ -8,10 +8,10 @@ If you are implementing your own Moonlight game streaming client that can use a 
 
 Moonlight-common-c requires the _specific_ version of ENet that is bundled as a submodule. This version has changes required for IPv6 compatibility and retransmission reliability, among other things. These are breaking API/ABI changes which make Moonlight-common-c incompatible with other versions of the ENet library. Attempting to runtime link to another libenet library will cause your client to crash when connecting to recent versions of GeForce Experience.
 
-## Experimental Pyrowave contract
+## Experimental PyroWave contract
 
 `src/PyrowaveProtocol.h` and `src/PyrowaveProtocol.c` define the experimental
-Pyrowave wire contract. It provides bounds-checked packet framing, capability
+PyroWave wire contract. It provides bounds-checked packet framing, capability
 intersection, and bounded frame reassembly. The [Frame Envelope specification](docs/pyrowave-frame-envelope.md)
 documents header offsets, metadata flags, FEC, negotiation, and failure semantics.
 The RTSP/depacketizer integration

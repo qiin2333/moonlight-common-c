@@ -1,9 +1,9 @@
 /**
  * @file PyrowaveProtocol.h
- * @brief Transport contract for the experimental Pyrowave video path.
+ * @brief Transport contract for the experimental PyroWave video path.
  *
  * This header only defines the common-c wire contract. It does not advertise
- * Pyrowave during normal negotiation and does not change legacy codecs.
+ * PyroWave during normal negotiation and does not change legacy codecs.
  */
 #pragma once
 
@@ -65,7 +65,7 @@ typedef enum _LI_PYROWAVE_METADATA_TYPE {
 
 /*
  * Capabilities are an application-level contract. They are not added to the
- * legacy VIDEO_FORMAT masks until the client can actually decode Pyrowave.
+ * legacy VIDEO_FORMAT masks until the client can actually decode PyroWave.
  */
 #define LI_PYROWAVE_CAPABILITY_REASSEMBLY       (1u << 0)
 #define LI_PYROWAVE_CAPABILITY_FRAME_DEADLINE   (1u << 1)
