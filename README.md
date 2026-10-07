@@ -20,6 +20,10 @@ supports SDR BT.709 YUV420 and static HDR10/PQ or HLG BT.2020, each with either
 the negotiated limited or full YUV range. The selected session carries that
 range in the existing `encoderCscMode`; the legacy color-range preference is
 not changed. Legacy video formats are unchanged.
+The depacketizer validates metadata TLVs before queuing codec bytes. It consumes
+`HOST_PROCESSING_LATENCY`, skips unsupported optional types, and drops frames
+with malformed or unsupported required metadata. Color contracts remain in the
+codec sequence header; static HDR mastering metadata uses the HDR control channel.
 The corresponding `pyrowave-protocol-golden-tests` and
 `pyrowave-reassembly-golden-tests` targets are covered by CTest when
 `BUILD_TESTING=ON`.

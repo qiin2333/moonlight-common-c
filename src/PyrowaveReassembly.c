@@ -420,6 +420,7 @@ LI_PYROWAVE_REASSEMBLY_RESULT LiPyrowaveReassemblyPushBytes(
         }
         lastResult = LiPyrowaveReassemblyPush(state, &header, payload, nowUs, deadlineUs);
         if (lastResult < LI_PYROWAVE_REASSEMBLY_ACCEPTED) {
+            LiPyrowaveReassemblyReset(state);
             return lastResult;
         }
         state->wireLength -= packetLength;

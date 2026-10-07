@@ -221,6 +221,39 @@ int main(void) {
         CHECK(outputLength == 0 && !LiPyrowaveReassemblyIsComplete(&state));
     }
 
+    LiPyrowaveReassemblyDestroy(&state);
+    LiPyrowaveReassemblyInitialize(&state, 8);
+    {
+        const uint8_t payload[5] = { 1, 2, 3, 4, 5 };
+        LI_PYROWAVE_PACKET_HEADER oversized = makeHeader(15, 0, 2, sizeof(payload));
+        LI_PYROWAVE_PACKET_HEADER valid = makeHeader(16, 0, 1, sizeof(payload));
+        uint8_t packet[LI_PYROWAVE_WIRE_HEADER_SIZE + sizeof(payload)];
+        size_t packetLength = 0;
+
+        CHECK(LiPyrowaveReassemblyPush(&state, &valid, payload, 790, 2000) ==
+              LI_PYROWAVE_REASSEMBLY_COMPLETE);
+        CHECK(LiPyrowaveBuildPacket(&oversized, payload, sizeof(payload),
+                                    packet, sizeof(packet), &packetLength) ==
+              LI_PYROWAVE_PACKET_OK);
+        CHECK(LiPyrowaveReassemblyPushBytes(&state, packet, packetLength, 800, 2000) ==
+              LI_PYROWAVE_REASSEMBLY_OVERSIZE);
+        CHECK(state.wireLength == 0 && state.wireBuffer == NULL && state.blockCount == 0);
+        CHECK(state.maxFrameSize == 8);
+
+        CHECK(LiPyrowaveBuildPacket(&valid, payload, sizeof(payload),
+                                    packet, sizeof(packet), &packetLength) ==
+              LI_PYROWAVE_PACKET_OK);
+        CHECK(LiPyrowaveReassemblyPushBytes(&state, packet, packetLength, 810, 2000) ==
+              LI_PYROWAVE_REASSEMBLY_COMPLETE);
+        CHECK(LiPyrowaveReassemblyCopyFrame(
+                  &state, output, sizeof(output), &outputLength, &frameId) ==
+              LI_PYROWAVE_REASSEMBLY_COMPLETE);
+        CHECK(frameId == 16 && outputLength == sizeof(payload));
+        CHECK(memcmp(output, payload, sizeof(payload)) == 0);
+    }
+    LiPyrowaveReassemblyDestroy(&state);
+    LiPyrowaveReassemblyInitialize(&state, 0);
+
     /* Exercise the largest wire block count. A wider loop counter makes the
        boundary explicit; a < 65535 loop does not increment past 65535. */
     LiPyrowaveReassemblyReset(&state);

@@ -593,7 +593,13 @@ static void reassembleFrame(int frameNumber, bool frameIsLTR) {
             //
             // If we start sending this state in the frame header, we can make it 100% accurate.
             qdu->decodeUnit.hdrActive = LiGetCurrentHostDisplayHdrMode();
-            qdu->decodeUnit.colorspace = (uint8_t)(qdu->decodeUnit.hdrActive ? COLORSPACE_REC_2020 : StreamConfig.colorSpace);
+            if (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE) {
+                qdu->decodeUnit.colorspace = (uint8_t)((StreamConfig.hdrMode == 1 || StreamConfig.hdrMode == 2)
+                    ? COLORSPACE_REC_2020 : COLORSPACE_REC_709);
+            }
+            else {
+                qdu->decodeUnit.colorspace = (uint8_t)(qdu->decodeUnit.hdrActive ? COLORSPACE_REC_2020 : StreamConfig.colorSpace);
+            }
 
             // Invoke the key frame callback if needed
             if (nalChainHead->bufferType != BUFFER_TYPE_PICDATA || qdu->decodeUnit.frameType == FRAME_TYPE_IDR) {
@@ -777,6 +783,46 @@ static bool queueOwnedFrame(uint8_t* data, size_t length) {
         nalChainTail->next = (PLENTRY)entry;
         nalChainTail = nalChainTail->next;
     }
+    return true;
+}
+
+static bool processPyrowaveMetadata(uint8_t* metadata, size_t metadataLength, uint16_t metadataFlags) {
+    BYTE_BUFFER bb;
+    uint16_t hostProcessingLatency = 0;
+
+    BbInitializeWrappedBuffer(&bb, (char*)metadata, 0, (int)metadataLength, BYTE_ORDER_BIG);
+    while (bb.position < bb.length) {
+        uint16_t type;
+        uint16_t flags;
+        uint32_t length;
+
+        if (!BbGet16(&bb, &type) || !BbGet16(&bb, &flags) || !BbGet32(&bb, &length) ||
+                (flags & ~(LI_PYROWAVE_METADATA_FLAG_PROTECTED |
+                           LI_PYROWAVE_METADATA_FLAG_RUNTIME |
+                           LI_PYROWAVE_METADATA_FLAG_OPTIONAL |
+                           LI_PYROWAVE_METADATA_FLAG_REQUIRED)) != 0 ||
+                ((flags & LI_PYROWAVE_METADATA_FLAG_OPTIONAL) != 0 &&
+                 (flags & LI_PYROWAVE_METADATA_FLAG_REQUIRED) != 0) ||
+                length > bb.length - bb.position) {
+            return false;
+        }
+
+        if (type == LI_PYROWAVE_METADATA_HOST_PROCESSING_LATENCY) {
+            if (length != sizeof(hostProcessingLatency) || !BbGet16(&bb, &hostProcessingLatency)) {
+                return false;
+            }
+        }
+        else {
+            // Color and mastering metadata are supplied by the codec sequence
+            // header and HDR control channel, not these reserved TLV types.
+            if (((flags | metadataFlags) & LI_PYROWAVE_METADATA_FLAG_REQUIRED) != 0 ||
+                    !BbAdvanceBuffer(&bb, (int)length)) {
+                return false;
+            }
+        }
+    }
+
+    frameHostProcessingLatency = hostProcessingLatency;
     return true;
 }
 
@@ -1185,14 +1231,26 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
 
         frameSize = pyrowaveReassembly.totalPayloadLength;
         frameData = (uint8_t*)malloc(sizeof(LENTRY_INTERNAL) + frameSize);
-        const LI_PYROWAVE_REASSEMBLY_RESULT copyResult = frameData == NULL
-            ? LI_PYROWAVE_REASSEMBLY_OUT_OF_MEMORY
-            : LiPyrowaveReassemblyCopyFrame(
-                &pyrowaveReassembly,
-                frameData + sizeof(LENTRY_INTERNAL),
-                frameSize,
-                &copiedSize,
-                NULL);
+        LI_PYROWAVE_REASSEMBLY_RESULT copyResult = LI_PYROWAVE_REASSEMBLY_OUT_OF_MEMORY;
+        if (frameData != NULL) {
+            size_t metadataLength = 0;
+            uint8_t* codecData = frameData + sizeof(LENTRY_INTERNAL);
+
+            copyResult = LiPyrowaveReassemblyCopyMetadata(
+                &pyrowaveReassembly, codecData, frameSize, &metadataLength, NULL);
+            if (copyResult == LI_PYROWAVE_REASSEMBLY_COMPLETE &&
+                    !processPyrowaveMetadata(codecData, metadataLength, pyrowaveReassembly.metadataFlags)) {
+                copyResult = LI_PYROWAVE_REASSEMBLY_INVALID_PACKET;
+            }
+            if (copyResult == LI_PYROWAVE_REASSEMBLY_COMPLETE) {
+                copyResult = LiPyrowaveReassemblyCopyFrame(
+                    &pyrowaveReassembly,
+                    codecData,
+                    frameSize,
+                    &copiedSize,
+                    NULL);
+            }
+        }
         if (copyResult != LI_PYROWAVE_REASSEMBLY_COMPLETE) {
             logPyrowaveReassemblyFailure(
                 copyResult, frameIndex, receiveTimeUs);
