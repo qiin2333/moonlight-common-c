@@ -12,7 +12,9 @@ Moonlight-common-c requires the _specific_ version of ENet that is bundled as a 
 
 `src/PyrowaveProtocol.h` and `src/PyrowaveProtocol.c` define the experimental
 Pyrowave wire contract. It provides bounds-checked packet framing, capability
-intersection, and bounded frame reassembly. The RTSP/depacketizer integration
+intersection, and bounded frame reassembly. The [Frame Envelope specification](docs/pyrowave-frame-envelope.md)
+documents header offsets, metadata flags, FEC, negotiation, and failure semantics.
+The RTSP/depacketizer integration
 is still opt-in: it is selected only when the application advertises the
 experimental format, the server supplies matching version/capability fields,
 and a compatible decoder is available. Protocol 2 (bitstream 2, payload 3)
