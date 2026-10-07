@@ -314,7 +314,7 @@ typedef struct _DECODE_UNIT {
 #define VIDEO_FORMAT_AV1_MAIN10      0x2000 // AV1 Main 10-bit profile
 #define VIDEO_FORMAT_AV1_HIGH8_444   0x4000 // AV1 High 4:4:4 8-bit profile
 #define VIDEO_FORMAT_AV1_HIGH10_444  0x8000 // AV1 High 4:4:4 10-bit profile
-#define VIDEO_FORMAT_PYROWAVE        LI_PYROWAVE_VIDEO_FORMAT // Experimental Pyrowave format
+#define VIDEO_FORMAT_PYROWAVE        LI_PYROWAVE_VIDEO_FORMAT // Experimental PyroWave format
 
 // Masks for clients to use to match video codecs without profile-specific details.
 #define VIDEO_FORMAT_MASK_H264   0x000F
@@ -365,7 +365,7 @@ typedef struct _DECODE_UNIT {
 #define CAPABILITY_PRESERVE_HEVC_SEI 0x80
 
 // If set in the video renderer capabilities field, the renderer accepts the
-// experimental Pyrowave frame contract and owns the GPU decode path.
+// experimental PyroWave frame contract and owns the GPU decode path.
 #define CAPABILITY_PYROWAVE 0x100
 
 // If set in the video renderer capabilities field, this macro specifies that the renderer

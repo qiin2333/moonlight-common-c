@@ -554,7 +554,7 @@ uint32_t RtpvGetCurrentFrameNumber(PRTP_VIDEO_QUEUE queue) {
 }
 
 int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_QUEUE_ENTRY packetEntry) {
-    /* Pyrowave reorders and recovers its inner blocks itself.  The legacy
+    /* PyroWave reorders and recovers its inner blocks itself.  The legacy
        contiguous-sequence window is not advanced on this direct path, so
        applying it here would reject a valid first RTP packet when its
        sequence number happens to be before the zero-initialized window. */
@@ -598,11 +598,11 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
     }
 #endif
 
-    /* Pyrowave owns its own block-aware FEC and frame reassembly. Do not hold
+    /* PyroWave owns its own block-aware FEC and frame reassembly. Do not hold
        these packets behind the legacy RTP frame/FEC queue: doing so would
        discard a partially received frame before the inner parity block can
        recover it. The depacketizer consumes each authenticated RTP payload
-       and decides when the Pyrowave frame is complete. */
+       and decides when the PyroWave frame is complete. */
     if (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE) {
         if (((nvPacket->flags & FLAG_SOF) != 0 &&
              ((nvPacket->multiFecBlocks >> 4) & 0x3) == 0) ||

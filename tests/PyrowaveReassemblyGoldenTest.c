@@ -266,7 +266,7 @@ int main(void) {
               LI_PYROWAVE_REASSEMBLY_ACCEPTED);
         LiPyrowaveReassemblyReset(&state);
     }
-    /* Block-aware FEC recovers one missing Pyrowave data block before the
+    /* Block-aware FEC recovers one missing PyroWave data block before the
        complete frame is handed to the decoder. */
     LiPyrowaveReassemblyReset(&state);
     {

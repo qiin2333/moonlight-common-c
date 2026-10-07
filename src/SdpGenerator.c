@@ -519,7 +519,7 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
             // Enable HDR if requested
             // dynamicRangeMode: 0 = SDR, 1 = HDR10/PQ, 2 = HLG
             if (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE) {
-                // Pyrowave supports SDR BT.709 and static HDR10/PQ/HLG BT.2020,
+                // PyroWave supports SDR BT.709 and static HDR10/PQ/HLG BT.2020,
                 // with the selected limited/full range carried separately.
                 // Dynamic HDR metadata and Dolby Vision remain on the legacy codec path.
                 err |= addAttributeString(&optionHead, "x-nv-video[0].dynamicRangeMode",

@@ -51,7 +51,7 @@ static void logPyrowaveReassemblyFailure(
     }
     pyrowaveLastFailureLogUs = nowUs;
     pyrowaveLastFailureResult = result;
-    Limelog("Pyrowave reassembly dropped frame %u: result=%d state_frame=%u blocks=%u received=%u bytes=%llu\n",
+    Limelog("PyroWave reassembly dropped frame %u: result=%d state_frame=%u blocks=%u received=%u bytes=%llu\n",
             frameIndex,
             (int)result,
             pyrowaveReassembly.frameId,
@@ -376,7 +376,7 @@ void LiCompleteVideoFrame(VIDEO_FRAME_HANDLE handle, int drStatus) {
         free(lastEntry->allocPtr);
     }
 
-    // Pyrowave is always queued because its submission path performs
+    // PyroWave is always queued because its submission path performs
     // synchronous decode/presentation.  A queued decode unit must own heap
     // storage even if the legacy renderer advertised direct submit.
     if (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE ||
@@ -613,7 +613,7 @@ static void reassembleFrame(int frameNumber, bool frameIsLTR) {
             nalChainHead = nalChainTail = NULL;
             nalChainDataLength = 0;
 
-            // Pyrowave submission performs synchronous decode and presentation
+            // PyroWave submission performs synchronous decode and presentation
             // (including CPU readback and ANativeWindow locking). Keep it off
             // the receive thread even when the legacy renderer advertises
             // CAPABILITY_DIRECT_SUBMIT for H.264/HEVC/AV1.
@@ -1404,11 +1404,11 @@ void notifyFrameLost(unsigned int frameNumber, bool speculative) {
     // We may not invalidate frames that we've already received
     LC_ASSERT(frameNumber >= startFrameNumber);
 
-    // Pyrowave frames are self-contained intra frames and do not use the
+    // PyroWave frames are self-contained intra frames and do not use the
     // legacy reference-frame invalidation state machine.  dropFrameState()
-    // clears the Pyrowave reassembly state; returning here prevents the
+    // clears the PyroWave reassembly state; returning here prevents the
     // legacy waitingForRefInvalFrame assertion and avoids sending an RFI
-    // request that the Pyrowave host cannot satisfy.
+    // request that the PyroWave host cannot satisfy.
     if (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE) {
         dropFrameState();
         return;

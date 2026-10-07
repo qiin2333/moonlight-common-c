@@ -1,9 +1,9 @@
-# Pyrowave Frame Envelope 视频传输协议
+# PyroWave Frame Envelope 视频传输协议
 
 ## 范围
 
 本文定义 `PyrowaveProtocol.h`、`PyrowaveProtocol.c` 和 `PyrowaveReassembly.c` 使用的
-视频传输封套。它封装 Pyrowave 原生码流，不修改原生小波编码块或序列头格式。
+视频传输封套。它封装 PyroWave 原生码流，不修改原生小波编码块或序列头格式。
 
 原生码流负责颜色合同；Frame Envelope 负责帧标识、长度、分片、可选 metadata 和块级恢复。
 `SS_HDR_METADATA` 继续使用现有控制通道，不塞入 Frame Envelope 或原生 color metadata。
@@ -13,7 +13,7 @@ H.264、HEVC 和 AV1 的传输路径不使用本封套。
 
 ## 1. 协商
 
-客户端只有在应用和解码器均支持 Pyrowave 时才声明 `VIDEO_FORMAT_PYROWAVE`。
+客户端只有在应用和解码器均支持 PyroWave 时才声明 `VIDEO_FORMAT_PYROWAVE`。
 服务端 DESCRIBE 使用 `x-ss-pyrowave.*`，客户端 ANNOUNCE 使用 `x-ml-pyrowave.*`：
 
 | 属性 | 当前值或含义 |
@@ -38,7 +38,7 @@ H.264、HEVC 和 AV1 的传输路径不使用本封套。
 | `2` | HLG / BT.2020 / YUV420 | 10-bit | `HLG_BT2020` |
 
 范围能力为 `YUV_LIMITED_RANGE` 或 `YUV_FULL_RANGE`；所选范围通过现有 `encoderCscMode`
-低位传递，不改变用户的全局范围偏好。能力交集不包含所需位时拒绝 Pyrowave 协商。
+低位传递，不改变用户的全局范围偏好。能力交集不包含所需位时拒绝 PyroWave 协商。
 `PARTIAL_FRAME` 位不是当前必需能力，不代表当前客户端会提交不完整帧。
 
 ## 2. 包布局
@@ -62,7 +62,7 @@ H.264、HEVC 和 AV1 的传输路径不使用本封套。
 | 10 | 2 | `metadataFlags` | 帧级 metadata 标记 |
 | 12 | 4 | `frameId` | 非零帧标识 |
 | 16 | 4 | `rtpTimestamp` | 90 kHz 媒体时间戳 |
-| 20 | 4 | `codecPayloadLength` | 纯 Pyrowave 码流字节数，不含 metadata 或填充 |
+| 20 | 4 | `codecPayloadLength` | 纯 PyroWave 码流字节数，不含 metadata 或填充 |
 | 24 | 4 | `protectedPayloadLength` | metadata 与码流的总长度，不含填充 |
 | 28 | 2 | `metadataLength` | 受保护 payload 开头的 metadata 字节数 |
 | 30 | 1 | `fecScheme` | 0=无 FEC，1=XOR |
@@ -97,7 +97,7 @@ H.264、HEVC 和 AV1 的传输路径不使用本封套。
 未知 flags 位、非零保留字段、空码流、零帧号、零数据块、矛盾的长度或块计数均为非法头部。
 完整包长度必须恰好为 `headerLength + payloadLength`，不能隐含拼接额外数据。
 
-每个内层包保持与一个外层 RTP payload 对齐。Pyrowave 不插入传统 codec 的 short frame header，
+每个内层包保持与一个外层 RTP payload 对齐。PyroWave 不插入传统 codec 的 short frame header，
 否则丢失一个外层包可能同时破坏两个内层恢复块。
 
 ### 包类型
@@ -115,7 +115,7 @@ H.264、HEVC 和 AV1 的传输路径不使用本封套。
 ## 3. 受保护数据与 Metadata TLV
 
 ```text
-[metadataLength bytes of TLVs][codecPayloadLength bytes of Pyrowave bitstream]
+[metadataLength bytes of TLVs][codecPayloadLength bytes of PyroWave bitstream]
 ```
 
 必须满足：
@@ -191,7 +191,7 @@ blockCount = N + G
 
 每组最多恢复一个缺失 DATA shard；缺两个及以上不能由一个 PARITY shard恢复。
 恢复完成后按 P 去掉尾部填充，提取 metadata，再只把 codecPayloadLength 字节交给解码器。
-Pyrowave 不使用传统 RTP Reed-Solomon parity；应用传输层不能把两种恢复合同混为一套。
+PyroWave 不使用传统 RTP Reed-Solomon parity；应用传输层不能把两种恢复合同混为一套。
 
 ### 无 FEC
 
@@ -214,7 +214,7 @@ Pyrowave 不使用传统 RTP Reed-Solomon parity；应用传输层不能把两�
 ## 6. HDR 与其他通道
 
 SDR 使用 BT.709，HDR10/PQ 与 HLG 使用 BT.2020，均支持协商的 limited/full YUV 范围。
-这些颜色信息来自原生 Pyrowave color metadata，不等同于完整显示 mastering metadata。
+这些颜色信息来自原生 PyroWave color metadata，不等同于完整显示 mastering metadata。
 
 RGB primaries、white point、显示亮度、MaxCLL、MaxFALL 和 full-frame luminance 使用
 现有 `SS_HDR_METADATA` 控制消息，由客户端呈现层处理。不通过新增 TLV 复制另一份合同。
@@ -237,7 +237,7 @@ RGB primaries、white point、显示亮度、MaxCLL、MaxFALL 和 full-frame lum
 
 ## English summary
 
-This document specifies the current PYRF transport envelope, not the native Pyrowave bitstream.
+This document specifies the current PYRF transport envelope, not the native PyroWave bitstream.
 The negotiated contract is protocol 2, bitstream 2, payload 3. Each packet has a fixed 64-byte,
 big-endian header with explicit frame, length, metadata, and FEC fields. C structures are parsed
 host-endian values and must not be copied directly onto the wire.

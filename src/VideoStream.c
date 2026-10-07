@@ -18,7 +18,7 @@ static PLT_THREAD udpPingThread;
 static PLT_THREAD receiveThread;
 static PLT_THREAD decoderThread;
 
-// Pyrowave is intentionally queued even when the renderer advertises
+// PyroWave is intentionally queued even when the renderer advertises
 // CAPABILITY_DIRECT_SUBMIT for legacy codecs. Its decode/present callback is
 // synchronous, so it must be consumed by the decoder thread rather than the
 // receive thread.
