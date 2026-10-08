@@ -159,7 +159,7 @@ typedef struct _STREAM_CONFIGURATION {
     int videoFecPercentage;
 } STREAM_CONFIGURATION, *PSTREAM_CONFIGURATION;
 
-// Use this function to zero the stream configuration when allocated on the stack or heap
+// Initialize the stream configuration, including compatible host-default FEC.
 void LiInitializeStreamConfiguration(PSTREAM_CONFIGURATION streamConfig);
 
 // Call only while the control connection is running, before stopping it.
