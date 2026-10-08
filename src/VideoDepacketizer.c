@@ -803,6 +803,26 @@ static bool queueOwnedFrame(uint8_t* data, size_t length, size_t metadataLength)
     return true;
 }
 
+static bool validatePyrowaveDynamicHdrPayload(uint16_t type, const uint8_t* payload, uint32_t length) {
+    static const uint8_t hdr10PlusPrefix[] = {0xB5, 0x00, 0x3C, 0x00, 0x01, 0x04};
+    static const uint8_t vividPrefix[] = {0x26, 0x00, 0x04, 0x00, 0x05};
+
+    // Check the registered header and presence of a body here. The renderer
+    // validates the complete format syntax, supported profile, and checksum.
+    switch (type) {
+    case LI_PYROWAVE_METADATA_HDR10_PLUS:
+        return length >= sizeof(hdr10PlusPrefix) + 2 &&
+               memcmp(payload, hdr10PlusPrefix, sizeof(hdr10PlusPrefix)) == 0;
+    case LI_PYROWAVE_METADATA_HDR_VIVID:
+        return length >= sizeof(vividPrefix) + 2 &&
+               memcmp(payload, vividPrefix, sizeof(vividPrefix)) == 0;
+    case LI_PYROWAVE_METADATA_DOLBY_VISION_RPU:
+        return length >= 3 && payload[0] == 0x7C && payload[1] == 0x01;
+    default:
+        return false;
+    }
+}
+
 static bool processPyrowaveMetadata(uint8_t* metadata, size_t metadataLength, uint16_t metadataFlags) {
     BYTE_BUFFER bb;
     uint16_t hostProcessingLatency = 0;
@@ -840,8 +860,9 @@ static bool processPyrowaveMetadata(uint8_t* metadata, size_t metadataLength, ui
         else if (type == LI_PYROWAVE_METADATA_HDR10_PLUS ||
                  type == LI_PYROWAVE_METADATA_HDR_VIVID ||
                  type == LI_PYROWAVE_METADATA_DOLBY_VISION_RPU) {
-            if (type != expectedDynamicType || dynamicMetadataFound || length == 0 ||
+            if (type != expectedDynamicType || dynamicMetadataFound ||
                     (flags & requiredDynamicFlags) != requiredDynamicFlags ||
+                    !validatePyrowaveDynamicHdrPayload(type, (uint8_t*)bb.buffer + bb.position, length) ||
                     !BbAdvanceBuffer(&bb, (int)length)) {
                 return false;
             }

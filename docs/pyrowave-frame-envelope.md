@@ -194,8 +194,14 @@ bufferList；两者由同一分配拥有，直到 `LiCompleteVideoFrame()` 才�
 HDR10+ 单窗口统计、Vivid 四个统计字段和 DV identity mapping 的 CM2.9 L1/L5/L6。
 这不等于任意电影动态 metadata、Dolby Profile 5/7 或增强层支持。
 
-common-c 校验 TLV 边界、必需标记、动态类型与基础信号的一致性，不复制应用呈现层的
-T.35/RPU 语法解析器。消费者必须在应用映射前校验实际 payload 的结构、受支持子集和校验值。
+common-c 校验 TLV 边界、必需标记、动态类型与基础信号的一致性，以及以下最小载荷外壳：
+
+- HDR10+：至少 8 bytes；前缀为 `B5 00 3C 00 01 04`，之后有版本字节和正文。
+- HDR Vivid：至少 7 bytes；前缀为 `26 00 04 00 05`，之后有 system start code 和正文。
+- Dolby Vision RPU：至少 3 bytes；前缀为 `7C 01`，之后有 escaped RPU 正文。
+
+这些检查仅排除错误类型标识和截断头部，不证明正文完整合法。common-c 不复制应用呈现层的
+T.35/RPU 语法解析器；消费者必须在呈现前校验实际 payload 的完整结构、受支持子集和校验值。
 
 ## 4. 块级 FEC
 
@@ -291,6 +297,10 @@ data/parity shards. Dynamic HDR TLVs remain bound to their decoded frame and req
 DYNAMIC_HDR_MAPPING capability. Full metadata is recovered from protected DATA/PARITY, not from a
 possibly partial frame-header copy. Native color metadata and SS_HDR_METADATA remain separate.
 Application mapping to PQ/HLG is not native Dolby Vision output. Legacy codecs and other channels are unchanged.
+
+The depacketizer also checks each dynamic payload's minimum header/body length and registered
+T.35 or RPU identifier. Full syntax, supported profiles, and checksums remain the presentation
+consumer's responsibility; passing the transport checks does not establish semantic validity.
 
 ## 实现入口
 

@@ -112,6 +112,27 @@ int main(void) {
         CHECK(!processPyrowaveMetadata(tlv, length, LI_PYROWAVE_METADATA_FLAG_PROTECTED));
         StreamConfig.hdrMode = hlg ? 2 : 1;
         CHECK(!processPyrowaveMetadata(NULL, 0, 0));
+        const size_t prefixLength = fixture->type == LI_PYROWAVE_METADATA_HDR10_PLUS ? 6 :
+                                    fixture->type == LI_PYROWAVE_METADATA_HDR_VIVID ? 5 : 2;
+        const size_t minimumPayloadLength = prefixLength +
+                                           (fixture->type == LI_PYROWAVE_METADATA_DOLBY_VISION_RPU ? 1 : 2);
+        for (size_t truncatedLength = 0; truncatedLength < minimumPayloadLength; ++truncatedLength) {
+            uint8_t truncated[sizeof(tlv)];
+            memcpy(truncated, tlv, 8 + truncatedLength);
+            truncated[4] = truncated[5] = truncated[6] = 0;
+            truncated[7] = (uint8_t)truncatedLength;
+            if (hlg) {
+                memcpy(truncated + 8 + truncatedLength, tlv + length - 10, 10);
+            }
+            CHECK(!processPyrowaveMetadata(truncated, 8 + truncatedLength + (hlg ? 10 : 0),
+                                          LI_PYROWAVE_METADATA_FLAG_PROTECTED));
+        }
+        for (size_t byte = 0; byte < prefixLength; ++byte) {
+            uint8_t wrongIdentifier[sizeof(tlv)];
+            memcpy(wrongIdentifier, tlv, length);
+            wrongIdentifier[8 + byte] ^= 1;
+            CHECK(!processPyrowaveMetadata(wrongIdentifier, length, LI_PYROWAVE_METADATA_FLAG_PROTECTED));
+        }
         memcpy(duplicate, tlv, length);
         memcpy(duplicate + length, tlv, length);
         CHECK(!processPyrowaveMetadata(duplicate, length * 2, LI_PYROWAVE_METADATA_FLAG_PROTECTED));
