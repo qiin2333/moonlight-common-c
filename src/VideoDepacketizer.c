@@ -71,6 +71,12 @@ typedef struct _LENTRY_INTERNAL {
     void* allocPtr;
 } LENTRY_INTERNAL, *PLENTRY_INTERNAL;
 
+typedef struct _PYROWAVE_FRAME_ENTRY {
+    LENTRY_INTERNAL entry;
+    const uint8_t* pyrowaveMetadata;
+    uint16_t pyrowaveMetadataLength;
+} PYROWAVE_FRAME_ENTRY;
+
 #define H264_NAL_TYPE(x) ((x) & 0x1F)
 #define HEVC_NAL_TYPE(x) (((x) & 0x7E) >> 1)
 
@@ -587,6 +593,13 @@ static void reassembleFrame(int frameNumber, bool frameIsLTR) {
             qdu->decodeUnit.presentationTimeUs = firstPacketPresentationTime;
             qdu->decodeUnit.rtpTimestamp = firstPacketRtpTimestamp;
             qdu->decodeUnit.enqueueTimeUs = PltGetMicroseconds();
+            qdu->decodeUnit.pyrowaveMetadata = NULL;
+            qdu->decodeUnit.pyrowaveMetadataLength = 0;
+            if (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE) {
+                PYROWAVE_FRAME_ENTRY* ownedFrame = (PYROWAVE_FRAME_ENTRY*)nalChainHead;
+                qdu->decodeUnit.pyrowaveMetadata = ownedFrame->pyrowaveMetadata;
+                qdu->decodeUnit.pyrowaveMetadataLength = ownedFrame->pyrowaveMetadataLength;
+            }
 
             // These might be wrong for a few frames during a transition between SDR and HDR,
             // but the effects shouldn't very noticable since that's an infrequent operation.
@@ -758,10 +771,11 @@ static void queueFragment(PLENTRY_INTERNAL* existingEntry, char* data, int offse
     }
 }
 
-static bool queueOwnedFrame(uint8_t* data, size_t length) {
+static bool queueOwnedFrame(uint8_t* data, size_t length, size_t metadataLength) {
     PLENTRY_INTERNAL entry;
+    PYROWAVE_FRAME_ENTRY* ownedFrame;
 
-    if (data == NULL || length == 0 || length > UINT_MAX) {
+    if (data == NULL || length == 0 || length > UINT_MAX || metadataLength > UINT16_MAX) {
         free(data);
         return false;
     }
@@ -769,11 +783,14 @@ static bool queueOwnedFrame(uint8_t* data, size_t length) {
     // The allocation contains both the chain entry and the codec bytes, so
     // the existing allocPtr cleanup owns the complete allocation.
     entry = (PLENTRY_INTERNAL)data;
+    ownedFrame = (PYROWAVE_FRAME_ENTRY*)data;
     entry->entry.next = NULL;
-    entry->entry.data = (char*)(entry + 1);
+    entry->entry.data = (char*)(ownedFrame + 1);
     entry->entry.length = (int)length;
     entry->entry.bufferType = BUFFER_TYPE_PICDATA;
     entry->allocPtr = data;
+    ownedFrame->pyrowaveMetadata = metadataLength != 0 ? (uint8_t*)(ownedFrame + 1) + length : NULL;
+    ownedFrame->pyrowaveMetadataLength = (uint16_t)metadataLength;
     nalChainDataLength += entry->entry.length;
 
     if (nalChainTail == NULL) {
@@ -786,10 +803,38 @@ static bool queueOwnedFrame(uint8_t* data, size_t length) {
     return true;
 }
 
+static bool validatePyrowaveDynamicHdrPayload(uint16_t type, const uint8_t* payload, uint32_t length) {
+    static const uint8_t hdr10PlusPrefix[] = {0xB5, 0x00, 0x3C, 0x00, 0x01, 0x04};
+    static const uint8_t vividPrefix[] = {0x26, 0x00, 0x04, 0x00, 0x05};
+
+    // Check the registered header and presence of a body here. The renderer
+    // validates the complete format syntax, supported profile, and checksum.
+    switch (type) {
+    case LI_PYROWAVE_METADATA_HDR10_PLUS:
+        return length >= sizeof(hdr10PlusPrefix) + 2 &&
+               memcmp(payload, hdr10PlusPrefix, sizeof(hdr10PlusPrefix)) == 0;
+    case LI_PYROWAVE_METADATA_HDR_VIVID:
+        return length >= sizeof(vividPrefix) + 2 &&
+               memcmp(payload, vividPrefix, sizeof(vividPrefix)) == 0;
+    case LI_PYROWAVE_METADATA_DOLBY_VISION_RPU:
+        return length >= 3 && payload[0] == 0x7C && payload[1] == 0x01;
+    default:
+        return false;
+    }
+}
+
 static bool processPyrowaveMetadata(uint8_t* metadata, size_t metadataLength, uint16_t metadataFlags) {
     BYTE_BUFFER bb;
     uint16_t hostProcessingLatency = 0;
+    const uint16_t expectedDynamicType = LiPyrowaveDynamicHdrMetadataType(NegotiatedDynamicHdrFormat);
+    const uint16_t requiredDynamicFlags = LI_PYROWAVE_METADATA_FLAG_PROTECTED |
+                                          LI_PYROWAVE_METADATA_FLAG_REQUIRED;
+    bool dynamicMetadataFound = false;
+    bool hlgPeakFound = false;
 
+    if (!LiPyrowaveDynamicHdrMatchesMode(NegotiatedDynamicHdrFormat, StreamConfig.hdrMode)) {
+        return false;
+    }
     BbInitializeWrappedBuffer(&bb, (char*)metadata, 0, (int)metadataLength, BYTE_ORDER_BIG);
     while (bb.position < bb.length) {
         uint16_t type;
@@ -812,6 +857,26 @@ static bool processPyrowaveMetadata(uint8_t* metadata, size_t metadataLength, ui
                 return false;
             }
         }
+        else if (type == LI_PYROWAVE_METADATA_HDR10_PLUS ||
+                 type == LI_PYROWAVE_METADATA_HDR_VIVID ||
+                 type == LI_PYROWAVE_METADATA_DOLBY_VISION_RPU) {
+            if (type != expectedDynamicType || dynamicMetadataFound ||
+                    (flags & requiredDynamicFlags) != requiredDynamicFlags ||
+                    !validatePyrowaveDynamicHdrPayload(type, (uint8_t*)bb.buffer + bb.position, length) ||
+                    !BbAdvanceBuffer(&bb, (int)length)) {
+                return false;
+            }
+            dynamicMetadataFound = true;
+        }
+        else if (type == LI_PYROWAVE_METADATA_HLG_NOMINAL_PEAK) {
+            uint16_t peak;
+            if (expectedDynamicType == 0 || StreamConfig.hdrMode != 2 || hlgPeakFound || length != 2 ||
+                    (flags & requiredDynamicFlags) != requiredDynamicFlags ||
+                    !BbGet16(&bb, &peak) || peak == 0) {
+                return false;
+            }
+            hlgPeakFound = true;
+        }
         else {
             // Color and mastering metadata are supplied by the codec sequence
             // header and HDR control channel, not these reserved TLV types.
@@ -822,6 +887,10 @@ static bool processPyrowaveMetadata(uint8_t* metadata, size_t metadataLength, ui
         }
     }
 
+    if (expectedDynamicType != 0 && (!dynamicMetadataFound ||
+            (StreamConfig.hdrMode == 2 && !hlgPeakFound))) {
+        return false;
+    }
     frameHostProcessingLatency = hostProcessingLatency;
     return true;
 }
@@ -1200,6 +1269,7 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
         size_t frameSize;
         uint8_t* frameData = NULL;
         size_t copiedSize = 0;
+        size_t metadataLength = 0;
 
         reassemblyResult = LiPyrowaveReassemblyPushBytes(
             &pyrowaveReassembly,
@@ -1230,23 +1300,24 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
         nextFrameNumber = frameIndex + 1;
 
         frameSize = pyrowaveReassembly.totalPayloadLength;
-        frameData = (uint8_t*)malloc(sizeof(LENTRY_INTERNAL) + frameSize);
+        frameData = (uint8_t*)malloc(sizeof(PYROWAVE_FRAME_ENTRY) + frameSize);
         LI_PYROWAVE_REASSEMBLY_RESULT copyResult = LI_PYROWAVE_REASSEMBLY_OUT_OF_MEMORY;
         if (frameData != NULL) {
-            size_t metadataLength = 0;
-            uint8_t* codecData = frameData + sizeof(LENTRY_INTERNAL);
+            uint8_t* codecData = frameData + sizeof(PYROWAVE_FRAME_ENTRY);
+            const size_t codecSize = pyrowaveReassembly.codecPayloadLength;
+            uint8_t* metadataData = codecData + codecSize;
 
             copyResult = LiPyrowaveReassemblyCopyMetadata(
-                &pyrowaveReassembly, codecData, frameSize, &metadataLength, NULL);
+                &pyrowaveReassembly, metadataData, frameSize - codecSize, &metadataLength, NULL);
             if (copyResult == LI_PYROWAVE_REASSEMBLY_COMPLETE &&
-                    !processPyrowaveMetadata(codecData, metadataLength, pyrowaveReassembly.metadataFlags)) {
+                    !processPyrowaveMetadata(metadataData, metadataLength, pyrowaveReassembly.metadataFlags)) {
                 copyResult = LI_PYROWAVE_REASSEMBLY_INVALID_PACKET;
             }
             if (copyResult == LI_PYROWAVE_REASSEMBLY_COMPLETE) {
                 copyResult = LiPyrowaveReassemblyCopyFrame(
                     &pyrowaveReassembly,
                     codecData,
-                    frameSize,
+                    codecSize,
                     &copiedSize,
                     NULL);
             }
@@ -1258,7 +1329,7 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
             dropFrameState();
             return;
         }
-        if (!queueOwnedFrame(frameData, copiedSize)) {
+        if (!queueOwnedFrame(frameData, copiedSize, metadataLength)) {
             dropFrameState();
             return;
         }

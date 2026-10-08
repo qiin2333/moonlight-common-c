@@ -304,6 +304,10 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
             else if (StreamConfig.hdrMode == 2) {
                 pyrowaveCapabilities |= LI_PYROWAVE_CAPABILITY_HLG_BT2020;
             }
+            if (LiPyrowaveRequestsDynamicHdr(StreamConfig.hdrMode, StreamConfig.dynamicHdrCaps,
+                                            StreamConfig.dynamicHdrPreference)) {
+                pyrowaveCapabilities |= LI_PYROWAVE_CAPABILITY_DYNAMIC_HDR_MAPPING;
+            }
             snprintf(payloadStr, sizeof(payloadStr), "%u", pyrowaveCapabilities);
             err |= addAttributeString(&optionHead, "x-ml-pyrowave.capabilityFlags", payloadStr);
             snprintf(payloadStr, sizeof(payloadStr), "%u", LI_PYROWAVE_MAX_PACKET_SIZE);
@@ -521,7 +525,7 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
             if (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE) {
                 // PyroWave supports SDR BT.709 and static HDR10/PQ/HLG BT.2020,
                 // with the selected limited/full range carried separately.
-                // Dynamic HDR metadata and Dolby Vision remain on the legacy codec path.
+                // Frame-level dynamic HDR is negotiated separately from this signal.
                 err |= addAttributeString(&optionHead, "x-nv-video[0].dynamicRangeMode",
                                           StreamConfig.hdrMode == 1 ? "1" :
                                           StreamConfig.hdrMode == 2 ? "2" : "0");

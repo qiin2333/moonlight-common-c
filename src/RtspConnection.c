@@ -638,15 +638,27 @@ static bool playStream(PRTSP_MESSAGE response, char* target, int* error) {
 
 // Parse the Sunshine dynamic HDR negotiation headers from the ANNOUNCE
 // response into the session-wide negotiated globals.
-static void parseDynamicHdrNegotiation(PRTSP_MESSAGE response) {
+static bool parseDynamicHdrNegotiation(PRTSP_MESSAGE response) {
     const char* formatOption = getOptionContent(response->options, "X-SS-Dynamic-HDR");
     if (formatOption == NULL) {
         NegotiatedDynamicHdrFormat = DYNAMIC_HDR_FORMAT_NONE;
         NegotiatedDynamicHdrFallback = DYNAMIC_HDR_FALLBACK_NONE;
-        return;
+        return true;
     }
 
-    NegotiatedDynamicHdrFormat = atoi(formatOption);
+    if (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE) {
+        if (formatOption[0] < '0' || formatOption[0] > '5' || formatOption[1] != '\0' ||
+                !LiPyrowaveDynamicHdrMatchesMode(formatOption[0] - '0', StreamConfig.hdrMode)) {
+            Limelog("PyroWave dynamic HDR negotiation failed: format does not match the requested signal mode\n");
+            NegotiatedDynamicHdrFormat = DYNAMIC_HDR_FORMAT_NONE;
+            NegotiatedDynamicHdrFallback = DYNAMIC_HDR_FALLBACK_NONE;
+            return false;
+        }
+        NegotiatedDynamicHdrFormat = formatOption[0] - '0';
+    }
+    else {
+        NegotiatedDynamicHdrFormat = atoi(formatOption);
+    }
 
     // The fallback arrives as the host enum name, not a number.
     const char* fallbackOption = getOptionContent(response->options, "X-SS-Dynamic-HDR-Fallback");
@@ -674,6 +686,7 @@ static void parseDynamicHdrNegotiation(PRTSP_MESSAGE response) {
 
     Limelog("Dynamic HDR negotiated: %d (dolby vision fallback: %d)\n",
         NegotiatedDynamicHdrFormat, NegotiatedDynamicHdrFallback);
+    return true;
 }
 
 // Send RTSP ANNOUNCE message
@@ -1274,12 +1287,17 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             StreamConfig.colorRange == COLOR_RANGE_FULL
                 ? LI_PYROWAVE_CAPABILITY_YUV_FULL_RANGE
                 : LI_PYROWAVE_CAPABILITY_YUV_LIMITED_RANGE;
-        const uint32_t pyrowaveRequiredCapabilities =
+        uint32_t pyrowaveRequiredCapabilities =
             (StreamConfig.hdrMode == 1 ? LI_PYROWAVE_REQUIRED_HDR10_BASE_CAPABILITIES :
              StreamConfig.hdrMode == 2 ? LI_PYROWAVE_REQUIRED_HLG_BASE_CAPABILITIES :
              LI_PYROWAVE_REQUIRED_SDR_BASE_CAPABILITIES) |
             pyrowaveRangeCapability;
         pyrowaveClientCapabilities.capabilityFlags = pyrowaveRequiredCapabilities;
+        if (LiPyrowaveRequestsDynamicHdr(StreamConfig.hdrMode, StreamConfig.dynamicHdrCaps,
+                                        StreamConfig.dynamicHdrPreference)) {
+            pyrowaveRequiredCapabilities |= LI_PYROWAVE_CAPABILITY_DYNAMIC_HDR_MAPPING;
+            pyrowaveClientCapabilities.capabilityFlags |= LI_PYROWAVE_CAPABILITY_DYNAMIC_HDR_MAPPING;
+        }
         pyrowaveClientCapabilities.maxPacketSize = LI_PYROWAVE_MAX_PACKET_SIZE;
         if ((StreamConfig.supportedVideoFormats & VIDEO_FORMAT_PYROWAVE) != 0 &&
                 (VideoCallbacks.capabilities & CAPABILITY_PYROWAVE) != 0 &&
@@ -1337,6 +1355,13 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             if (StreamConfig.width > 4096 || StreamConfig.height > 4096) {
                 Limelog("WARNING: Host PC doesn't support HEVC. Streaming at resolutions above 4K using H.264 will likely fail!\n");
             }
+        }
+
+        if ((StreamConfig.supportedVideoFormats & VIDEO_FORMAT_PYROWAVE) != 0 &&
+                NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE) {
+            const char* codec = (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_AV1) != 0 ? "AV1" :
+                                (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_H265) != 0 ? "HEVC" : "H.264";
+            Limelog("PyroWave negotiation failed. Falling back to %s.\n", codec);
         }
 
         // Look for the SDP attribute that indicates we're dealing with a server that supports RFI
@@ -1629,7 +1654,11 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         // Sunshine dynamic HDR negotiation result. Hosts without the
         // extension send no X-SS-Dynamic-HDR header; that is the legacy
         // outcome (DYNAMIC_HDR_FORMAT_NONE) rather than an error.
-        parseDynamicHdrNegotiation(&response);
+        if (!parseDynamicHdrNegotiation(&response)) {
+            ret = 415;
+            freeMessage(&response);
+            goto Exit;
+        }
 
         freeMessage(&response);
     }

@@ -244,6 +244,11 @@ typedef struct _DECODE_UNIT {
     // Note: This is not currently parsed from the actual bitstream, so if your
     // client has access to a bitstream parser, prefer that over this field.
     uint8_t colorspace;
+
+    // Protected PyroWave frame TLVs. Owned by bufferList and valid until
+    // LiCompleteVideoFrame(); NULL/zero for traditional video formats.
+    const uint8_t* pyrowaveMetadata;
+    uint16_t pyrowaveMetadataLength;
 } DECODE_UNIT, *PDECODE_UNIT;
 
 // Specifies that the audio stream should be encoded in stereo (default)
