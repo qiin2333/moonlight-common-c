@@ -191,6 +191,12 @@ bool LiPyrowaveValidateCapabilities(const LI_PYROWAVE_CAPABILITIES* capabilities
 /* Return the frame TLV type for a DynamicHdr.h format, or zero for none. */
 uint16_t LiPyrowaveDynamicHdrMetadataType(int format);
 
+/* Check the current request, not merely the presence of device capabilities. */
+bool LiPyrowaveRequestsDynamicHdr(int hdrMode, uint32_t dynamicHdrCaps, int dynamicHdrPreference);
+
+/* Dynamic formats must retain their negotiated PQ or HLG base signal. */
+bool LiPyrowaveDynamicHdrMatchesMode(int format, int hdrMode);
+
 /*
  * Compute the capability intersection without changing either input. The
  * caller supplies the flags required by the selected experiment; a failure

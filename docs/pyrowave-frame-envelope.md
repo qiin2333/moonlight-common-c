@@ -47,6 +47,12 @@ H.264、HEVC 和 AV1 的传输路径不使用本封套。
 该能力表示应用内逐帧消费，不表示厂商原生动态 HDR 输出；未请求动态 HDR 的会话不要求此位。
 PQ 类型必须使用 `dynamicRangeMode=1`，HLG 类型必须使用 `dynamicRangeMode=2`。
 
+能力位的必需集合根据当前 mode、capability 和 preference 共同计算。静态 HDR10 偏好不要求
+动态映射位；另一基础信号的能力位或未知位不构成当前动态请求。PyroWave 的 ANNOUNCE
+响应格式必须与请求的 PQ/HLG 信号一致，否则在 PLAY 前拒绝握手。传统 codec 不使用此检查。
+初始能力协商未选中 PyroWave 时继续保留原有 H.264 兼容兜底，并记录实际选择的编码格式；
+客户端可以复用自己的提示界面通知用户，不改变本视频封套或新增消息回调。
+
 ## 2. 包布局
 
 ```text
@@ -187,6 +193,9 @@ bufferList；两者由同一分配拥有，直到 `LiCompleteVideoFrame()` 才�
 线格式允许完整 payload，但应用消费者只广告其确实实现的生成子集。Sunshine 桌面源使用
 HDR10+ 单窗口统计、Vivid 四个统计字段和 DV identity mapping 的 CM2.9 L1/L5/L6。
 这不等于任意电影动态 metadata、Dolby Profile 5/7 或增强层支持。
+
+common-c 校验 TLV 边界、必需标记、动态类型与基础信号的一致性，不复制应用呈现层的
+T.35/RPU 语法解析器。消费者必须在应用映射前校验实际 payload 的结构、受支持子集和校验值。
 
 ## 4. 块级 FEC
 

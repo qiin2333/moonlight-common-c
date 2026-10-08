@@ -199,6 +199,42 @@ uint16_t LiPyrowaveDynamicHdrMetadataType(int format) {
     }
 }
 
+bool LiPyrowaveRequestsDynamicHdr(int hdrMode, uint32_t dynamicHdrCaps, int dynamicHdrPreference) {
+    /* Preference 3 selects static HDR10 even if the device supports dynamic HDR. */
+    if (dynamicHdrPreference == 3) {
+        return false;
+    }
+    if (dynamicHdrPreference == 2) {
+        return hdrMode == 1 && (dynamicHdrCaps & DYNAMIC_HDR_CAPS_HDR10_PLUS) != 0;
+    }
+    if (hdrMode == 1) {
+        return (dynamicHdrCaps & (DYNAMIC_HDR_CAPS_HDR10_PLUS |
+                                 DYNAMIC_HDR_CAPS_VIVID_PQ |
+                                 DYNAMIC_HDR_CAPS_DOLBY_VISION_81)) != 0;
+    }
+    if (hdrMode == 2) {
+        return (dynamicHdrCaps & (DYNAMIC_HDR_CAPS_VIVID_HLG |
+                                 DYNAMIC_HDR_CAPS_DOLBY_VISION_84)) != 0;
+    }
+    return false;
+}
+
+bool LiPyrowaveDynamicHdrMatchesMode(int format, int hdrMode) {
+    switch (format) {
+    case DYNAMIC_HDR_FORMAT_NONE:
+        return true;
+    case DYNAMIC_HDR_FORMAT_HDR10_PLUS:
+    case DYNAMIC_HDR_FORMAT_VIVID_PQ:
+    case DYNAMIC_HDR_FORMAT_DOLBY_VISION_PROFILE_81:
+        return hdrMode == 1;
+    case DYNAMIC_HDR_FORMAT_VIVID_HLG:
+    case DYNAMIC_HDR_FORMAT_DOLBY_VISION_PROFILE_84:
+        return hdrMode == 2;
+    default:
+        return false;
+    }
+}
+
 bool LiPyrowaveValidateCapabilities(const LI_PYROWAVE_CAPABILITIES* capabilities) {
     if (!validateCapabilityShape(capabilities) ||
             capabilities->protocolVersion != LI_PYROWAVE_PROTOCOL_VERSION ||

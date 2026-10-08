@@ -304,7 +304,8 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
             else if (StreamConfig.hdrMode == 2) {
                 pyrowaveCapabilities |= LI_PYROWAVE_CAPABILITY_HLG_BT2020;
             }
-            if (StreamConfig.hdrMode != 0 && StreamConfig.dynamicHdrCaps != 0) {
+            if (LiPyrowaveRequestsDynamicHdr(StreamConfig.hdrMode, StreamConfig.dynamicHdrCaps,
+                                            StreamConfig.dynamicHdrPreference)) {
                 pyrowaveCapabilities |= LI_PYROWAVE_CAPABILITY_DYNAMIC_HDR_MAPPING;
             }
             snprintf(payloadStr, sizeof(payloadStr), "%u", pyrowaveCapabilities);

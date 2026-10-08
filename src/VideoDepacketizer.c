@@ -812,6 +812,9 @@ static bool processPyrowaveMetadata(uint8_t* metadata, size_t metadataLength, ui
     bool dynamicMetadataFound = false;
     bool hlgPeakFound = false;
 
+    if (!LiPyrowaveDynamicHdrMatchesMode(NegotiatedDynamicHdrFormat, StreamConfig.hdrMode)) {
+        return false;
+    }
     BbInitializeWrappedBuffer(&bb, (char*)metadata, 0, (int)metadataLength, BYTE_ORDER_BIG);
     while (bb.position < bb.length) {
         uint16_t type;

@@ -1,4 +1,5 @@
 #include "PyrowaveProtocol.h"
+#include "DynamicHdr.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -82,6 +83,47 @@ int main(void) {
         .maxPacketSize = 4096,
     };
     LI_PYROWAVE_CAPABILITIES negotiated = { 0 };
+
+    {
+        const struct {
+            int mode;
+            uint32_t caps;
+            int preference;
+            bool dynamic;
+        } requests[] = {
+            { 0, UINT32_MAX, 0, false },
+            { 1, UINT32_MAX, 3, false },
+            { 2, UINT32_MAX, 3, false },
+            { 1, 0, 0, false },
+            { 1, 1u << 31, 0, false },
+            { 1, DYNAMIC_HDR_CAPS_VIVID_HLG | DYNAMIC_HDR_CAPS_DOLBY_VISION_84, 0, false },
+            { 2, DYNAMIC_HDR_CAPS_HDR10_PLUS | DYNAMIC_HDR_CAPS_VIVID_PQ |
+                 DYNAMIC_HDR_CAPS_DOLBY_VISION_81, 0, false },
+            { 1, DYNAMIC_HDR_CAPS_HDR10_PLUS, 2, true },
+            { 1, DYNAMIC_HDR_CAPS_VIVID_PQ, 2, false },
+            { 2, UINT32_MAX, 2, false },
+            { 1, DYNAMIC_HDR_CAPS_DOLBY_VISION_81, 1, true },
+            { 2, DYNAMIC_HDR_CAPS_DOLBY_VISION_84, 1, true },
+            { 1, DYNAMIC_HDR_CAPS_VIVID_PQ, 0, true },
+            { 2, DYNAMIC_HDR_CAPS_VIVID_HLG, 0, true },
+        };
+        for (size_t i = 0; i < sizeof(requests) / sizeof(requests[0]); ++i) {
+            CHECK(LiPyrowaveRequestsDynamicHdr(requests[i].mode, requests[i].caps,
+                                              requests[i].preference) == requests[i].dynamic);
+        }
+        for (int format = 1; format <= 5; ++format) {
+            const bool hlg = format == DYNAMIC_HDR_FORMAT_VIVID_HLG ||
+                             format == DYNAMIC_HDR_FORMAT_DOLBY_VISION_PROFILE_84;
+            CHECK(!LiPyrowaveDynamicHdrMatchesMode(format, 0));
+            CHECK(LiPyrowaveDynamicHdrMatchesMode(format, 1) == !hlg);
+            CHECK(LiPyrowaveDynamicHdrMatchesMode(format, 2) == hlg);
+        }
+        CHECK(LiPyrowaveDynamicHdrMatchesMode(DYNAMIC_HDR_FORMAT_NONE, 0));
+        CHECK(LiPyrowaveDynamicHdrMatchesMode(DYNAMIC_HDR_FORMAT_NONE, 1));
+        CHECK(LiPyrowaveDynamicHdrMatchesMode(DYNAMIC_HDR_FORMAT_NONE, 2));
+        CHECK(!LiPyrowaveDynamicHdrMatchesMode(-1, 1));
+        CHECK(!LiPyrowaveDynamicHdrMatchesMode(6, 1));
+    }
 
     CHECK(LiPyrowaveValidateCapabilities(&serverCapabilities));
     CHECK(LiPyrowaveValidateCapabilities(&clientCapabilities));

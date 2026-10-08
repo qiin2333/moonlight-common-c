@@ -4,6 +4,7 @@
 #define LiGetCurrentHostDisplayHdrMode testGetCurrentHostDisplayHdrMode
 #include "../src/VideoDepacketizer.c"
 #include "../src/DynamicHdr.h"
+#include "PyrowaveDynamicHdrFixtures.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -19,11 +20,45 @@ bool testGetCurrentHostDisplayHdrMode(void) { return true; }
     fprintf(stderr, "FAIL line %d: %s\n", __LINE__, #condition); return 1; \
 } } while (0)
 
+static size_t fixtureMetadata(const PYROWAVE_DYNAMIC_HDR_FIXTURE* fixture,
+                              uint8_t* output, size_t capacity) {
+    const size_t hexLength = strlen(fixture->payloadHex);
+    const size_t payloadLength = hexLength / 2;
+    const size_t length = 8 + payloadLength + (fixture->hlgNominalPeakNits != 0 ? 10 : 0);
+    if ((hexLength & 1) != 0 || length > capacity || payloadLength > UINT16_MAX) {
+        return 0;
+    }
+    const uint8_t header[] = {(uint8_t)(fixture->type >> 8), (uint8_t)fixture->type,
+                             0, LI_PYROWAVE_METADATA_FLAG_PROTECTED | LI_PYROWAVE_METADATA_FLAG_REQUIRED,
+                             0, 0, (uint8_t)(payloadLength >> 8), (uint8_t)payloadLength};
+    memcpy(output, header, sizeof(header));
+    for (size_t i = 0; i < payloadLength; ++i) {
+        const char hexByte[] = {fixture->payloadHex[i * 2], fixture->payloadHex[i * 2 + 1], 0};
+        output[8 + i] = (uint8_t)strtoul(hexByte, NULL, 16);
+    }
+    if (fixture->hlgNominalPeakNits != 0) {
+        const uint8_t peak[] = {0, LI_PYROWAVE_METADATA_HLG_NOMINAL_PEAK,
+                               0, LI_PYROWAVE_METADATA_FLAG_PROTECTED | LI_PYROWAVE_METADATA_FLAG_REQUIRED,
+                               0, 0, 0, 2, (uint8_t)(fixture->hlgNominalPeakNits >> 8),
+                               (uint8_t)fixture->hlgNominalPeakNits};
+        memcpy(output + 8 + payloadLength, peak, sizeof(peak));
+    }
+    return length;
+}
+
 int main(void) {
     static const uint8_t codec[] = {1, 2, 3, 4};
-    static const uint8_t metadata[] = {0, 4, 0, 9, 0, 0, 0, 1, 42};
+    uint8_t metadata[512];
+    const size_t dynamicLength = fixtureMetadata(&PyrowaveDynamicHdrFixtures[1], metadata, sizeof(metadata) - 10);
+    const uint8_t runtime[] = {1, 0, 0, LI_PYROWAVE_METADATA_FLAG_PROTECTED |
+                                         LI_PYROWAVE_METADATA_FLAG_RUNTIME |
+                                         LI_PYROWAVE_METADATA_FLAG_OPTIONAL,
+                               0, 0, 0, 2, 0, 0};
+    const size_t metadataLength = dynamicLength + sizeof(runtime);
     VIDEO_FRAME_HANDLE frameHandle;
     PDECODE_UNIT decodeUnit;
+    CHECK(dynamicLength != 0);
+    memcpy(metadata + dynamicLength, runtime, sizeof(runtime));
     NegotiatedVideoFormat = VIDEO_FORMAT_PYROWAVE;
     NegotiatedDynamicHdrFormat = DYNAMIC_HDR_FORMAT_VIVID_PQ;
     StreamConfig.hdrMode = 1;
@@ -31,25 +66,27 @@ int main(void) {
     VideoCallbacks.capabilities = CAPABILITY_PULL_RENDERER;
     initializeVideoDepacketizer(1392);
     for (unsigned frame = 1; frame <= 2; ++frame) {
-        uint8_t* allocation = malloc(sizeof(PYROWAVE_FRAME_ENTRY) + sizeof(codec) + sizeof(metadata));
+        uint8_t* allocation = malloc(sizeof(PYROWAVE_FRAME_ENTRY) + sizeof(codec) + metadataLength);
         CHECK(allocation != NULL);
+        metadata[metadataLength - 1] = (uint8_t)frame;
+        CHECK(processPyrowaveMetadata(metadata, metadataLength,
+                                      LI_PYROWAVE_METADATA_FLAG_PROTECTED | LI_PYROWAVE_METADATA_FLAG_RUNTIME));
         memcpy(allocation + sizeof(PYROWAVE_FRAME_ENTRY), codec, sizeof(codec));
-        memcpy(allocation + sizeof(PYROWAVE_FRAME_ENTRY) + sizeof(codec), metadata, sizeof(metadata));
-        allocation[sizeof(PYROWAVE_FRAME_ENTRY) + sizeof(codec) + sizeof(metadata) - 1] = (uint8_t)frame;
-        CHECK(queueOwnedFrame(allocation, sizeof(codec), sizeof(metadata)));
+        memcpy(allocation + sizeof(PYROWAVE_FRAME_ENTRY) + sizeof(codec), metadata, metadataLength);
+        CHECK(queueOwnedFrame(allocation, sizeof(codec), metadataLength));
         frameType = FRAME_TYPE_IDR;
         nextFrameNumber = frame + 1;
         reassembleFrame(frame, false);
     }
-    // Reset/reuse receive-side state after queueing: both queued frames must retain
-    // their own metadata, not a pointer into the reassembler or the next frame.
+    // Reset/reuse receive-side state after queueing: each frame keeps its own TLVs.
     LiPyrowaveReassemblyReset(&pyrowaveReassembly);
     for (unsigned frame = 1; frame <= 2; ++frame) {
         CHECK(LiPollNextVideoFrame(&frameHandle, &decodeUnit));
         CHECK(decodeUnit->frameNumber == (int)frame);
         CHECK(decodeUnit->fullLength == sizeof(codec));
-        CHECK(decodeUnit->pyrowaveMetadataLength == sizeof(metadata));
-        CHECK(decodeUnit->pyrowaveMetadata[sizeof(metadata) - 1] == (uint8_t)frame);
+        CHECK(decodeUnit->frameHostProcessingLatency == frame);
+        CHECK(decodeUnit->pyrowaveMetadataLength == metadataLength);
+        CHECK(decodeUnit->pyrowaveMetadata[metadataLength - 1] == (uint8_t)frame);
         CHECK(memcmp(decodeUnit->bufferList->data, codec, sizeof(codec)) == 0);
         LiCompleteVideoFrame(frameHandle, DR_OK);
     }
@@ -58,20 +95,22 @@ int main(void) {
     CHECK(LiPyrowaveDynamicHdrMetadataType(DYNAMIC_HDR_FORMAT_NONE) == 0);
     CHECK(LiPyrowaveDynamicHdrMetadataType(-1) == 0);
     CHECK(LiPyrowaveDynamicHdrMetadataType(6) == 0);
-    // Validate all negotiated dynamic formats using the production TLV parser.
-    for (int format = DYNAMIC_HDR_FORMAT_HDR10_PLUS;
-            format <= DYNAMIC_HDR_FORMAT_DOLBY_VISION_PROFILE_84; ++format) {
-        const bool hlg = format == DYNAMIC_HDR_FORMAT_VIVID_HLG ||
-                         format == DYNAMIC_HDR_FORMAT_DOLBY_VISION_PROFILE_84;
-        const uint16_t type = LiPyrowaveDynamicHdrMetadataType(format);
-        uint8_t tlv[] = {0, (uint8_t)type, 0, 9, 0, 0, 0, 1, 42,
-                        0, 6, 0, 9, 0, 0, 0, 2, 3, 232};
+    for (size_t i = 0; i < sizeof(PyrowaveDynamicHdrFixtures) / sizeof(PyrowaveDynamicHdrFixtures[0]); ++i) {
+        const PYROWAVE_DYNAMIC_HDR_FIXTURE* fixture = &PyrowaveDynamicHdrFixtures[i];
+        const bool hlg = fixture->hlgNominalPeakNits != 0;
+        uint8_t tlv[512];
         uint8_t duplicate[sizeof(tlv) * 2];
-        const size_t length = hlg ? sizeof(tlv) : 9;
-        NegotiatedDynamicHdrFormat = format;
+        const size_t length = fixtureMetadata(fixture, tlv, sizeof(tlv));
+        CHECK(length != 0);
+        CHECK(LiPyrowaveDynamicHdrMetadataType(fixture->format) == fixture->type);
+        NegotiatedDynamicHdrFormat = fixture->format;
         StreamConfig.hdrMode = hlg ? 2 : 1;
-        CHECK(type != 0);
         CHECK(processPyrowaveMetadata(tlv, length, LI_PYROWAVE_METADATA_FLAG_PROTECTED));
+        StreamConfig.hdrMode = hlg ? 1 : 2;
+        CHECK(!processPyrowaveMetadata(tlv, length, LI_PYROWAVE_METADATA_FLAG_PROTECTED));
+        StreamConfig.hdrMode = 0;
+        CHECK(!processPyrowaveMetadata(tlv, length, LI_PYROWAVE_METADATA_FLAG_PROTECTED));
+        StreamConfig.hdrMode = hlg ? 2 : 1;
         CHECK(!processPyrowaveMetadata(NULL, 0, 0));
         memcpy(duplicate, tlv, length);
         memcpy(duplicate + length, tlv, length);
@@ -83,29 +122,26 @@ int main(void) {
         tlv[3] = LI_PYROWAVE_METADATA_FLAG_REQUIRED;
         CHECK(!processPyrowaveMetadata(tlv, length, LI_PYROWAVE_METADATA_FLAG_PROTECTED));
         tlv[3] |= LI_PYROWAVE_METADATA_FLAG_PROTECTED;
-        tlv[1] = type == LI_PYROWAVE_METADATA_HDR10_PLUS
+        tlv[1] = fixture->type == LI_PYROWAVE_METADATA_HDR10_PLUS
                    ? LI_PYROWAVE_METADATA_HDR_VIVID : LI_PYROWAVE_METADATA_HDR10_PLUS;
         CHECK(!processPyrowaveMetadata(tlv, length, LI_PYROWAVE_METADATA_FLAG_PROTECTED));
-        tlv[1] = (uint8_t)type;
+        tlv[1] = (uint8_t)fixture->type;
         if (hlg) {
-            uint8_t duplicatePeak[sizeof(tlv) + 10];
-            CHECK(!processPyrowaveMetadata(tlv, 9, LI_PYROWAVE_METADATA_FLAG_PROTECTED));
-            tlv[18] = tlv[17] = 0;
+            CHECK(!processPyrowaveMetadata(tlv, length - 10, LI_PYROWAVE_METADATA_FLAG_PROTECTED));
+            tlv[length - 2] = tlv[length - 1] = 0;
             CHECK(!processPyrowaveMetadata(tlv, length, LI_PYROWAVE_METADATA_FLAG_PROTECTED));
-            tlv[17] = 3;
-            tlv[18] = 232;
-            tlv[12] = LI_PYROWAVE_METADATA_FLAG_PROTECTED;
+            tlv[length - 2] = (uint8_t)(fixture->hlgNominalPeakNits >> 8);
+            tlv[length - 1] = (uint8_t)fixture->hlgNominalPeakNits;
+            tlv[length - 7] = LI_PYROWAVE_METADATA_FLAG_PROTECTED;
             CHECK(!processPyrowaveMetadata(tlv, length, LI_PYROWAVE_METADATA_FLAG_PROTECTED));
-            tlv[12] |= LI_PYROWAVE_METADATA_FLAG_REQUIRED;
-            memcpy(duplicatePeak, tlv, sizeof(tlv));
-            memcpy(duplicatePeak + sizeof(tlv), tlv + 9, 10);
-            CHECK(!processPyrowaveMetadata(duplicatePeak, sizeof(duplicatePeak),
-                                          LI_PYROWAVE_METADATA_FLAG_PROTECTED));
-        }
-        else {
-            CHECK(!processPyrowaveMetadata(tlv, sizeof(tlv), LI_PYROWAVE_METADATA_FLAG_PROTECTED));
+            tlv[length - 7] |= LI_PYROWAVE_METADATA_FLAG_REQUIRED;
+            memcpy(duplicate, tlv, length);
+            memcpy(duplicate + length, tlv + length - 10, 10);
+            CHECK(!processPyrowaveMetadata(duplicate, length + 10, LI_PYROWAVE_METADATA_FLAG_PROTECTED));
         }
     }
+    NegotiatedDynamicHdrFormat = 6;
+    CHECK(!processPyrowaveMetadata(NULL, 0, 0));
     NegotiatedDynamicHdrFormat = DYNAMIC_HDR_FORMAT_NONE;
     CHECK(processPyrowaveMetadata(NULL, 0, 0));
     CHECK(frameHostProcessingLatency == 0);
