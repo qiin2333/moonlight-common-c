@@ -3,6 +3,7 @@
  * @brief Bounds-checked PyroWave transport packet contract.
  */
 #include "PyrowaveProtocol.h"
+#include "DynamicHdr.h"
 
 #include <string.h>
 
@@ -181,6 +182,21 @@ bool LiPyrowaveValidatePacketHeader(const LI_PYROWAVE_PACKET_HEADER* header) {
         return false;
     }
     return true;
+}
+
+uint16_t LiPyrowaveDynamicHdrMetadataType(int format) {
+    switch (format) {
+    case DYNAMIC_HDR_FORMAT_HDR10_PLUS:
+        return LI_PYROWAVE_METADATA_HDR10_PLUS;
+    case DYNAMIC_HDR_FORMAT_VIVID_PQ:
+    case DYNAMIC_HDR_FORMAT_VIVID_HLG:
+        return LI_PYROWAVE_METADATA_HDR_VIVID;
+    case DYNAMIC_HDR_FORMAT_DOLBY_VISION_PROFILE_81:
+    case DYNAMIC_HDR_FORMAT_DOLBY_VISION_PROFILE_84:
+        return LI_PYROWAVE_METADATA_DOLBY_VISION_RPU;
+    default:
+        return 0;
+    }
 }
 
 bool LiPyrowaveValidateCapabilities(const LI_PYROWAVE_CAPABILITIES* capabilities) {

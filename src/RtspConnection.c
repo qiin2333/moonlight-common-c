@@ -1274,12 +1274,16 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             StreamConfig.colorRange == COLOR_RANGE_FULL
                 ? LI_PYROWAVE_CAPABILITY_YUV_FULL_RANGE
                 : LI_PYROWAVE_CAPABILITY_YUV_LIMITED_RANGE;
-        const uint32_t pyrowaveRequiredCapabilities =
+        uint32_t pyrowaveRequiredCapabilities =
             (StreamConfig.hdrMode == 1 ? LI_PYROWAVE_REQUIRED_HDR10_BASE_CAPABILITIES :
              StreamConfig.hdrMode == 2 ? LI_PYROWAVE_REQUIRED_HLG_BASE_CAPABILITIES :
              LI_PYROWAVE_REQUIRED_SDR_BASE_CAPABILITIES) |
             pyrowaveRangeCapability;
         pyrowaveClientCapabilities.capabilityFlags = pyrowaveRequiredCapabilities;
+        if (StreamConfig.hdrMode != 0 && StreamConfig.dynamicHdrCaps != 0) {
+            pyrowaveRequiredCapabilities |= LI_PYROWAVE_CAPABILITY_DYNAMIC_HDR_MAPPING;
+            pyrowaveClientCapabilities.capabilityFlags |= LI_PYROWAVE_CAPABILITY_DYNAMIC_HDR_MAPPING;
+        }
         pyrowaveClientCapabilities.maxPacketSize = LI_PYROWAVE_MAX_PACKET_SIZE;
         if ((StreamConfig.supportedVideoFormats & VIDEO_FORMAT_PYROWAVE) != 0 &&
                 (VideoCallbacks.capabilities & CAPABILITY_PYROWAVE) != 0 &&

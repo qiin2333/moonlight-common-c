@@ -53,6 +53,9 @@ typedef enum _LI_PYROWAVE_METADATA_TYPE {
     LI_PYROWAVE_METADATA_HDR10_PLUS = 0x0001,
     LI_PYROWAVE_METADATA_HDR_STATIC_SNAPSHOT = 0x0002,
     LI_PYROWAVE_METADATA_COLOR_CONTRACT = 0x0003,
+    LI_PYROWAVE_METADATA_HDR_VIVID = 0x0004,
+    LI_PYROWAVE_METADATA_DOLBY_VISION_RPU = 0x0005,
+    LI_PYROWAVE_METADATA_HLG_NOMINAL_PEAK = 0x0006,
     LI_PYROWAVE_METADATA_HOST_PROCESSING_LATENCY = 0x0100,
     LI_PYROWAVE_METADATA_FRAME_DEADLINE = 0x0101,
     LI_PYROWAVE_METADATA_TRANSPORT_STATUS = 0x0102,
@@ -77,6 +80,7 @@ typedef enum _LI_PYROWAVE_METADATA_TYPE {
 #define LI_PYROWAVE_CAPABILITY_HLG_BT2020      (1u << 7)
 #define LI_PYROWAVE_CAPABILITY_YUV_LIMITED_RANGE (1u << 8)
 #define LI_PYROWAVE_CAPABILITY_FRAME_METADATA  (1u << 9)
+#define LI_PYROWAVE_CAPABILITY_DYNAMIC_HDR_MAPPING (1u << 10)
 
 /* Compatibility aliases for callers that used the first full-range-only
    contract. The wire bit now describes the negotiated YUV range, not SDR. */
@@ -183,6 +187,9 @@ bool LiPyrowaveValidatePacketHeader(const LI_PYROWAVE_PACKET_HEADER* header);
 
 /* Validate a local capability descriptor before advertising or consuming it. */
 bool LiPyrowaveValidateCapabilities(const LI_PYROWAVE_CAPABILITIES* capabilities);
+
+/* Return the frame TLV type for a DynamicHdr.h format, or zero for none. */
+uint16_t LiPyrowaveDynamicHdrMetadataType(int format);
 
 /*
  * Compute the capability intersection without changing either input. The

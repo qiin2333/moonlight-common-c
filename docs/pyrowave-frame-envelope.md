@@ -41,6 +41,12 @@ H.264、HEVC 和 AV1 的传输路径不使用本封套。
 低位传递，不改变用户的全局范围偏好。能力交集不包含所需位时拒绝 PyroWave 协商。
 `PARTIAL_FRAME` 位不是当前必需能力，不代表当前客户端会提交不完整帧。
 
+动态 HDR 会话另外要求 `DYNAMIC_HDR_MAPPING`（bit 10）。动态类型继续通过现有
+`x-ss-video[0].dynamicHdrCaps` / `dynamicHdrPreference` 请求，并通过
+`X-SS-Dynamic-HDR` 确认：1=HDR10+、2=Vivid PQ、3=Vivid HLG、4=DV 8.1、5=DV 8.4。
+该能力表示应用内逐帧消费，不表示厂商原生动态 HDR 输出；未请求动态 HDR 的会话不要求此位。
+PQ 类型必须使用 `dynamicRangeMode=1`，HLG 类型必须使用 `dynamicRangeMode=2`。
+
 ## 2. 包布局
 
 ```text
@@ -105,6 +111,10 @@ H.264、HEVC 和 AV1 的传输路径不使用本封套。
 - `FRAME_HEADER`：携带本帧恢复描述；`blockIndex=0`，设置 SOF，不设置 EOF/PARITY；
   组/shard 字段全部为 0，包体长度等于 `fecBlockPayloadSize`。它不计入数据/校验块数量，
   其包体不参与受保护数据拼接。
+
+FRAME_HEADER 包体可以带 metadata 前缀副本及零填充，最多复制一个包体容量。它不是完整
+metadata 的权威来源，接收端不能从该副本应用动态 HDR；完整 metadata 必须从受保护
+DATA/PARITY 数据恢复。metadata 可以跨越多个 DATA 包，不受单个 FRAME_HEADER 容量限制。
 - `DATA`：索引为 0 至 `dataBlockCount-1`。首块设置 SOF，末块设置 EOF。
 - `PARITY`：设置 PARITY，不设置 SOF/EOF；索引从 `dataBlockCount` 开始。
 
@@ -148,9 +158,12 @@ type:uint16 | flags:uint16 | length:uint32 | value:length
 
 | 类型 | 值 | 当前解释 |
 |---|---:|---|
-| `HDR10_PLUS` | `0x0001` | 预留；当前不产生或呈现动态 HDR10+ |
+| `HDR10_PLUS` | `0x0001` | 完整 registered T.35 HDR10+ payload |
 | `HDR_STATIC_SNAPSHOT` | `0x0002` | 预留；静态 HDR 使用现有控制通道 |
 | `COLOR_CONTRACT` | `0x0003` | 预留；颜色合同使用原生码流序列头 |
+| `HDR_VIVID` | `0x0004` | 完整 CUVA/UWA T.35 payload |
+| `DOLBY_VISION_RPU` | `0x0005` | 完整 `7C 01` UNSPEC 62 NAL + escaped RPU，无 Annex-B start code |
+| `HLG_NOMINAL_PEAK` | `0x0006` | HLG 基础信号的名义峰值，大端 uint16，单位 nits |
 | `HOST_PROCESSING_LATENCY` | `0x0100` | 已实现，见下文 |
 | `FRAME_DEADLINE` | `0x0101` | 预留；当前没有 wire deadline 字段 |
 | `TRANSPORT_STATUS` | `0x0102` | 预留 |
@@ -159,6 +172,21 @@ type:uint16 | flags:uint16 | length:uint32 | value:length
 发送端以 `PROTECTED | RUNTIME | OPTIONAL` 标记 TLV 和对应的帧级 metadata。转换时饱和到
 0 至 65535，不回绕。没有采集时间戳的重复帧可以不携带该条目；客户端清零当前帧的
 host processing latency，不能沿用上一帧的值。
+
+动态 payload 使用 `PROTECTED | REQUIRED`。每帧必须恰好有一个与协商类型匹配的动态
+TLV，不能以可选条目、缺失 payload 或上一帧缓存冒充动态处理。HLG 动态会话还必须携带
+唯一的 `HLG_NOMINAL_PEAK`：length=2、value>0，等于编码转换使用的名义峰值；它不是
+内容 P99、接收显示器峰值或静态 MaxCLL。PQ 动态会话不得携带该 HLG 条目。
+
+可选 Runtime TLV 与必需 HDR TLV 共存时，帧级 metadataFlags 设置 PROTECTED，并可包含
+RUNTIME；OPTIONAL/REQUIRED 保留在各条目，不能把整个区都标成 REQUIRED 后再要求跳过
+未知可选条目。恢复后将完整 TLV 区作为 `DECODE_UNIT.pyrowaveMetadata` 交付，码流仍位于
+bufferList；两者由同一分配拥有，直到 `LiCompleteVideoFrame()` 才失效。传统 codec
+的新增字段为 NULL/0。
+
+线格式允许完整 payload，但应用消费者只广告其确实实现的生成子集。Sunshine 桌面源使用
+HDR10+ 单窗口统计、Vivid 四个统计字段和 DV identity mapping 的 CM2.9 L1/L5/L6。
+这不等于任意电影动态 metadata、Dolby Profile 5/7 或增强层支持。
 
 ## 4. 块级 FEC
 
@@ -218,7 +246,8 @@ SDR 使用 BT.709，HDR10/PQ 与 HLG 使用 BT.2020，均支持协商的 limited
 
 RGB primaries、white point、显示亮度、MaxCLL、MaxFALL 和 full-frame luminance 使用
 现有 `SS_HDR_METADATA` 控制消息，由客户端呈现层处理。不通过新增 TLV 复制另一份合同。
-预留 HDR10_PLUS 类型不是动态 HDR10+、HDR Vivid 或 Dolby Vision 支持声明。
+动态 TLV 的消费与静态快照分开：应用内映射输出 PQ/HLG，并明确报告 application-mapped；
+携带 RPU 不使 PyroWave 成为标准 Dolby Vision HEVC 码流，也不证明设备进入原生 Dolby 模式。
 音频、麦克风、输入、手柄、USB 和剪贴板协议不由本视频封套修改。
 
 ## 7. API 错误码
@@ -249,8 +278,10 @@ skipped; malformed or unsupported required entries drop the frame.
 
 XOR FEC protects groups of at most 16 data shards with one parity shard. Receivers recover missing
 data before separating metadata, codec bytes, and zero padding. Frame headers are not counted as
-data/parity shards. Native color metadata and SS_HDR_METADATA remain separate; reserved dynamic-HDR
-types are not an implementation claim. Legacy video codecs and non-video channels are unchanged.
+data/parity shards. Dynamic HDR TLVs remain bound to their decoded frame and require the negotiated
+DYNAMIC_HDR_MAPPING capability. Full metadata is recovered from protected DATA/PARITY, not from a
+possibly partial frame-header copy. Native color metadata and SS_HDR_METADATA remain separate.
+Application mapping to PQ/HLG is not native Dolby Vision output. Legacy codecs and other channels are unchanged.
 
 ## 实现入口
 
