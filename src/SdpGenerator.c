@@ -329,7 +329,7 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
             EncryptionFeaturesEnabled |= SS_ENC_VIDEO;
         }
 
-        if (isVideoPacketFeedbackRequested() && VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION &&
+        if (NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE && isVideoPacketFeedbackRequested() && VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION &&
             !StreamConfig.controlOnly && (EncryptionFeaturesSupported & SS_ENC_VIDEO) &&
             (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2)) EncryptionFeaturesEnabled |= SS_ENC_VIDEO;
 
@@ -355,7 +355,7 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
 
         snprintf(payloadStr, sizeof(payloadStr), "%" PRIu32, EncryptionFeaturesEnabled);
         err |= addAttributeString(&optionHead, "x-ss-general.encryptionEnabled", payloadStr);
-        if (isVideoPacketFeedbackRequested() && VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION &&
+        if (NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE && isVideoPacketFeedbackRequested() && VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION &&
             !StreamConfig.controlOnly && (EncryptionFeaturesEnabled & SS_ENC_VIDEO) &&
             (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2))
             err |= addAttributeString(&optionHead, "x-ss-video[0].packetFeedbackVersion", TF_PACKET_FEEDBACK_PROFILE_VERSION_STRING);
@@ -397,7 +397,7 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
 
     // Adjust the video packet size to account for encryption overhead
     if (EncryptionFeaturesEnabled & SS_ENC_VIDEO) {
-        const bool feedbackRequested = isVideoPacketFeedbackRequested() && VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION &&
+        const bool feedbackRequested = NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE && isVideoPacketFeedbackRequested() && VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION &&
             !StreamConfig.controlOnly && (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2);
         const int overhead = (int)sizeof(ENC_VIDEO_HEADER) + (feedbackRequested ? TF_VIDEO_IDENTITY_BYTES : 0);
         if (StreamConfig.packetSize <= overhead + (int)sizeof(NV_VIDEO_PACKET)) {

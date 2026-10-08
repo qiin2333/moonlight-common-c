@@ -243,6 +243,13 @@ int main(void) {
     announceScenario("missing-video-encryption", true, true, 1, 2, SS_ENC_CONTROL_V2, false, false, false, 1392);
     announceScenario("missing-control-encryption", true, true, 1, 2, SS_ENC_VIDEO, false, false, false, 1392);
     announceScenario("control-only", true, true, 1, 2, encrypted, true, false, false, 1392);
+    // PyroWave owns its block protection and payload geometry. Legacy feedback
+    // identities and policy control must not be advertised for that codec.
+    NegotiatedVideoFormat = VIDEO_FORMAT_PYROWAVE;
+    announceScenario("pyrowave-legacy-policy-excluded", true, true, 1, 2, encrypted, false, false, false, 1392);
+    CHECK(!shouldAnnounceVideoProbePadding());
+    CHECK(!shouldAnnounceTransportPolicyStatus());
+    NegotiatedVideoFormat = VIDEO_FORMAT_H264;
     testStrictCapabilityParser();
     testProbePaddingNegotiation();
     testAcknowledgementAndLifecycle();

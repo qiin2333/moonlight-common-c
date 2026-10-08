@@ -144,7 +144,7 @@ bool isVideoPacketControlRequested(void) {
 }
 
 static bool packetControlAnnounceEligibleLocked(void) {
-    return packetControlRequested && packetFeedbackRequested &&
+    return NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE && packetControlRequested && packetFeedbackRequested &&
         VideoPacketControlSupportedVersion == 1 &&
         VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION &&
         !StreamConfig.controlOnly && (EncryptionFeaturesEnabled & SS_ENC_VIDEO) &&
@@ -173,7 +173,7 @@ bool isVideoPacketFeedbackRequested(void) {
 }
 
 static bool probePaddingAnnounceEligibleLocked(void) {
-    return packetFeedbackRequested && VideoProbePaddingSupportedVersion == TF_PROBE_PADDING_PROFILE_VERSION &&
+    return NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE && packetFeedbackRequested && VideoProbePaddingSupportedVersion == TF_PROBE_PADDING_PROFILE_VERSION &&
         VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION && !StreamConfig.controlOnly &&
         (EncryptionFeaturesEnabled & SS_ENC_VIDEO) && (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2);
 }
@@ -200,7 +200,7 @@ bool isVideoProbePaddingNegotiated(void) {
 }
 
 static bool policyStatusAnnounceEligibleLocked(void) {
-    return packetFeedbackRequested && TransportPolicyStatusSupportedVersion == TPS_STATUS_VERSION &&
+    return NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE && packetFeedbackRequested && TransportPolicyStatusSupportedVersion == TPS_STATUS_VERSION &&
         VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION && !StreamConfig.controlOnly &&
         (EncryptionFeaturesEnabled & SS_ENC_VIDEO) && (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2);
 }
