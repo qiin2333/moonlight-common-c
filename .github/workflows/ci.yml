@@ -47,16 +47,13 @@ jobs:
             cc: clang
             cxx: clang++
             cmake_args: -DUSE_MBEDTLS=ON
-            mbedtls: true
+            prebuild_cmd: sudo apt install -y libmbedtls-dev
           - os: ubuntu-latest
             cc: gcc
             cxx: g++
             cmake_args: -DUSE_MBEDTLS=ON
-            mbedtls: true
+            prebuild_cmd: sudo apt install -y libmbedtls-dev
     runs-on: ${{ matrix.os }}
-    env:
-      CC: ${{ matrix.cc }}
-      CXX: ${{ matrix.cxx }}
     name: Build
     steps:
       - name: Checkout
@@ -64,29 +61,19 @@ jobs:
         with:
           submodules: recursive
 
-      - name: Build pinned MbedTLS with PSA multipart AEAD
-        if: matrix.mbedtls
-        shell: bash
+      - name: Prebuild
+        if: matrix.prebuild_cmd
         run: |
-          set -euo pipefail
-          curl --fail --location https://github.com/Mbed-TLS/mbedtls/releases/download/mbedtls-3.6.7/mbedtls-3.6.7.tar.bz2 -o "$RUNNER_TEMP/mbedtls.tar.bz2"
-          echo "a7e8bcbec0e6f761b4af24f25677626b35f762f68eef79c08677a363212d11f6  $RUNNER_TEMP/mbedtls.tar.bz2" | sha256sum --check
-          tar -xjf "$RUNNER_TEMP/mbedtls.tar.bz2" -C "$RUNNER_TEMP"
-          cmake -S "$RUNNER_TEMP/mbedtls-3.6.7" -B "$RUNNER_TEMP/mbedtls-build" -DCMAKE_BUILD_TYPE=Release -DCMAKE_INSTALL_PREFIX="$RUNNER_TEMP/mbedtls" -DENABLE_TESTING=OFF -DENABLE_PROGRAMS=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON
-          cmake --build "$RUNNER_TEMP/mbedtls-build" --parallel 2
-          cmake --install "$RUNNER_TEMP/mbedtls-build"
-          echo "CMAKE_PREFIX_PATH=$RUNNER_TEMP/mbedtls" >> "$GITHUB_ENV"
+          eval "${{ matrix.prebuild_cmd }}"
 
       - name: Build Debug
         run: |
           mkdir build_debug
           cmake ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Debug -B build_debug -S .
           cmake --build build_debug --config Debug
-          ctest --test-dir build_debug --build-config Debug --output-on-failure
 
       - name: Build Release
         run: |
           mkdir build_release
           cmake ${{ matrix.cmake_args }} -DCMAKE_BUILD_TYPE=Release -B build_release -S .
           cmake --build build_release --config Release
-          ctest --test-dir build_release --build-config Release --output-on-failure

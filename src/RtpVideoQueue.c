@@ -92,6 +92,8 @@ static void removeEntryFromList(PRTPV_QUEUE_LIST list, PRTPV_QUEUE_ENTRY entry) 
 
 static void reportFinalFrameFecStatus(PRTP_VIDEO_QUEUE queue) {
     SS_FRAME_FEC_STATUS fecStatus;
+    connectionRecordFecBlock(queue->currentFrameNumber, queue->multiFecCurrentBlockNumber,
+                             queue->bufferDataPackets, queue->receivedDataPackets);
 
     fecStatus.frameIndex = BE32(queue->currentFrameNumber);
     fecStatus.highestReceivedSequenceNumber = BE16(queue->receivedHighestSequenceNumber);
@@ -106,15 +108,6 @@ static void reportFinalFrameFecStatus(PRTP_VIDEO_QUEUE queue) {
     fecStatus.multiFecBlockCount = (uint8_t)(queue->multiFecLastBlockNumber + 1);
 
     connectionSendFrameFecStatus(&fecStatus);
-}
-
-static void recordNetworkBlockResult(PRTP_VIDEO_QUEUE queue, bool complete) {
-    if (queue->networkBlockResultRecorded || queue->bufferDataPackets == 0) {
-        return;
-    }
-    notifyVideoNetworkBlockResult(queue->bufferDataPackets, queue->receivedDataPackets,
-                                   complete, queue->multiFecCurrentBlockNumber == queue->multiFecLastBlockNumber);
-    queue->networkBlockResultRecorded = true;
 }
 
 // newEntry is contained within the packet buffer so we free the whole entry by freeing entry->packet
@@ -256,6 +249,9 @@ static int reconstructFrame(PRTP_VIDEO_QUEUE queue) {
 #else
     if (queue->receivedDataPackets == queue->bufferDataPackets) {
 #endif
+        // Include clean blocks in the aggregate denominator, without queueing a report per frame.
+        connectionRecordFecBlock(queue->currentFrameNumber, queue->multiFecCurrentBlockNumber,
+                                 queue->bufferDataPackets, queue->receivedDataPackets);
         // We've received a full frame with no need for FEC.
         return 0;
     }
@@ -644,7 +640,6 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
     if (queue->pendingFecBlockList.count == 0 || queue->currentFrameNumber != nvPacket->frameIndex ||
             queue->multiFecCurrentBlockNumber != fecCurrentBlockNumber) {
         if (queue->pendingFecBlockList.count != 0) {
-            recordNetworkBlockResult(queue, false);
             // Report the final status of the FEC queue before dropping this frame
             reportFinalFrameFecStatus(queue);
 
@@ -691,7 +686,6 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         // or block 0 of a new frame.
         uint8_t expectedFecBlockNumber = (queue->currentFrameNumber == nvPacket->frameIndex ? queue->multiFecCurrentBlockNumber : 0);
         if (fecCurrentBlockNumber != expectedFecBlockNumber) {
-            recordNetworkBlockResult(queue, false);
             // Report the final status of the FEC queue before dropping this frame
             reportFinalFrameFecStatus(queue);
 
@@ -758,7 +752,6 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         queue->missingPackets = 0;
         queue->useFastQueuePath = true;
         queue->reportedLostFrame = false;
-        queue->networkBlockResultRecorded = false;
         queue->bufferDataPackets = (nvPacket->fecInfo & 0xFFC00000) >> 22;
         queue->fecPercentage = (nvPacket->fecInfo & 0xFF0) >> 4;
         queue->bufferParityPackets = (queue->bufferDataPackets * queue->fecPercentage + 99) / 100;
@@ -829,7 +822,6 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         // Try to submit this frame. If we haven't received enough packets,
         // this will fail and we'll keep waiting.
         if (reconstructFrame(queue) == 0) {
-            recordNetworkBlockResult(queue, true);
             // Stage the complete FEC block for use once reassembly is complete
             stageCompleteFecBlock(queue);
 

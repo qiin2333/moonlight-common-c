@@ -1,6 +1,4 @@
 #include "Limelight-internal.h"
-#include "VideoNetwork.h"
-#include "VideoPacketFeedback.h"
 
 #include <stdatomic.h>
 
@@ -34,268 +32,6 @@ static bool receivedDataFromPeer;
 static uint64_t firstDataTimeMs;
 static bool receivedFullFrame;
 static _Atomic uint64_t rtpVideoBytesReceived;
-static VIDEO_NETWORK_OBSERVER networkObserver;
-static atomic_flag networkObserverLock = ATOMIC_FLAG_INIT;
-static bool networkObservationEnabled;
-static bool videoStreamInitialized;
-static uint64_t networkConnectionEpoch;
-static bool packetFeedbackRequested;
-static bool packetFeedbackConnectionActive;
-static bool packetControlRequested;
-static bool packetControlNegotiated;
-static bool probePaddingNegotiated;
-static VIDEO_PACKET_FEEDBACK packetFeedback;
-uint32_t VideoPacketFeedbackSupportedVersion;
-uint64_t VideoPacketFeedbackConnectionEpoch;
-uint32_t VideoPacketControlSupportedVersion;
-uint32_t VideoProbePaddingSupportedVersion;
-uint32_t TransportPolicyStatusSupportedVersion;
-static bool transportPolicyStatusNegotiated;
-static TPS_STATUS_RECEIVER transportPolicyStatus;
-
-// Lifetime-independent lock: the snapshot API may race stream destruction,
-// but it never touches a destroyed platform mutex or freed observer storage.
-static void lockNetworkObserver(void) {
-    unsigned spins = 0;
-    while (atomic_flag_test_and_set_explicit(&networkObserverLock, memory_order_acquire)) {
-        // Let the owner run when report preparation contends with receive/API reads.
-        if (++spins >= 64) {
-            PltSleepMs(1);
-            spins = 0;
-        }
-    }
-}
-
-static void unlockNetworkObserver(void) {
-    atomic_flag_clear_explicit(&networkObserverLock, memory_order_release);
-}
-
-bool LiSetVideoNetworkObservationEnabled(bool enabled) {
-    bool accepted;
-    lockNetworkObserver();
-    accepted = !videoStreamInitialized && !packetFeedbackConnectionActive && (enabled || !packetFeedbackRequested);
-    if (accepted) {
-        networkObservationEnabled = enabled;
-    }
-    unlockNetworkObserver();
-    return accepted;
-}
-
-bool LiSetVideoPacketFeedbackEnabled(bool enabled) {
-    lockNetworkObserver();
-    const bool accepted = !videoStreamInitialized && !packetFeedbackConnectionActive;
-    if (accepted) { packetFeedbackRequested = enabled; if (enabled) networkObservationEnabled = true; }
-    unlockNetworkObserver();
-    return accepted;
-}
-
-bool LiSetVideoPacketControlEnabled(bool enabled) {
-    lockNetworkObserver();
-    const bool accepted = !videoStreamInitialized && !packetFeedbackConnectionActive;
-    if (accepted) {
-        packetControlRequested = enabled;
-        packetControlNegotiated = false;
-    }
-    unlockNetworkObserver();
-    return accepted;
-}
-
-bool LiGetVideoPacketControlNegotiated(void) {
-    lockNetworkObserver();
-    const bool negotiated = packetFeedbackConnectionActive && packetControlNegotiated;
-    unlockNetworkObserver();
-    return negotiated;
-}
-
-void beginVideoPacketFeedbackConnection(void) {
-    lockNetworkObserver();
-    packetFeedbackConnectionActive = true;
-    packetControlNegotiated = false;
-    probePaddingNegotiated = false;
-    transportPolicyStatusNegotiated = false;
-    TpsInitializeReceiver(&transportPolicyStatus, 0);
-    unlockNetworkObserver();
-}
-
-void endVideoPacketFeedbackConnection(void) {
-    lockNetworkObserver();
-    packetControlNegotiated = false;
-    probePaddingNegotiated = false;
-    packetFeedbackConnectionActive = false;
-    transportPolicyStatusNegotiated = false;
-    TpsInitializeReceiver(&transportPolicyStatus, 0);
-    unlockNetworkObserver();
-}
-
-void resetVideoPacketControlNegotiation(void) {
-    lockNetworkObserver();
-    packetControlNegotiated = false;
-    probePaddingNegotiated = false;
-    transportPolicyStatusNegotiated = false;
-    TpsInitializeReceiver(&transportPolicyStatus, 0);
-    unlockNetworkObserver();
-}
-
-bool isVideoPacketControlRequested(void) {
-    lockNetworkObserver();
-    const bool requested = packetControlRequested;
-    unlockNetworkObserver();
-    return requested;
-}
-
-static bool packetControlAnnounceEligibleLocked(void) {
-    return NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE && packetControlRequested && packetFeedbackRequested &&
-        VideoPacketControlSupportedVersion == 1 &&
-        VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION &&
-        !StreamConfig.controlOnly && (EncryptionFeaturesEnabled & SS_ENC_VIDEO) &&
-        (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2);
-}
-
-bool shouldAnnounceVideoPacketControl(void) {
-    lockNetworkObserver();
-    const bool eligible = packetControlAnnounceEligibleLocked();
-    unlockNetworkObserver();
-    return eligible;
-}
-
-void confirmVideoPacketControlNegotiation(const char* controlVersion) {
-    lockNetworkObserver();
-    packetControlNegotiated = packetFeedbackConnectionActive && packetControlAnnounceEligibleLocked() &&
-        VideoPacketFeedbackConnectionEpoch != 0 && controlVersion != NULL && strcmp(controlVersion, "1") == 0;
-    unlockNetworkObserver();
-}
-
-bool isVideoPacketFeedbackRequested(void) {
-    lockNetworkObserver();
-    const bool requested = packetFeedbackRequested;
-    unlockNetworkObserver();
-    return requested;
-}
-
-static bool probePaddingAnnounceEligibleLocked(void) {
-    return NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE && packetFeedbackRequested && VideoProbePaddingSupportedVersion == TF_PROBE_PADDING_PROFILE_VERSION &&
-        VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION && !StreamConfig.controlOnly &&
-        (EncryptionFeaturesEnabled & SS_ENC_VIDEO) && (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2);
-}
-
-bool shouldAnnounceVideoProbePadding(void) {
-    lockNetworkObserver();
-    const bool eligible = probePaddingAnnounceEligibleLocked();
-    unlockNetworkObserver();
-    return eligible;
-}
-
-void confirmVideoProbePaddingNegotiation(const char* version) {
-    lockNetworkObserver();
-    probePaddingNegotiated = packetFeedbackConnectionActive && probePaddingAnnounceEligibleLocked() &&
-        VideoPacketFeedbackConnectionEpoch && version != NULL && strcmp(version, "1") == 0;
-    unlockNetworkObserver();
-}
-
-bool isVideoProbePaddingNegotiated(void) {
-    lockNetworkObserver();
-    const bool negotiated = packetFeedbackConnectionActive && probePaddingNegotiated;
-    unlockNetworkObserver();
-    return negotiated;
-}
-
-static bool policyStatusAnnounceEligibleLocked(void) {
-    return NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE && packetFeedbackRequested && TransportPolicyStatusSupportedVersion == TPS_STATUS_VERSION &&
-        VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION && !StreamConfig.controlOnly &&
-        (EncryptionFeaturesEnabled & SS_ENC_VIDEO) && (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2);
-}
-bool shouldAnnounceTransportPolicyStatus(void) {
-    lockNetworkObserver();
-    const bool eligible = policyStatusAnnounceEligibleLocked();
-    unlockNetworkObserver();
-    return eligible;
-}
-void confirmTransportPolicyStatusNegotiation(const char* version) {
-    lockNetworkObserver();
-    transportPolicyStatusNegotiated = packetFeedbackConnectionActive && policyStatusAnnounceEligibleLocked() &&
-        VideoPacketFeedbackConnectionEpoch && version != NULL && strcmp(version, "1") == 0;
-    unlockNetworkObserver();
-}
-void notifyTransportPolicyStatus(const uint8_t* payload, size_t length) {
-    TPS_STATUS_NOTICE notice;
-    if (!TpsDecodeStatus(payload, length, &notice)) return;
-    lockNetworkObserver();
-    if (videoStreamInitialized && transportPolicyStatusNegotiated)
-        TpsAcceptStatus(&transportPolicyStatus, &notice);
-    unlockNetworkObserver();
-}
-bool LiGetTransportPolicyStatusNotice(TPS_STATUS_NOTICE* notice) {
-    lockNetworkObserver();
-    const bool available = packetFeedbackConnectionActive && videoStreamInitialized && transportPolicyStatusNegotiated &&
-        TpsCopyStatus(&transportPolicyStatus, notice);
-    unlockNetworkObserver();
-    return available;
-}
-
-void notifyVideoPacketFeedbackReady(const uint8_t* payload, size_t length) {
-    TF_READY ready;
-    if (!TfDecodeReady(payload, length, &ready)) return;
-    lockNetworkObserver();
-    if (videoStreamInitialized && packetFeedbackRequested && VideoPacketFeedbackConnectionEpoch)
-        VfAcceptReady(&packetFeedback, &networkObserver, &ready, PltGetMicroseconds());
-    unlockNetworkObserver();
-}
-
-bool prepareVideoPacketFeedbackReport(struct _TF_PACKET_REPORT* report) {
-    lockNetworkObserver();
-    const bool prepared = videoStreamInitialized && packetFeedbackRequested && VideoPacketFeedbackConnectionEpoch &&
-        VfPrepareReport(&packetFeedback, &networkObserver, PltGetMicroseconds(), report);
-    unlockNetworkObserver();
-    return prepared;
-}
-
-void commitVideoPacketFeedbackReport(const struct _TF_PACKET_REPORT* report) {
-    lockNetworkObserver();
-    if (videoStreamInitialized && packetFeedbackRequested && VideoPacketFeedbackConnectionEpoch)
-        VfCommitQueued(&packetFeedback, &networkObserver, report);
-    unlockNetworkObserver();
-}
-
-bool LiGetVideoNetworkSnapshot(LI_VIDEO_NETWORK_SNAPSHOT* snapshot) {
-    bool available;
-    if (snapshot == NULL) {
-        return false;
-    }
-    const uint64_t nowUs = PltGetMicroseconds();
-    lockNetworkObserver();
-    available = videoStreamInitialized && networkObservationEnabled;
-    if (available) {
-        VnGetSnapshot(&networkObserver, nowUs, snapshot);
-    }
-    else {
-        memset(snapshot, 0, sizeof(*snapshot));
-        snapshot->version = LI_VIDEO_NETWORK_SNAPSHOT_VERSION;
-        snapshot->size = sizeof(*snapshot);
-    }
-    unlockNetworkObserver();
-    return available;
-}
-
-void notifyVideoNetworkBlockResult(uint32_t dataPackets, uint32_t receivedDataPackets,
-                                   bool complete, bool lastBlock) {
-    if (!networkObservationEnabled || dataPackets == 0 || receivedDataPackets > dataPackets) {
-        return;
-    }
-    lockNetworkObserver();
-    if (complete) {
-        networkObserver.snapshot.completedBlocks++;
-        networkObserver.snapshot.recoveredDataPackets += dataPackets - receivedDataPackets;
-        if (lastBlock) {
-            networkObserver.snapshot.completedFrames++;
-        }
-    }
-    else {
-        // Only known blocks are counted here. Whole unseen frames require the
-        // sender ledger; they cannot be inferred from a decoder FPS value.
-        networkObserver.snapshot.failedObservedBlocks++;
-    }
-    unlockNetworkObserver();
-}
 
 // We can't request an IDR frame until the depacketizer knows
 // that a packet was lost. This timeout bounds the time that
@@ -310,15 +46,6 @@ void notifyVideoNetworkBlockResult(uint32_t dataPackets, uint32_t receivedDataPa
 
 // Initialize the video stream
 void initializeVideoStream(void) {
-    lockNetworkObserver();
-    videoStreamInitialized = true;
-    if (networkObservationEnabled) {
-        const uint64_t epoch = VideoPacketFeedbackConnectionEpoch ? VideoPacketFeedbackConnectionEpoch : ++networkConnectionEpoch;
-        VnInitialize(&networkObserver, epoch, PltGetMicroseconds(), 30000, VideoPacketFeedbackConnectionEpoch ? 0 : 250000);
-    }
-    VfInitialize(&packetFeedback, VideoPacketFeedbackConnectionEpoch);
-    TpsInitializeReceiver(&transportPolicyStatus, VideoPacketFeedbackConnectionEpoch);
-    unlockNetworkObserver();
     initializeVideoDepacketizer(StreamConfig.packetSize);
     RtpvInitializeQueue(&rtpQueue);
     decryptionCtx = PltCreateCryptoContext();
@@ -330,11 +57,6 @@ void initializeVideoStream(void) {
 
 // Clean up the video stream
 void destroyVideoStream(void) {
-    lockNetworkObserver();
-    videoStreamInitialized = false;
-    packetControlNegotiated = false;
-    probePaddingNegotiated = false;
-    unlockNetworkObserver();
     PltDestroyCryptoContext(decryptionCtx);
     destroyVideoDepacketizer();
     RtpvCleanupQueue(&rtpQueue);
@@ -382,12 +104,7 @@ static void VideoReceiveThreadProc(void* context) {
     bool encrypted;
 
     encrypted = !!(EncryptionFeaturesEnabled & SS_ENC_VIDEO);
-    const bool probePadding = isVideoProbePaddingNegotiated();
     decryptedSize = StreamConfig.packetSize + MAX_RTP_HEADER_SIZE;
-    if (probePadding && decryptedSize < TF_PROBE_PADDING_HEADER_BYTES + TF_PROBE_PADDING_MAX_BYTES)
-        decryptedSize = TF_PROBE_PADDING_HEADER_BYTES + TF_PROBE_PADDING_MAX_BYTES;
-    decryptedSize +=
-        (VideoPacketFeedbackConnectionEpoch ? TF_VIDEO_IDENTITY_BYTES : 0);
     minSize = sizeof(RTP_PACKET) + ((EncryptionFeaturesEnabled & SS_ENC_VIDEO) ? sizeof(ENC_VIDEO_HEADER) : 0);
     receiveSize = decryptedSize + ((EncryptionFeaturesEnabled & SS_ENC_VIDEO) ? sizeof(ENC_VIDEO_HEADER) : 0);
     bufferSize = decryptedSize + sizeof(RTPV_QUEUE_ENTRY);
@@ -432,20 +149,12 @@ static void VideoReceiveThreadProc(void* context) {
                             encrypted ? encryptedBuffer : buffer,
                             receiveSize,
                             useSelect);
-        // Save the earliest application receive timestamp, before decryption,
-        // parsing and frame-queue work. This is not a kernel arrival timestamp.
-        const uint64_t arrivalUs = networkObservationEnabled ? PltGetMicroseconds() : 0;
         if (err < 0) {
             Limelog("Video Receive: recvUdpSocket() failed: %d\n", (int)LastSocketError());
             ListenerCallbacks.connectionTerminated(LastSocketFail());
             break;
         }
         else if  (err == 0) {
-            if (networkObservationEnabled) {
-                lockNetworkObserver();
-                VnAdvance(&networkObserver, arrivalUs);
-                unlockNetworkObserver();
-            }
             if (!receivedDataFromPeer) {
                 // If we wait many seconds without ever receiving a video packet,
                 // assume something is broken and terminate the connection.
@@ -487,11 +196,6 @@ static void VideoReceiveThreadProc(void* context) {
 #endif
 
         if (err < minSize) {
-            if (networkObservationEnabled) {
-                lockNetworkObserver();
-                networkObserver.snapshot.invalidPackets++;
-                unlockNetworkObserver();
-            }
             // Runt packet
             continue;
         }
@@ -521,8 +225,7 @@ static void VideoReceiveThreadProc(void* context) {
             // couldn't already do. If they're not on-link, we just throw their malicious
             // traffic away (as mentioned in the paragraph above) and continue accepting
             // legitmate video traffic.
-            if (!networkObservationEnabled && encHeader->frameNumber &&
-                LE32(encHeader->frameNumber) < RtpvGetCurrentFrameNumber(&rtpQueue)) {
+            if (encHeader->frameNumber && LE32(encHeader->frameNumber) < RtpvGetCurrentFrameNumber(&rtpQueue)) {
                 continue;
             }
 
@@ -533,63 +236,8 @@ static void VideoReceiveThreadProc(void* context) {
                                    ((unsigned char*)(encHeader + 1)), err - sizeof(ENC_VIDEO_HEADER), // The ciphertext is after the header
                                    (unsigned char*)buffer, &err)) {
                 Limelog("Failed to decrypt video packet!\n");
-                if (networkObservationEnabled) {
-                    lockNetworkObserver();
-                    networkObserver.snapshot.authenticationFailures++;
-                    unlockNetworkObserver();
-                }
                 continue;
             }
-        }
-
-        uint64_t transportEpoch = 0, transportSequence = 0;
-        if (VideoPacketFeedbackConnectionEpoch) {
-            if (!encrypted || err < TF_VIDEO_IDENTITY_BYTES ||
-                !TfDecodeVideoIdentity((const uint8_t*)buffer, TF_VIDEO_IDENTITY_BYTES, &transportEpoch, &transportSequence) ||
-                transportEpoch != VideoPacketFeedbackConnectionEpoch) {
-                lockNetworkObserver(); networkObserver.snapshot.invalidPackets++; unlockNetworkObserver();
-                continue;
-            }
-            err -= TF_VIDEO_IDENTITY_BYTES;
-            memmove(buffer, buffer + TF_VIDEO_IDENTITY_BYTES, (size_t)err);
-        }
-        // Padding belongs only to the separately negotiated authenticated
-        // transport. Observe its full identity before discarding it; it must
-        // never enter the RS queue, media frame numbering or depacketizer.
-        if (probePadding && encrypted && VideoPacketFeedbackConnectionEpoch && err > 0 &&
-            ((((const uint8_t*)buffer)[0] & 0x20) || (err > 1 &&
-                (((const uint8_t*)buffer)[1] & 0x7f) == TF_PROBE_PADDING_PAYLOAD_TYPE))) {
-            uint16_t sequence;
-            lockNetworkObserver();
-            const bool valid = TfDecodeProbePadding((const uint8_t*)buffer, (size_t)err, &sequence) &&
-                sequence == (uint16_t)transportSequence &&
-                VfObserveAuthenticated(&packetFeedback, &networkObserver, transportEpoch, transportSequence,
-                    (uint32_t)receivedPacketLength, arrivalUs);
-            if (!valid) networkObserver.snapshot.invalidPackets++;
-            unlockNetworkObserver();
-            continue;
-        }
-        bool validTransportIdentity = true;
-        if (networkObservationEnabled) {
-            lockNetworkObserver();
-            if (VideoPacketFeedbackConnectionEpoch) {
-                uint16_t rtpSequence;
-                uint32_t transportSequence24;
-                if (!VnParseVideoPayload((const uint8_t*)buffer, (size_t)err, rtpQueue.multiFecCapable,
-                    &rtpSequence, &transportSequence24) || rtpSequence != (uint16_t)transportSequence ||
-                    (transportSequence24 != UINT32_MAX &&
-                     transportSequence24 != (uint32_t)(transportSequence & 0xffffffu))) validTransportIdentity = false;
-                else validTransportIdentity = VfObserveAuthenticated(&packetFeedback, &networkObserver, transportEpoch, transportSequence,
-                    (uint32_t)receivedPacketLength, arrivalUs);
-                if (!validTransportIdentity) networkObserver.snapshot.invalidPackets++;
-            }
-            else VnObserveVideoPayload(&networkObserver, (const uint8_t*)buffer, (size_t)err,
-                    (uint32_t)receivedPacketLength, arrivalUs, rtpQueue.multiFecCapable);
-            unlockNetworkObserver();
-        }
-
-        if (!validTransportIdentity || err < (int)sizeof(RTP_PACKET)) {
-            continue;
         }
 
         // Convert fields to host byte-order

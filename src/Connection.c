@@ -75,7 +75,6 @@ void LiInterruptConnection(void) {
 
 // Stop the connection by undoing the step at the current stage and those before it
 void LiStopConnection(void) {
-    resetVideoPacketControlNegotiation();
     // Disable termination callbacks now
     alreadyTerminated = true;
 
@@ -160,7 +159,6 @@ void LiStopConnection(void) {
         free(RemoteAddrString);
         RemoteAddrString = NULL;
     }
-    endVideoPacketFeedbackConnection();
 }
 
 static void terminationCallbackThreadFunc(void* context)
@@ -231,9 +229,6 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     void* audioContext, int arFlags) {
     int err;
 
-    // Freeze opt-in configuration before any handshake can read it.
-    beginVideoPacketFeedbackConnection();
-
     // Start from a clean stream socket registry in case a prior session
     // didn't go through LiStopConnection()
     LiClearStreamSockets();
@@ -294,8 +289,13 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
 
     memset(&LocalAddr, 0, sizeof(LocalAddr));
     NegotiatedVideoFormat = 0;
+    VideoFecControlSupported = false;
     memcpy(&StreamConfig, streamConfig, sizeof(StreamConfig));
     RemoteAddrString = strdup(serverInfo->address);
+    if (StreamConfig.videoFecPercentage < -2 || StreamConfig.videoFecPercentage > 100) {
+        err = -1;
+        goto Cleanup;
+    }
 
     // The values in RTSP SETUP will be used to populate these.
     VideoPortNumber = 0;

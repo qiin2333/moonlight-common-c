@@ -1,5 +1,4 @@
 #include "Limelight-internal.h"
-#include "TransportFeedbackWire.h"
 #include <inttypes.h>
 
 #define MAX_OPTION_NAME_LEN 128
@@ -329,10 +328,6 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
             EncryptionFeaturesEnabled |= SS_ENC_VIDEO;
         }
 
-        if (NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE && isVideoPacketFeedbackRequested() && VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION &&
-            !StreamConfig.controlOnly && (EncryptionFeaturesSupported & SS_ENC_VIDEO) &&
-            (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2)) EncryptionFeaturesEnabled |= SS_ENC_VIDEO;
-
         // If audio encryption is supported by the host and desired by the client, use it
         if ((EncryptionFeaturesSupported & SS_ENC_AUDIO) && (StreamConfig.encryptionFlags & ENCFLG_AUDIO)) {
             EncryptionFeaturesEnabled |= SS_ENC_AUDIO;
@@ -355,16 +350,6 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
 
         snprintf(payloadStr, sizeof(payloadStr), "%" PRIu32, EncryptionFeaturesEnabled);
         err |= addAttributeString(&optionHead, "x-ss-general.encryptionEnabled", payloadStr);
-        if (NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE && isVideoPacketFeedbackRequested() && VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION &&
-            !StreamConfig.controlOnly && (EncryptionFeaturesEnabled & SS_ENC_VIDEO) &&
-            (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2))
-            err |= addAttributeString(&optionHead, "x-ss-video[0].packetFeedbackVersion", TF_PACKET_FEEDBACK_PROFILE_VERSION_STRING);
-        if (shouldAnnounceVideoPacketControl())
-            err |= addAttributeString(&optionHead, "x-ss-video[0].packetControlVersion", "1");
-        if (shouldAnnounceVideoProbePadding())
-            err |= addAttributeString(&optionHead, "x-ss-video[0].packetProbeVersion", "1");
-        if (shouldAnnounceTransportPolicyStatus())
-            err |= addAttributeString(&optionHead, "x-ss-video[0].policyStatusVersion", "1");
 
         // Enable YUV444 if requested
         if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_YUV444) {
@@ -397,19 +382,18 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
 
     // Adjust the video packet size to account for encryption overhead
     if (EncryptionFeaturesEnabled & SS_ENC_VIDEO) {
-        const bool feedbackRequested = NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE && isVideoPacketFeedbackRequested() && VideoPacketFeedbackSupportedVersion == TF_PACKET_FEEDBACK_PROFILE_VERSION &&
-            !StreamConfig.controlOnly && (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2);
-        const int overhead = (int)sizeof(ENC_VIDEO_HEADER) + (feedbackRequested ? TF_VIDEO_IDENTITY_BYTES : 0);
-        if (StreamConfig.packetSize <= overhead + (int)sizeof(NV_VIDEO_PACKET)) {
-            freeAttributeList(optionHead);
-            return NULL;
-        }
         LC_ASSERT(StreamConfig.packetSize % 16 == 0);
-        StreamConfig.packetSize -= overhead;
+        StreamConfig.packetSize -= sizeof(ENC_VIDEO_HEADER);
         LC_ASSERT(StreamConfig.packetSize % 16 == 0);
     }
     snprintf(payloadStr, sizeof(payloadStr), "%d", StreamConfig.packetSize);
     err |= addAttributeString(&optionHead, "x-nv-video[0].packetSize", payloadStr);
+
+    if (VideoFecControlSupported) {
+        snprintf(payloadStr, sizeof(payloadStr), "%d", StreamConfig.videoFecPercentage);
+        err |= addAttributeString(&optionHead, "x-ml-video.fecPercentage", payloadStr);
+        err |= addAttributeString(&optionHead, "x-ml-video.fecSummaryVersion", "1");
+    }
 
     err |= addAttributeString(&optionHead, "x-nv-video[0].rateControlMode", "4");
 

@@ -4,7 +4,6 @@
 #include "Ds5HapticsStream.h"
 #include "Ds5HapticsIrStream.h"
 #include "RemoteTextContextStream.h"
-#include "TransportFeedbackWire.h"
 
 #include <math.h>
 #include <stdatomic.h>
@@ -76,6 +75,12 @@ static SOCKET ctlSock = INVALID_SOCKET;
 static ENetHost* client;
 static ENetPeer* peer;
 static PLT_MUTEX enetMutex;
+bool VideoFecControlSupported;
+static PLT_MUTEX fecSummaryMutex;
+static uint32_t fecDataPackets, fecMissingPackets, fecSequence, fecLastFrame;
+static uint8_t fecLastBlock;
+static bool fecHasBlock;
+static uint64_t fecLastSummaryMs;
 static bool usePeriodicPing;
 
 static PLT_THREAD lossStatsThread;
@@ -557,14 +562,16 @@ static void resetCursorReassembly(void) {
 
 // Initializes the control stream
 int initializeControlStream(void) {
-    // Initialization may be unwound before startControlStream() is reached.
-    // No worker owns these resources until startup begins.
-    stopping = true;
+    stopping = false;
     PltCreateEvent(&idrFrameRequiredEvent);
     LbqInitializeLinkedBlockingQueue(&referenceFrameControlQueue, 20);
     LbqInitializeLinkedBlockingQueue(&frameFecStatusQueue, 8); // Limits number of frame status reports per periodic ping interval
     LbqInitializeLinkedBlockingQueue(&asyncCallbackQueue, 30);
     PltCreateMutex(&enetMutex);
+    PltCreateMutex(&fecSummaryMutex);
+    fecDataPackets = fecMissingPackets = fecSequence = 0;
+    fecHasBlock = false;
+    fecLastSummaryMs = PltGetMillis();
 
     encryptedControlStream = APP_VERSION_AT_LEAST(7, 1, 431);
 
@@ -643,6 +650,7 @@ void destroyControlStream(void) {
     freeBasicLbqList(LbqDestroyLinkedBlockingQueue(&asyncCallbackQueue));
     resetCursorReassembly();
 
+    PltDeleteMutex(&fecSummaryMutex);
     PltDeleteMutex(&enetMutex);
 }
 
@@ -713,6 +721,20 @@ void connectionReceivedCompleteFrame(uint32_t frameIndex, bool frameIsLTR) {
             }
         }
     }
+}
+
+void connectionRecordFecBlock(uint32_t frame, uint8_t block, uint16_t data, uint16_t received) {
+    if (!VideoFecControlSupported || !data || received > data) return;
+    PltLockMutex(&fecSummaryMutex);
+    if ((!fecHasBlock || frame != fecLastFrame || block != fecLastBlock) &&
+        data <= 1000000U - fecDataPackets) {
+        fecDataPackets += data;
+        fecMissingPackets += data - received;
+        fecLastFrame = frame;
+        fecLastBlock = block;
+        fecHasBlock = true;
+    }
+    PltUnlockMutex(&fecSummaryMutex);
 }
 
 void connectionSendFrameFecStatus(PSS_FRAME_FEC_STATUS fecStatus) {
@@ -1010,12 +1032,6 @@ static bool sendMessageEnet(short ptype, int paylen, const void* payload, uint8_
         PltLockMutex(&enetMutex);
 
         encPacket = (PNVCTL_ENCRYPTED_PACKET_HEADER)enetPacket->data;
-        if (VideoPacketFeedbackConnectionEpoch && currentEnetSequenceNumber == UINT32_MAX) {
-            if (tempBuffer != tempBufferStack) free(tempBuffer);
-            enet_packet_destroy(enetPacket);
-            PltUnlockMutex(&enetMutex);
-            return false;
-        }
         encPacket->encryptedHeaderType = 0x0001;
         encPacket->length = encryptedLength;
         encPacket->seq = currentEnetSequenceNumber++;
@@ -1712,16 +1728,6 @@ static void controlReceiveThreadFunc(void* context) {
             if (needsAsyncCallback(ctlHdr->type)) {
                 queueAsyncCallback(ctlHdr, packetLength);
             }
-            else if (ctlHdr->type == TPS_STATUS_PACKET_TYPE) {
-                if (IS_SUNSHINE() && encryptedControlStream && (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2) &&
-                    VideoPacketFeedbackConnectionEpoch && packetLength == (int)(sizeof(*ctlHdr) + TPS_STATUS_BYTES))
-                    notifyTransportPolicyStatus((const uint8_t*)(ctlHdr + 1), TPS_STATUS_BYTES);
-            }
-            else if (ctlHdr->type == TF_READY_PACKET_TYPE) {
-                if (IS_SUNSHINE() && encryptedControlStream && (EncryptionFeaturesEnabled & SS_ENC_CONTROL_V2) &&
-                    VideoPacketFeedbackConnectionEpoch && packetLength == (int)(sizeof(*ctlHdr) + TF_READY_BYTES))
-                    notifyVideoPacketFeedbackReady((const uint8_t*)(ctlHdr + 1), TF_READY_BYTES);
-            }
             else if (ctlHdr->type == packetTypes[IDX_CLIPBOARD]) {
                 // Sunshine clipboard sync (0x5508). The payload is opaque (currently
                 // a v1 wire frame) and forwarded verbatim to the client. We dispatch
@@ -1855,6 +1861,13 @@ static void controlReceiveThreadFunc(void* context) {
     }
 }
 
+int LiRequestVideoFec(int percentage) {
+    if (percentage < -2 || percentage > 100 || stopping || !peer || !VideoFecControlSupported) return -1;
+    const int32_t wire = LE32(percentage);
+    return sendMessageEnet(SS_FEC_MODE_PTYPE, sizeof(wire), &wire,
+                           CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false) ? 0 : -1;
+}
+
 static void lossStatsThreadFunc(void* context) {
     BYTE_BUFFER byteBuffer;
 
@@ -1866,6 +1879,21 @@ static void lossStatsThreadFunc(void* context) {
         BbPut32(&byteBuffer, 0); // Timestamp?
 
         while (!PltIsThreadInterrupted(&lossStatsThread)) {
+            if (VideoFecControlSupported && PltGetMillis() - fecLastSummaryMs >= 1000) {
+                SS_FEC_SUMMARY summary;
+                PltLockMutex(&fecSummaryMutex);
+                summary.sequence = BE32(++fecSequence);
+                summary.dataPackets = BE32(fecDataPackets);
+                summary.missingDataPackets = BE32(fecMissingPackets);
+                fecDataPackets = fecMissingPackets = 0;
+                PltUnlockMutex(&fecSummaryMutex);
+                fecLastSummaryMs = PltGetMillis();
+                if (summary.dataPackets && !sendMessageEnet(SS_FEC_SUMMARY_PTYPE, sizeof(summary), &summary,
+                                                           CTRL_CHANNEL_GENERIC, 0, false)) {
+                    ListenerCallbacks.connectionTerminated(LastSocketFail());
+                    return;
+                }
+            }
             // For Sunshine servers, send the more detailed per-frame FEC messages
             if (IS_SUNSHINE()) {
                 PQUEUED_FRAME_FEC_STATUS queuedFrameStatus;
@@ -1891,17 +1919,6 @@ static void lossStatsThreadFunc(void* context) {
                 }
             }
 
-            if (IS_SUNSHINE() && encryptedControlStream && VideoPacketFeedbackConnectionEpoch) {
-                for (unsigned i = 0; i < 8; ++i) {
-                    TF_PACKET_REPORT report;
-                    if (!prepareVideoPacketFeedbackReport(&report)) break;
-                    uint8_t payload[TF_MAX_REPORT_BYTES];
-                    const size_t length = TfEncodeReport(&report, payload, sizeof(payload));
-                    if (!length || !sendMessageEnet(TF_REPORT_PACKET_TYPE, (short)length, payload,
-                        CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_UNSEQUENCED, false)) break;
-                    commitVideoPacketFeedbackReport(&report);
-                }
-            }
             // Send the message (and don't expect a response)
             //
             // NB: We send this periodic message as reliable to ensure the RTT is recomputed
@@ -1920,7 +1937,7 @@ static void lossStatsThreadFunc(void* context) {
             }
 
             // Wait a bit
-            PltSleepMsInterruptible(&lossStatsThread, VideoPacketFeedbackConnectionEpoch ? 50 : PERIODIC_PING_INTERVAL_MS);
+            PltSleepMsInterruptible(&lossStatsThread, PERIODIC_PING_INTERVAL_MS);
         }
     }
     else {
@@ -2310,8 +2327,6 @@ bool LiGetEstimatedRttInfo(uint32_t* estimatedRtt, uint32_t* estimatedRttVarianc
 // Starts the control stream
 int startControlStream(void) {
     int err;
-
-    stopping = false;
 
     if (AppVersionQuad[0] >= 5) {
         ENetAddress remoteAddress, localAddress;
