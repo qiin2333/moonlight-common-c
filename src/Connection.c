@@ -279,6 +279,8 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
 
     memset(&LocalAddr, 0, sizeof(LocalAddr));
     NegotiatedVideoFormat = 0;
+    NegotiatedDynamicHdrFormat = DYNAMIC_HDR_FORMAT_NONE;
+    NegotiatedDynamicHdrFallback = DYNAMIC_HDR_FALLBACK_NONE;
     memcpy(&StreamConfig, streamConfig, sizeof(StreamConfig));
     StreamConfig.controlOnly = false;
     RemoteAddrString = strdup(serverInfo->address);
