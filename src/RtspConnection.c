@@ -1,5 +1,6 @@
 #include "Limelight-internal.h"
 #include "Rtsp.h"
+#include "DynamicHdr.h"
 
 #define RTSP_CONNECT_TIMEOUT_SEC 10
 #define RTSP_RECEIVE_TIMEOUT_SEC 15
@@ -643,30 +644,10 @@ static void parseDynamicHdrNegotiation(PRTSP_MESSAGE response) {
         return;
     }
 
-    NegotiatedDynamicHdrFormat = atoi(formatOption);
+    NegotiatedDynamicHdrFormat = parseDynamicHdrFormatValue(formatOption);
 
     const char* fallbackOption = getOptionContent(response->options, "X-SS-Dynamic-HDR-Fallback");
-    if (fallbackOption == NULL) {
-        NegotiatedDynamicHdrFallback = DYNAMIC_HDR_FALLBACK_NONE;
-    }
-    else if (strcmp(fallbackOption, "codec_unsupported") == 0) {
-        NegotiatedDynamicHdrFallback = DYNAMIC_HDR_FALLBACK_CODEC_UNSUPPORTED;
-    }
-    else if (strcmp(fallbackOption, "colorspace_unsupported") == 0) {
-        NegotiatedDynamicHdrFallback = DYNAMIC_HDR_FALLBACK_COLORSPACE_UNSUPPORTED;
-    }
-    else if (strcmp(fallbackOption, "client_caps_missing") == 0) {
-        NegotiatedDynamicHdrFallback = DYNAMIC_HDR_FALLBACK_CLIENT_CAPS_MISSING;
-    }
-    else if (strcmp(fallbackOption, "direct_surface_missing") == 0) {
-        NegotiatedDynamicHdrFallback = DYNAMIC_HDR_FALLBACK_DIRECT_SURFACE_MISSING;
-    }
-    else if (strcmp(fallbackOption, "preference") == 0) {
-        NegotiatedDynamicHdrFallback = DYNAMIC_HDR_FALLBACK_PREFERENCE;
-    }
-    else {
-        NegotiatedDynamicHdrFallback = DYNAMIC_HDR_FALLBACK_NONE;
-    }
+    NegotiatedDynamicHdrFallback = parseDynamicHdrFallbackValue(fallbackOption);
 
     Limelog("Dynamic HDR negotiated: %d (fallback: %d)\n",
         NegotiatedDynamicHdrFormat, NegotiatedDynamicHdrFallback);
