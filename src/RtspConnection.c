@@ -1370,6 +1370,10 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             Limelog("Reference frame invalidation is not supported by this host\n");
         }
 
+        uint32_t fecVersion = 0;
+        VideoFecControlSupported = IS_SUNSHINE() && NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE &&
+            parseSdpAttributeToUInt(response.payload, "x-ss-video[0].fecControlVersion", &fecVersion) && fecVersion == 1;
+
         // Look for the Sunshine feature flags in the SDP attributes
         if (!parseSdpAttributeToUInt(response.payload, "x-ss-general.featureFlags", &SunshineFeatureFlags)) {
             SunshineFeatureFlags = 0;

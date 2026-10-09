@@ -92,6 +92,8 @@ static void removeEntryFromList(PRTPV_QUEUE_LIST list, PRTPV_QUEUE_ENTRY entry) 
 
 static void reportFinalFrameFecStatus(PRTP_VIDEO_QUEUE queue) {
     SS_FRAME_FEC_STATUS fecStatus;
+    connectionRecordFecBlock(queue->currentFrameNumber, queue->multiFecCurrentBlockNumber,
+                             queue->bufferDataPackets, queue->receivedDataPackets);
 
     fecStatus.frameIndex = BE32(queue->currentFrameNumber);
     fecStatus.highestReceivedSequenceNumber = BE16(queue->receivedHighestSequenceNumber);
@@ -247,6 +249,9 @@ static int reconstructFrame(PRTP_VIDEO_QUEUE queue) {
 #else
     if (queue->receivedDataPackets == queue->bufferDataPackets) {
 #endif
+        // Include clean blocks in the aggregate denominator, without queueing a report per frame.
+        connectionRecordFecBlock(queue->currentFrameNumber, queue->multiFecCurrentBlockNumber,
+                                 queue->bufferDataPackets, queue->receivedDataPackets);
         // We've received a full frame with no need for FEC.
         return 0;
     }

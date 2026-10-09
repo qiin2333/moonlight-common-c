@@ -289,8 +289,13 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
 
     memset(&LocalAddr, 0, sizeof(LocalAddr));
     NegotiatedVideoFormat = 0;
+    VideoFecControlSupported = false;
     memcpy(&StreamConfig, streamConfig, sizeof(StreamConfig));
     RemoteAddrString = strdup(serverInfo->address);
+    if (StreamConfig.videoFecPercentage < -2 || StreamConfig.videoFecPercentage > 100) {
+        err = -1;
+        goto Cleanup;
+    }
 
     // The values in RTSP SETUP will be used to populate these.
     VideoPortNumber = 0;

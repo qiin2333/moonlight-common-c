@@ -54,6 +54,13 @@ typedef struct _SS_PING {
 } SS_PING, *PSS_PING;
 
 // Fields are big-endian
+// FEC-only aggregate summary.
+#define SS_FEC_SUMMARY_PTYPE 0x5510
+typedef struct _SS_FEC_SUMMARY {
+    uint32_t sequence;
+    uint32_t dataPackets;
+    uint32_t missingDataPackets;
+} SS_FEC_SUMMARY;
 #define SS_FRAME_FEC_PTYPE 0x5502
 typedef struct _SS_FRAME_FEC_STATUS {
     uint32_t frameIndex;

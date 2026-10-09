@@ -153,9 +153,13 @@ typedef struct _STREAM_CONFIGURATION {
     // 0 means "host default" (Sunshine uses 640000 for AC3, 384000 for E-AC3).
     // Ignored when audioCodec == OPUS.
     int audioBitrate;
+
+    // RS FEC preference: -2=host default, -1=automatic, 0..100=fixed percentage.
+    // Unsupported hosts ignore this preference. PyroWave uses its own protection.
+    int videoFecPercentage;
 } STREAM_CONFIGURATION, *PSTREAM_CONFIGURATION;
 
-// Use this function to zero the stream configuration when allocated on the stack or heap
+// Initialize the stream configuration, including compatible host-default FEC.
 void LiInitializeStreamConfiguration(PSTREAM_CONFIGURATION streamConfig);
 
 // These identify codec configuration data in the buffer lists

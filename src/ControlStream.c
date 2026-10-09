@@ -75,6 +75,12 @@ static SOCKET ctlSock = INVALID_SOCKET;
 static ENetHost* client;
 static ENetPeer* peer;
 static PLT_MUTEX enetMutex;
+bool VideoFecControlSupported;
+static PLT_MUTEX fecSummaryMutex;
+static uint32_t fecDataPackets, fecMissingPackets, fecSequence, fecLastFrame;
+static uint8_t fecLastBlock;
+static bool fecHasBlock;
+static uint64_t fecLastSummaryMs;
 static bool usePeriodicPing;
 
 static PLT_THREAD lossStatsThread;
@@ -562,6 +568,10 @@ int initializeControlStream(void) {
     LbqInitializeLinkedBlockingQueue(&frameFecStatusQueue, 8); // Limits number of frame status reports per periodic ping interval
     LbqInitializeLinkedBlockingQueue(&asyncCallbackQueue, 30);
     PltCreateMutex(&enetMutex);
+    PltCreateMutex(&fecSummaryMutex);
+    fecDataPackets = fecMissingPackets = fecSequence = 0;
+    fecHasBlock = false;
+    fecLastSummaryMs = PltGetMillis();
 
     encryptedControlStream = APP_VERSION_AT_LEAST(7, 1, 431);
 
@@ -640,6 +650,7 @@ void destroyControlStream(void) {
     freeBasicLbqList(LbqDestroyLinkedBlockingQueue(&asyncCallbackQueue));
     resetCursorReassembly();
 
+    PltDeleteMutex(&fecSummaryMutex);
     PltDeleteMutex(&enetMutex);
 }
 
@@ -710,6 +721,20 @@ void connectionReceivedCompleteFrame(uint32_t frameIndex, bool frameIsLTR) {
             }
         }
     }
+}
+
+void connectionRecordFecBlock(uint32_t frame, uint8_t block, uint16_t data, uint16_t received) {
+    if (!VideoFecControlSupported || !data || received > data) return;
+    PltLockMutex(&fecSummaryMutex);
+    if ((!fecHasBlock || frame != fecLastFrame || block != fecLastBlock) &&
+        data <= 1000000U - fecDataPackets) {
+        fecDataPackets += data;
+        fecMissingPackets += data - received;
+        fecLastFrame = frame;
+        fecLastBlock = block;
+        fecHasBlock = true;
+    }
+    PltUnlockMutex(&fecSummaryMutex);
 }
 
 void connectionSendFrameFecStatus(PSS_FRAME_FEC_STATUS fecStatus) {
@@ -1847,6 +1872,21 @@ static void lossStatsThreadFunc(void* context) {
         BbPut32(&byteBuffer, 0); // Timestamp?
 
         while (!PltIsThreadInterrupted(&lossStatsThread)) {
+            if (VideoFecControlSupported && PltGetMillis() - fecLastSummaryMs >= 1000) {
+                SS_FEC_SUMMARY summary;
+                PltLockMutex(&fecSummaryMutex);
+                summary.sequence = BE32(++fecSequence);
+                summary.dataPackets = BE32(fecDataPackets);
+                summary.missingDataPackets = BE32(fecMissingPackets);
+                fecDataPackets = fecMissingPackets = 0;
+                PltUnlockMutex(&fecSummaryMutex);
+                fecLastSummaryMs = PltGetMillis();
+                if (summary.dataPackets && !sendMessageEnet(SS_FEC_SUMMARY_PTYPE, sizeof(summary), &summary,
+                                                           CTRL_CHANNEL_GENERIC, 0, false)) {
+                    ListenerCallbacks.connectionTerminated(LastSocketFail());
+                    return;
+                }
+            }
             // For Sunshine servers, send the more detailed per-frame FEC messages
             if (IS_SUNSHINE()) {
                 PQUEUED_FRAME_FEC_STATUS queuedFrameStatus;
