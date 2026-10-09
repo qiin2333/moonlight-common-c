@@ -162,10 +162,6 @@ typedef struct _STREAM_CONFIGURATION {
 // Initialize the stream configuration, including compatible host-default FEC.
 void LiInitializeStreamConfiguration(PSTREAM_CONFIGURATION streamConfig);
 
-// Call only while the control connection is running, before stopping it.
-// -2=host default, -1=automatic, 0..100=fixed. Success means reliable submission.
-int LiRequestVideoFec(int percentage);
-
 // These identify codec configuration data in the buffer lists
 // of frames identified as IDR frames for H.264 and HEVC formats.
 // For other codecs, all data is marked as BUFFER_TYPE_PICDATA.

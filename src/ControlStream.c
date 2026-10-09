@@ -1861,13 +1861,6 @@ static void controlReceiveThreadFunc(void* context) {
     }
 }
 
-int LiRequestVideoFec(int percentage) {
-    if (percentage < -2 || percentage > 100 || stopping || !peer || !VideoFecControlSupported) return -1;
-    const int32_t wire = LE32(percentage);
-    return sendMessageEnet(SS_FEC_MODE_PTYPE, sizeof(wire), &wire,
-                           CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false) ? 0 : -1;
-}
-
 static void lossStatsThreadFunc(void* context) {
     BYTE_BUFFER byteBuffer;
 

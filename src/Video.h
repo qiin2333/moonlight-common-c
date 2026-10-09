@@ -54,9 +54,8 @@ typedef struct _SS_PING {
 } SS_PING, *PSS_PING;
 
 // Fields are big-endian
-// FEC-only extension. Summary fields are big-endian; mode is signed little-endian.
+// FEC-only aggregate summary.
 #define SS_FEC_SUMMARY_PTYPE 0x5510
-#define SS_FEC_MODE_PTYPE 0x5511
 typedef struct _SS_FEC_SUMMARY {
     uint32_t sequence;
     uint32_t dataPackets;
