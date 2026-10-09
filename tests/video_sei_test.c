@@ -25,6 +25,12 @@ int main(void) {
         return EXIT_FAILURE;
     }
 
+    data[4] = (char)(40 << 1);
+    if (!shouldPreserveHevcSei(&descriptor)) {
+        fprintf(stderr, "FAIL: suffix HEVC SEI should be preserved\n");
+        return EXIT_FAILURE;
+    }
+
     VideoCallbacks.capabilities = 0;
     if (shouldPreserveHevcSei(&descriptor)) {
         fprintf(stderr, "FAIL: renderer without opt-in must not preserve SEI\n");

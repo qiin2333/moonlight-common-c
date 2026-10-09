@@ -57,6 +57,7 @@ typedef struct _LENTRY_INTERNAL {
 #define HEVC_NAL_TYPE_AUD 35
 #define HEVC_NAL_TYPE_FILLER 38
 #define HEVC_NAL_TYPE_SEI 39
+#define HEVC_NAL_TYPE_SEI_SUFFIX 40
 
 // Init
 void initializeVideoDepacketizer(int pktSize) {
@@ -395,7 +396,8 @@ static bool isSeiNal(PBUFFER_DESC buffer) {
         return H264_NAL_TYPE(startSeq.data[startSeq.offset + startSeq.length]) == H264_NAL_TYPE_SEI;
     }
     else if (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_H265) {
-        return HEVC_NAL_TYPE(startSeq.data[startSeq.offset + startSeq.length]) == HEVC_NAL_TYPE_SEI;
+        int nalType = HEVC_NAL_TYPE(startSeq.data[startSeq.offset + startSeq.length]);
+        return nalType == HEVC_NAL_TYPE_SEI || nalType == HEVC_NAL_TYPE_SEI_SUFFIX;
     }
     else {
         LC_ASSERT(false);
