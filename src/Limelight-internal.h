@@ -32,6 +32,8 @@ extern OPUS_MULTISTREAM_CONFIGURATION HighQualityOpusConfig;
 extern int AudioPacketDuration;
 extern bool AudioEncryptionEnabled;
 extern bool ReferenceFrameInvalidationSupported;
+extern int NegotiatedDynamicHdrFormat;
+extern int NegotiatedDynamicHdrFallback;
 
 extern uint16_t RtspPortNumber;
 extern uint16_t ControlPortNumber;

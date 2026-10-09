@@ -155,3 +155,11 @@ uint64_t LiGetMicroseconds(void) {
 uint32_t LiGetHostFeatureFlags(void) {
     return SunshineFeatureFlags;
 }
+
+int LiGetNegotiatedDynamicHdrFormat(void) {
+    return NegotiatedDynamicHdrFormat;
+}
+
+int LiGetNegotiatedDynamicHdrFallback(void) {
+    return NegotiatedDynamicHdrFallback;
+}

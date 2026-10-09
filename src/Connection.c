@@ -25,6 +25,8 @@ OPUS_MULTISTREAM_CONFIGURATION HighQualityOpusConfig;
 int AudioPacketDuration;
 bool AudioEncryptionEnabled;
 bool ReferenceFrameInvalidationSupported;
+int NegotiatedDynamicHdrFormat;
+int NegotiatedDynamicHdrFallback;
 uint16_t RtspPortNumber;
 uint16_t ControlPortNumber;
 uint16_t AudioPortNumber;
