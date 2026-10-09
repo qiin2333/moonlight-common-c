@@ -121,6 +121,19 @@ target_include_directories(moonlight-common-c SYSTEM PRIVATE
 target_compile_definitions(moonlight-common-c PRIVATE HAS_SOCKLEN_T)
 
 if (BUILD_TESTING)
+  get_target_property(_common_c_type moonlight-common-c TYPE)
+  if(_common_c_type STREQUAL "STATIC_LIBRARY")
+    add_executable(pyrowave-decode-unit-tests tests/PyrowaveDecodeUnitTest.c)
+    target_include_directories(pyrowave-decode-unit-tests PRIVATE
+      enet/include $<TARGET_PROPERTY:moonlight-common-c,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(pyrowave-decode-unit-tests PRIVATE
+      $<TARGET_PROPERTY:moonlight-common-c,COMPILE_DEFINITIONS>)
+    target_compile_options(pyrowave-decode-unit-tests PRIVATE
+      $<TARGET_PROPERTY:moonlight-common-c,COMPILE_OPTIONS>)
+    target_link_libraries(pyrowave-decode-unit-tests PRIVATE moonlight-common-c)
+    add_test(NAME pyrowave-decode-unit-tests COMMAND pyrowave-decode-unit-tests)
+  endif()
+
   add_executable(control-stream-packet-tests
     tests/ControlStreamPacketTest.c
   )
