@@ -1,4 +1,5 @@
 #include "Limelight-internal.h"
+#include "DynamicHdr.h"
 
 static int stage = STAGE_NONE;
 static ConnListenerConnectionTerminated originalTerminationCallback;

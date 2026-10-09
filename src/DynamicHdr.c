@@ -1,6 +1,7 @@
 #include "DynamicHdr.h"
 
 #include <limits.h>
+#include <stdbool.h>
 #include <string.h>
 
 static const char* skipAsciiSpace(const char* value) {
