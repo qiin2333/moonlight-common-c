@@ -10,6 +10,7 @@
 #include "RtpAudioQueue.h"
 #include "RtpVideoQueue.h"
 #include "ByteBuffer.h"
+#include "PyrowaveReassembly.h"
 
 #include <enet/enet.h>
 
@@ -108,6 +109,7 @@ extern uint32_t EncryptionFeaturesEnabled;
 #define ML_FF_DS5_HAPTICS_PCM 0x04 // Client accepts authored DualSense PCM on the control stream
 #define ML_FF_DS5_HAPTICS_IR_V2 0x08 // Client selected simulated DualSense and accepts authored IR v2
 #define ML_FF_REMOTE_TEXT_CONTEXT 0x10 // Client accepts remote text context updates
+#define ML_FF_PYROWAVE 0x20 // Client accepts the experimental PyroWave video contract
 
 #define UDP_RECV_POLL_TIMEOUT_MS 100
 
@@ -143,6 +145,8 @@ void connectionDetectedFrameLoss(uint32_t startFrame, uint32_t endFrame);
 void connectionReceivedCompleteFrame(uint32_t frameIndex, bool frameIsLTR);
 void connectionSawFrame(uint32_t frameIndex);
 void connectionSendFrameFecStatus(PSS_FRAME_FEC_STATUS fecStatus);
+extern bool VideoFecControlSupported;
+void connectionRecordFecBlock(uint32_t frame, uint8_t block, uint16_t data, uint16_t received);
 int sendInputPacketOnControlStream(unsigned char* data, int length, uint8_t channelId, uint32_t flags, bool moreData);
 void flushInputOnControlStream(void);
 bool isControlDataInTransit(void);

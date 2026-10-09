@@ -289,8 +289,13 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
 
     memset(&LocalAddr, 0, sizeof(LocalAddr));
     NegotiatedVideoFormat = 0;
+    VideoFecControlSupported = false;
     memcpy(&StreamConfig, streamConfig, sizeof(StreamConfig));
     RemoteAddrString = strdup(serverInfo->address);
+    if (StreamConfig.videoFecPercentage < -2 || StreamConfig.videoFecPercentage > 100) {
+        err = -1;
+        goto Cleanup;
+    }
 
     // The values in RTSP SETUP will be used to populate these.
     VideoPortNumber = 0;
@@ -391,8 +396,10 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
         StreamConfig.height = StreamConfig.height & ~0x1;
     }
 
-    // Dimensions over 4096 are only supported with HEVC on NVENC
-    if (!(StreamConfig.supportedVideoFormats & ~VIDEO_FORMAT_MASK_H264) &&
+    // Dimensions over 4096 are only supported with HEVC on NVENC. Experimental
+    // formats are not part of the legacy codec mask used by this check.
+    const int legacyVideoFormats = StreamConfig.supportedVideoFormats & ~VIDEO_FORMAT_PYROWAVE;
+    if (!(legacyVideoFormats & ~VIDEO_FORMAT_MASK_H264) &&
             (StreamConfig.width > 4096 || StreamConfig.height > 4096)) {
         Limelog("WARNING: Streaming at resolutions above 4K using H.264 will likely fail! Trying anyway!\n");
     }

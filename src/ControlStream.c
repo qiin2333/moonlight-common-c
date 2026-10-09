@@ -1,4 +1,5 @@
 #include "Limelight-internal.h"
+#include "ControlStreamPacket.h"
 #include "CursorStream.h"
 #include "Ds5HapticsStream.h"
 #include "Ds5HapticsIrStream.h"
@@ -13,30 +14,6 @@
 #ifndef MIN
 #define MIN(x, y) ((x) < (y) ? (x) : (y))
 #endif
-
-// NV control stream packet header for TCP
-typedef struct _NVCTL_TCP_PACKET_HEADER {
-    unsigned short type;
-    unsigned short payloadLength;
-} NVCTL_TCP_PACKET_HEADER, *PNVCTL_TCP_PACKET_HEADER;
-
-typedef struct _NVCTL_ENET_PACKET_HEADER_V1 {
-    unsigned short type;
-} NVCTL_ENET_PACKET_HEADER_V1, *PNVCTL_ENET_PACKET_HEADER_V1;
-
-typedef struct _NVCTL_ENET_PACKET_HEADER_V2 {
-    unsigned short type;
-    unsigned short payloadLength;
-} NVCTL_ENET_PACKET_HEADER_V2, *PNVCTL_ENET_PACKET_HEADER_V2;
-
-#define AES_GCM_TAG_LENGTH 16
-typedef struct _NVCTL_ENCRYPTED_PACKET_HEADER {
-    unsigned short encryptedHeaderType; // Always LE 0x0001
-    unsigned short length; // sizeof(seq) + 16 byte tag + secondary header and data
-    unsigned int seq; // Monotonically increasing sequence number (used as IV for AES-GCM)
-
-    // encrypted NVCTL_ENET_PACKET_HEADER_V2 and payload data follow
-} NVCTL_ENCRYPTED_PACKET_HEADER, *PNVCTL_ENCRYPTED_PACKET_HEADER;
 
 typedef struct _QUEUED_REFERENCE_FRAME_CONTROL {
     uint32_t startFrame;
@@ -98,6 +75,12 @@ static SOCKET ctlSock = INVALID_SOCKET;
 static ENetHost* client;
 static ENetPeer* peer;
 static PLT_MUTEX enetMutex;
+bool VideoFecControlSupported;
+static PLT_MUTEX fecSummaryMutex;
+static uint32_t fecDataPackets, fecMissingPackets, fecSequence, fecLastFrame;
+static uint8_t fecLastBlock;
+static bool fecHasBlock;
+static uint64_t fecLastSummaryMs;
 static bool usePeriodicPing;
 
 static PLT_THREAD lossStatsThread;
@@ -585,6 +568,10 @@ int initializeControlStream(void) {
     LbqInitializeLinkedBlockingQueue(&frameFecStatusQueue, 8); // Limits number of frame status reports per periodic ping interval
     LbqInitializeLinkedBlockingQueue(&asyncCallbackQueue, 30);
     PltCreateMutex(&enetMutex);
+    PltCreateMutex(&fecSummaryMutex);
+    fecDataPackets = fecMissingPackets = fecSequence = 0;
+    fecHasBlock = false;
+    fecLastSummaryMs = PltGetMillis();
 
     encryptedControlStream = APP_VERSION_AT_LEAST(7, 1, 431);
 
@@ -663,6 +650,7 @@ void destroyControlStream(void) {
     freeBasicLbqList(LbqDestroyLinkedBlockingQueue(&asyncCallbackQueue));
     resetCursorReassembly();
 
+    PltDeleteMutex(&fecSummaryMutex);
     PltDeleteMutex(&enetMutex);
 }
 
@@ -733,6 +721,20 @@ void connectionReceivedCompleteFrame(uint32_t frameIndex, bool frameIsLTR) {
             }
         }
     }
+}
+
+void connectionRecordFecBlock(uint32_t frame, uint8_t block, uint16_t data, uint16_t received) {
+    if (!VideoFecControlSupported || !data || received > data) return;
+    PltLockMutex(&fecSummaryMutex);
+    if ((!fecHasBlock || frame != fecLastFrame || block != fecLastBlock) &&
+        data <= 1000000U - fecDataPackets) {
+        fecDataPackets += data;
+        fecMissingPackets += data - received;
+        fecLastFrame = frame;
+        fecLastBlock = block;
+        fecHasBlock = true;
+    }
+    PltUnlockMutex(&fecSummaryMutex);
 }
 
 void connectionSendFrameFecStatus(PSS_FRAME_FEC_STATUS fecStatus) {
@@ -979,11 +981,15 @@ static bool isPacketSentWaitingForAck(ENetPacket* packet) {
     return false;
 }
 
-static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
+static bool sendMessageEnet(short ptype, int paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
     ENetPacket* enetPacket;
     int err;
 
     LC_ASSERT(AppVersionQuad[0] >= 5);
+
+    if (paylen < 0 || paylen > UINT16_MAX) {
+        return false;
+    }
 
     // Only send reliable packets to GFE
     if (!IS_SUNSHINE()) {
@@ -995,10 +1001,15 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
         PNVCTL_ENET_PACKET_HEADER_V2 packet;
         char tempBufferStack[256];
         char* tempBuffer = tempBufferStack;
-        size_t plaintextLen = sizeof(*packet) + (size_t)(uint16_t)paylen;
+        size_t plaintextLen = sizeof(*packet) + (size_t)paylen;
+        unsigned short encryptedLength = getEncryptedControlPacketLength(paylen);
+
+        if (encryptedLength == 0) {
+            return false;
+        }
 
         // Most control messages are tiny; fall back to a heap allocation for the
-        // few that aren't (e.g. clipboard payloads up to 65535 bytes).
+        // few that aren't (e.g. clipboard payloads up to 65511 bytes).
         if (plaintextLen > sizeof(tempBufferStack)) {
             tempBuffer = (char*)malloc(plaintextLen);
             if (tempBuffer == NULL) {
@@ -1022,14 +1033,14 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
 
         encPacket = (PNVCTL_ENCRYPTED_PACKET_HEADER)enetPacket->data;
         encPacket->encryptedHeaderType = 0x0001;
-        encPacket->length = sizeof(encPacket->seq) + AES_GCM_TAG_LENGTH + plaintextLen;
+        encPacket->length = encryptedLength;
         encPacket->seq = currentEnetSequenceNumber++;
 
         // Construct the plaintext data for encryption
         packet = (PNVCTL_ENET_PACKET_HEADER_V2)tempBuffer;
         packet->type = ptype;
-        packet->payloadLength = paylen;
-        memcpy(&packet[1], payload, (uint16_t)paylen);
+        packet->payloadLength = (unsigned short)paylen;
+        memcpy(&packet[1], payload, (size_t)paylen);
 
         // Encrypt the data into the final packet (and byteswap for BE machines)
         bool encOk = encryptControlMessage(encPacket, packet);
@@ -1127,11 +1138,15 @@ static bool sendMessageEnet(short ptype, short paylen, const void* payload, uint
     return true;
 }
 
-static bool sendMessageTcp(short ptype, short paylen, const void* payload) {
+static bool sendMessageTcp(short ptype, int paylen, const void* payload) {
     PNVCTL_TCP_PACKET_HEADER packet;
     SOCK_RET err;
 
     LC_ASSERT(AppVersionQuad[0] < 5);
+
+    if (paylen < 0 || paylen > UINT16_MAX) {
+        return false;
+    }
 
     packet = malloc(sizeof(*packet) + paylen);
     if (packet == NULL) {
@@ -1139,7 +1154,7 @@ static bool sendMessageTcp(short ptype, short paylen, const void* payload) {
     }
 
     packet->type = LE16(ptype);
-    packet->payloadLength = LE16(paylen);
+    packet->payloadLength = LE16((unsigned short)paylen);
     memcpy(&packet[1], payload, paylen);
 
     err = send(ctlSock, (char*) packet, sizeof(*packet) + paylen, 0);
@@ -1152,7 +1167,7 @@ static bool sendMessageTcp(short ptype, short paylen, const void* payload) {
     return true;
 }
 
-static bool sendMessageAndForget(short ptype, short paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
+static bool sendMessageAndForget(short ptype, int paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
     bool ret;
 
     // Unlike regular sockets, ENet sockets aren't safe to invoke from multiple
@@ -1167,7 +1182,7 @@ static bool sendMessageAndForget(short ptype, short paylen, const void* payload,
     return ret;
 }
 
-static bool sendMessageAndDiscardReply(short ptype, short paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
+static bool sendMessageAndDiscardReply(short ptype, int paylen, const void* payload, uint8_t channelId, uint32_t flags, bool moreData) {
     if (AppVersionQuad[0] >= 5) {
         if (!sendMessageEnet(ptype, paylen, payload, channelId, flags, moreData)) {
             return false;
@@ -1717,7 +1732,7 @@ static void controlReceiveThreadFunc(void* context) {
                 // Sunshine clipboard sync (0x5508). The payload is opaque (currently
                 // a v1 wire frame) and forwarded verbatim to the client. We dispatch
                 // synchronously from the recv thread because the payload is variable-
-                // length up to 65535 bytes and doesn't fit the fixed-size async queue.
+                // length up to 65511 bytes and doesn't fit the fixed-size async queue.
                 // The client must defer any blocking work onto its own thread.
                 if (ListenerCallbacks.clipboardData != NULL && packetLength > (int)sizeof(*ctlHdr)) {
                     const char* payload = (const char*)(ctlHdr + 1);
@@ -1857,6 +1872,21 @@ static void lossStatsThreadFunc(void* context) {
         BbPut32(&byteBuffer, 0); // Timestamp?
 
         while (!PltIsThreadInterrupted(&lossStatsThread)) {
+            if (VideoFecControlSupported && PltGetMillis() - fecLastSummaryMs >= 1000) {
+                SS_FEC_SUMMARY summary;
+                PltLockMutex(&fecSummaryMutex);
+                summary.sequence = BE32(++fecSequence);
+                summary.dataPackets = BE32(fecDataPackets);
+                summary.missingDataPackets = BE32(fecMissingPackets);
+                fecDataPackets = fecMissingPackets = 0;
+                PltUnlockMutex(&fecSummaryMutex);
+                fecLastSummaryMs = PltGetMillis();
+                if (summary.dataPackets && !sendMessageEnet(SS_FEC_SUMMARY_PTYPE, sizeof(summary), &summary,
+                                                           CTRL_CHANNEL_GENERIC, 0, false)) {
+                    ListenerCallbacks.connectionTerminated(LastSocketFail());
+                    return;
+                }
+            }
             // For Sunshine servers, send the more detailed per-frame FEC messages
             if (IS_SUNSHINE()) {
                 PQUEUED_FRAME_FEC_STATUS queuedFrameStatus;
@@ -2166,8 +2196,8 @@ int sendInputPacketOnControlStream(unsigned char* data, int length, uint8_t chan
 // (control packet 0x5508). The wire format of the payload is opaque to moonlight-common-c
 // and forwarded verbatim by the host to its user-session GUI agent.
 int LiSendClipboardData(const void* payload, int length) {
-    // Reject obvious garbage and payloads that won't fit in the 16-bit length field.
-    if (payload == NULL || length <= 0 || length > 65535) {
+    // The 16-bit encrypted length includes the sequence, GCM tag and inner header.
+    if (payload == NULL || length <= 0 || getEncryptedControlPacketLength(length) == 0) {
         return -1;
     }
 
@@ -2182,7 +2212,7 @@ int LiSendClipboardData(const void* payload, int length) {
         return -3;
     }
 
-    if (!sendMessageAndForget(packetTypes[IDX_CLIPBOARD], (short)length, payload,
+    if (!sendMessageAndForget(packetTypes[IDX_CLIPBOARD], length, payload,
                               CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false)) {
         return -4;
     }

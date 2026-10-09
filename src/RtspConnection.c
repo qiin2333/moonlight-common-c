@@ -638,15 +638,27 @@ static bool playStream(PRTSP_MESSAGE response, char* target, int* error) {
 
 // Parse the Sunshine dynamic HDR negotiation headers from the ANNOUNCE
 // response into the session-wide negotiated globals.
-static void parseDynamicHdrNegotiation(PRTSP_MESSAGE response) {
+static bool parseDynamicHdrNegotiation(PRTSP_MESSAGE response) {
     const char* formatOption = getOptionContent(response->options, "X-SS-Dynamic-HDR");
     if (formatOption == NULL) {
         NegotiatedDynamicHdrFormat = DYNAMIC_HDR_FORMAT_NONE;
         NegotiatedDynamicHdrFallback = DYNAMIC_HDR_FALLBACK_NONE;
-        return;
+        return true;
     }
 
-    NegotiatedDynamicHdrFormat = atoi(formatOption);
+    if (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE) {
+        if (formatOption[0] < '0' || formatOption[0] > '5' || formatOption[1] != '\0' ||
+                !LiPyrowaveDynamicHdrMatchesMode(formatOption[0] - '0', StreamConfig.hdrMode)) {
+            Limelog("PyroWave dynamic HDR negotiation failed: format does not match the requested signal mode\n");
+            NegotiatedDynamicHdrFormat = DYNAMIC_HDR_FORMAT_NONE;
+            NegotiatedDynamicHdrFallback = DYNAMIC_HDR_FALLBACK_NONE;
+            return false;
+        }
+        NegotiatedDynamicHdrFormat = formatOption[0] - '0';
+    }
+    else {
+        NegotiatedDynamicHdrFormat = atoi(formatOption);
+    }
 
     // The fallback arrives as the host enum name, not a number.
     const char* fallbackOption = getOptionContent(response->options, "X-SS-Dynamic-HDR-Fallback");
@@ -674,6 +686,7 @@ static void parseDynamicHdrNegotiation(PRTSP_MESSAGE response) {
 
     Limelog("Dynamic HDR negotiated: %d (dolby vision fallback: %d)\n",
         NegotiatedDynamicHdrFormat, NegotiatedDynamicHdrFallback);
+    return true;
 }
 
 // Send RTSP ANNOUNCE message
@@ -1242,7 +1255,61 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             goto Exit;
         }
 
-        if ((StreamConfig.supportedVideoFormats & VIDEO_FORMAT_MASK_AV1) && strstr(response.payload, "AV1/90000")) {
+        uint32_t pyrowaveProtocolVersion = 0;
+        uint32_t pyrowaveBitstreamVersion = 0;
+        uint32_t pyrowavePayloadVersion = 0;
+        uint32_t pyrowaveCapabilities = 0;
+        uint32_t pyrowaveMaxPacketSize = 0;
+        LI_PYROWAVE_CAPABILITIES pyrowaveServerCapabilities = { 0 };
+        LI_PYROWAVE_CAPABILITIES pyrowaveClientCapabilities = { 0 };
+        LI_PYROWAVE_CAPABILITIES pyrowaveNegotiatedCapabilities = { 0 };
+        const bool pyrowaveAdvertised =
+            parseSdpAttributeToUInt(response.payload, "x-ss-pyrowave.protocolVersion", &pyrowaveProtocolVersion) &&
+            parseSdpAttributeToUInt(response.payload, "x-ss-pyrowave.bitstreamVersion", &pyrowaveBitstreamVersion) &&
+            parseSdpAttributeToUInt(response.payload, "x-ss-pyrowave.payloadVersion", &pyrowavePayloadVersion) &&
+            parseSdpAttributeToUInt(response.payload, "x-ss-pyrowave.capabilityFlags", &pyrowaveCapabilities) &&
+            parseSdpAttributeToUInt(response.payload, "x-ss-pyrowave.maxPacketSize", &pyrowaveMaxPacketSize);
+        const bool pyrowaveVersionFieldsFit =
+            pyrowaveProtocolVersion <= UINT16_MAX &&
+            pyrowaveBitstreamVersion <= UINT16_MAX &&
+            pyrowavePayloadVersion <= UINT16_MAX;
+        if (pyrowaveAdvertised && pyrowaveVersionFieldsFit) {
+            pyrowaveServerCapabilities.protocolVersion = (uint16_t)pyrowaveProtocolVersion;
+            pyrowaveServerCapabilities.bitstreamVersion = (uint16_t)pyrowaveBitstreamVersion;
+            pyrowaveServerCapabilities.payloadVersion = (uint16_t)pyrowavePayloadVersion;
+            pyrowaveServerCapabilities.capabilityFlags = pyrowaveCapabilities;
+            pyrowaveServerCapabilities.maxPacketSize = pyrowaveMaxPacketSize;
+        }
+        pyrowaveClientCapabilities.protocolVersion = LI_PYROWAVE_PROTOCOL_VERSION;
+        pyrowaveClientCapabilities.bitstreamVersion = LI_PYROWAVE_BITSTREAM_VERSION;
+        pyrowaveClientCapabilities.payloadVersion = LI_PYROWAVE_PAYLOAD_VERSION;
+        const uint32_t pyrowaveRangeCapability =
+            StreamConfig.colorRange == COLOR_RANGE_FULL
+                ? LI_PYROWAVE_CAPABILITY_YUV_FULL_RANGE
+                : LI_PYROWAVE_CAPABILITY_YUV_LIMITED_RANGE;
+        uint32_t pyrowaveRequiredCapabilities =
+            (StreamConfig.hdrMode == 1 ? LI_PYROWAVE_REQUIRED_HDR10_BASE_CAPABILITIES :
+             StreamConfig.hdrMode == 2 ? LI_PYROWAVE_REQUIRED_HLG_BASE_CAPABILITIES :
+             LI_PYROWAVE_REQUIRED_SDR_BASE_CAPABILITIES) |
+            pyrowaveRangeCapability;
+        pyrowaveClientCapabilities.capabilityFlags = pyrowaveRequiredCapabilities;
+        if (LiPyrowaveRequestsDynamicHdr(StreamConfig.hdrMode, StreamConfig.dynamicHdrCaps,
+                                        StreamConfig.dynamicHdrPreference)) {
+            pyrowaveRequiredCapabilities |= LI_PYROWAVE_CAPABILITY_DYNAMIC_HDR_MAPPING;
+            pyrowaveClientCapabilities.capabilityFlags |= LI_PYROWAVE_CAPABILITY_DYNAMIC_HDR_MAPPING;
+        }
+        pyrowaveClientCapabilities.maxPacketSize = LI_PYROWAVE_MAX_PACKET_SIZE;
+        if ((StreamConfig.supportedVideoFormats & VIDEO_FORMAT_PYROWAVE) != 0 &&
+                (VideoCallbacks.capabilities & CAPABILITY_PYROWAVE) != 0 &&
+                pyrowaveAdvertised && pyrowaveVersionFieldsFit &&
+                LiPyrowaveNegotiate(
+                    &pyrowaveServerCapabilities,
+                    &pyrowaveClientCapabilities,
+                    pyrowaveRequiredCapabilities,
+                    &pyrowaveNegotiatedCapabilities) == LI_PYROWAVE_NEGOTIATION_OK) {
+            NegotiatedVideoFormat = VIDEO_FORMAT_PYROWAVE;
+        }
+        else if ((StreamConfig.supportedVideoFormats & VIDEO_FORMAT_MASK_AV1) && strstr(response.payload, "AV1/90000")) {
             if ((serverInfo->serverCodecModeSupport & SCM_AV1_HIGH10_444) && (StreamConfig.supportedVideoFormats & VIDEO_FORMAT_AV1_HIGH10_444)) {
                 NegotiatedVideoFormat = VIDEO_FORMAT_AV1_HIGH10_444;
             }
@@ -1290,11 +1357,22 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             }
         }
 
+        if ((StreamConfig.supportedVideoFormats & VIDEO_FORMAT_PYROWAVE) != 0 &&
+                NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE) {
+            const char* codec = (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_AV1) != 0 ? "AV1" :
+                                (NegotiatedVideoFormat & VIDEO_FORMAT_MASK_H265) != 0 ? "HEVC" : "H.264";
+            Limelog("PyroWave negotiation failed. Falling back to %s.\n", codec);
+        }
+
         // Look for the SDP attribute that indicates we're dealing with a server that supports RFI
         ReferenceFrameInvalidationSupported = strstr(response.payload, "x-nv-video[0].refPicInvalidation") != NULL;
         if (!ReferenceFrameInvalidationSupported) {
             Limelog("Reference frame invalidation is not supported by this host\n");
         }
+
+        uint32_t fecVersion = 0;
+        VideoFecControlSupported = IS_SUNSHINE() && NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE &&
+            parseSdpAttributeToUInt(response.payload, "x-ss-video[0].fecControlVersion", &fecVersion) && fecVersion == 1;
 
         // Look for the Sunshine feature flags in the SDP attributes
         if (!parseSdpAttributeToUInt(response.payload, "x-ss-general.featureFlags", &SunshineFeatureFlags)) {
@@ -1580,7 +1658,11 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         // Sunshine dynamic HDR negotiation result. Hosts without the
         // extension send no X-SS-Dynamic-HDR header; that is the legacy
         // outcome (DYNAMIC_HDR_FORMAT_NONE) rather than an error.
-        parseDynamicHdrNegotiation(&response);
+        if (!parseDynamicHdrNegotiation(&response)) {
+            ret = 415;
+            freeMessage(&response);
+            goto Exit;
+        }
 
         freeMessage(&response);
     }

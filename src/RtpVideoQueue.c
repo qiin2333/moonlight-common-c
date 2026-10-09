@@ -92,6 +92,8 @@ static void removeEntryFromList(PRTPV_QUEUE_LIST list, PRTPV_QUEUE_ENTRY entry) 
 
 static void reportFinalFrameFecStatus(PRTP_VIDEO_QUEUE queue) {
     SS_FRAME_FEC_STATUS fecStatus;
+    connectionRecordFecBlock(queue->currentFrameNumber, queue->multiFecCurrentBlockNumber,
+                             queue->bufferDataPackets, queue->receivedDataPackets);
 
     fecStatus.frameIndex = BE32(queue->currentFrameNumber);
     fecStatus.highestReceivedSequenceNumber = BE16(queue->receivedHighestSequenceNumber);
@@ -247,6 +249,9 @@ static int reconstructFrame(PRTP_VIDEO_QUEUE queue) {
 #else
     if (queue->receivedDataPackets == queue->bufferDataPackets) {
 #endif
+        // Include clean blocks in the aggregate denominator, without queueing a report per frame.
+        connectionRecordFecBlock(queue->currentFrameNumber, queue->multiFecCurrentBlockNumber,
+                                 queue->bufferDataPackets, queue->receivedDataPackets);
         // We've received a full frame with no need for FEC.
         return 0;
     }
@@ -554,7 +559,12 @@ uint32_t RtpvGetCurrentFrameNumber(PRTP_VIDEO_QUEUE queue) {
 }
 
 int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_QUEUE_ENTRY packetEntry) {
-    if (isBefore16(packet->sequenceNumber, queue->nextContiguousSequenceNumber)) {
+    /* PyroWave reorders and recovers its inner blocks itself.  The legacy
+       contiguous-sequence window is not advanced on this direct path, so
+       applying it here would reject a valid first RTP packet when its
+       sequence number happens to be before the zero-initialized window. */
+    if (NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE &&
+            isBefore16(packet->sequenceNumber, queue->nextContiguousSequenceNumber)) {
         // Reject packets behind our current buffer window
         return RTPF_RET_REJECTED;
     }
@@ -592,6 +602,30 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         return RTPF_RET_REJECTED;
     }
 #endif
+
+    /* PyroWave owns its own block-aware FEC and frame reassembly. Do not hold
+       these packets behind the legacy RTP frame/FEC queue: doing so would
+       discard a partially received frame before the inner parity block can
+       recover it. The depacketizer consumes each authenticated RTP payload
+       and decides when the PyroWave frame is complete. */
+    if (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE) {
+        if (((nvPacket->flags & FLAG_SOF) != 0 &&
+             ((nvPacket->multiFecBlocks >> 4) & 0x3) == 0) ||
+                nvPacket->frameIndex != queue->currentFrameNumber) {
+            connectionSawFrame(nvPacket->frameIndex);
+        }
+        queue->currentFrameNumber = nvPacket->frameIndex;
+        packetEntry->next = NULL;
+        packetEntry->prev = NULL;
+        packetEntry->packet = packet;
+        packetEntry->receiveTimeUs = PltGetMicroseconds();
+        packetEntry->presentationTimeUs = ((uint64_t)packet->timestamp * 1000) / PTS_DIVISOR;
+        packetEntry->rtpTimestamp = packet->timestamp;
+        packetEntry->length = length;
+        packetEntry->isParity = false;
+        queueRtpPacket(packetEntry);
+        return RTPF_RET_QUEUED;
+    }
 
     uint32_t fecIndex = (nvPacket->fecInfo & 0x3FF000) >> 12;
     uint8_t fecCurrentBlockNumber = (nvPacket->multiFecBlocks >> 4) & 0x3;

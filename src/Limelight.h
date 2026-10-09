@@ -7,6 +7,8 @@
 #include <stdint.h>
 #include <stdbool.h>
 
+#include "PyrowaveProtocol.h"
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -151,9 +153,13 @@ typedef struct _STREAM_CONFIGURATION {
     // 0 means "host default" (Sunshine uses 640000 for AC3, 384000 for E-AC3).
     // Ignored when audioCodec == OPUS.
     int audioBitrate;
+
+    // RS FEC preference: -2=host default, -1=automatic, 0..100=fixed percentage.
+    // Unsupported hosts ignore this preference. PyroWave uses its own protection.
+    int videoFecPercentage;
 } STREAM_CONFIGURATION, *PSTREAM_CONFIGURATION;
 
-// Use this function to zero the stream configuration when allocated on the stack or heap
+// Initialize the stream configuration, including compatible host-default FEC.
 void LiInitializeStreamConfiguration(PSTREAM_CONFIGURATION streamConfig);
 
 // These identify codec configuration data in the buffer lists
@@ -242,6 +248,11 @@ typedef struct _DECODE_UNIT {
     // Note: This is not currently parsed from the actual bitstream, so if your
     // client has access to a bitstream parser, prefer that over this field.
     uint8_t colorspace;
+
+    // Protected PyroWave frame TLVs. Owned by bufferList and valid until
+    // LiCompleteVideoFrame(); NULL/zero for traditional video formats.
+    const uint8_t* pyrowaveMetadata;
+    uint16_t pyrowaveMetadataLength;
 } DECODE_UNIT, *PDECODE_UNIT;
 
 // Specifies that the audio stream should be encoded in stereo (default)
@@ -312,6 +323,7 @@ typedef struct _DECODE_UNIT {
 #define VIDEO_FORMAT_AV1_MAIN10      0x2000 // AV1 Main 10-bit profile
 #define VIDEO_FORMAT_AV1_HIGH8_444   0x4000 // AV1 High 4:4:4 8-bit profile
 #define VIDEO_FORMAT_AV1_HIGH10_444  0x8000 // AV1 High 4:4:4 10-bit profile
+#define VIDEO_FORMAT_PYROWAVE        LI_PYROWAVE_VIDEO_FORMAT // Experimental PyroWave format
 
 // Masks for clients to use to match video codecs without profile-specific details.
 #define VIDEO_FORMAT_MASK_H264   0x000F
@@ -360,6 +372,10 @@ typedef struct _DECODE_UNIT {
 // consumes HEVC prefix SEI NALUs and requires them to remain in submitted decode units.
 // Without this capability, prepended SEI NALUs are stripped for compatibility with legacy renderers.
 #define CAPABILITY_PRESERVE_HEVC_SEI 0x80
+
+// If set in the video renderer capabilities field, the renderer accepts the
+// experimental PyroWave frame contract and owns the GPU decode path.
+#define CAPABILITY_PYROWAVE 0x100
 
 // If set in the video renderer capabilities field, this macro specifies that the renderer
 // supports slicing to increase decoding performance. The parameter specifies the desired
@@ -1109,7 +1125,8 @@ int LiSendHScrollEvent(signed char scrollClicks);
 int LiSendHighResHScrollEvent(short scrollAmount);
 
 // Send an opaque clipboard payload to the host. `length` must be > 0 and
-// <= 65535. The host (AlkaidLab Sunshine fork) forwards the payload verbatim
+// <= 65511, leaving room for the encrypted control frame's 24-byte overhead.
+// The host (AlkaidLab Sunshine fork) forwards the payload verbatim
 // to its user-session GUI agent over an in-process bridge; the wire format
 // of the payload itself is defined by the GUI agent (currently v1: u8 version,
 // u8 kind, u32 token, u32 length, bytes payload, little-endian).
