@@ -93,23 +93,42 @@ int sendMicrophoneOpusData(const unsigned char* opusData, int opusLength) {
     header.timestamp = LE32((uint32_t)PltGetMillis());
     header.ssrc = LE32(MIC_PACKET_MAGIC);
     
-    if ((EncryptionFeaturesEnabled & SS_ENC_MICROPHONE) && micEncryptionCtx != NULL) {
+    if (EncryptionFeaturesEnabled & SS_ENC_MICROPHONE) {
+        // Once encryption is negotiated, never fall back to sending plaintext
+        if (micEncryptionCtx == NULL) {
+            return -1;
+        }
+
         unsigned char iv[MIC_IV_LEN] = {0};
-        unsigned char encryptedData[ROUND_TO_PKCS7_PADDED_LEN(MAX_MIC_PACKET_SIZE)];
+        // Room for the Opus data plus a full padding block
+        unsigned char paddedData[MAX_MIC_PACKET_SIZE + 16];
+        unsigned char encryptedData[sizeof(paddedData)];
         int encryptedLength = (int)sizeof(encryptedData);
-        
+
+        // The host decrypts with standard PKCS7, stripping exactly one pad of
+        // 1-16 bytes. Append that pad here so the plaintext is block aligned,
+        // then encrypt the blocks as they are: CIPHER_FLAG_PAD_TO_BLOCK_SIZE adds
+        // nothing to aligned input, and without CIPHER_FLAG_FINISH no backend
+        // appends a padding block of its own. (Passing FINISH as well padded
+        // twice on OpenSSL, so the host fed 1-15 junk bytes to its Opus decoder
+        // with almost every packet, which garbled the voice.)
+        int padLength = 16 - (opusLength % 16);
+        int paddedLength = opusLength + padLength;
+        memcpy(paddedData, opusData, opusLength);
+        memset(&paddedData[opusLength], padLength, padLength);
+
         // IV = riKeyId + sequenceNumber in big-endian
         uint32_t ivSeq = BE32(micRiKeyId + micSequenceNumber);
         memcpy(iv, &ivSeq, sizeof(ivSeq));
-        
-        if (!PltEncryptMessage(micEncryptionCtx, 
+
+        if (!PltEncryptMessage(micEncryptionCtx,
                               ALGORITHM_AES_CBC,
-                              CIPHER_FLAG_RESET_IV | CIPHER_FLAG_FINISH | CIPHER_FLAG_PAD_TO_BLOCK_SIZE,
+                              CIPHER_FLAG_RESET_IV | CIPHER_FLAG_PAD_TO_BLOCK_SIZE,
                               (unsigned char*)StreamConfig.remoteInputAesKey,
                               sizeof(StreamConfig.remoteInputAesKey),
                               iv, sizeof(iv),
                               NULL, 0,
-                              (unsigned char*)opusData, opusLength,
+                              paddedData, paddedLength,
                               encryptedData, &encryptedLength)) {
             Limelog("MIC: Encryption failed\n");
             return -1;
