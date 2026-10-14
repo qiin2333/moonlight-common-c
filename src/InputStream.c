@@ -1082,7 +1082,8 @@ static int sendControllerEventInternal(short controllerNumber, short activeGamep
         // We do not support batching with the legacy controller packet format
         LC_ASSERT(AppVersionQuad[0] > 3);
 
-        // If this new packet has different button flags, end the batch to ensure the
+        // Keep controller presence changes as separate packets, including withdrawal
+        // and re-arrival with zero buttons. Button changes also end the batch so the
         // host receives the exact axis values present at the time of the button press.
         if (holder->packet.multiController.activeGamepadMask != LE16(activeGamepadMask) ||
             holder->packet.multiController.buttonFlags != LE16((short)buttonFlags) ||
@@ -1167,36 +1168,27 @@ static int sendControllerEventInternal(short controllerNumber, short activeGamep
         }
     }
 
-    // We can unlock the batched input mutex before enqueuing the new holder because
-    // the input thread only cares if currentQueuedControllerPacket is equal to the
-    // holder it's currently processing. Since it cannot be processing the holder
-    // until we enqueue it, there's no risk here of it processing/freeing the
-    // holder when we're still touching it.
-    //
-    // Unlocking early saves a context switch in the common case where the newly
-    // queued packet wakes up the input thread which then immediately blocks on
-    // the batched input mutex until this thread runs again to release it.
-    PltUnlockMutex(&batchedInputMutex);
-
     if (enqueueHolder) {
-        // Enqueue the new packet holder
+        // Keep publication and the queue offer under the batching lock. Another
+        // producer must not merge into this holder until it is actually enqueued.
         err = LbqOfferQueueItem(&packetQueue, holder, &holder->entry);
         if (err != LBQ_SUCCESS) {
-            LC_ASSERT(err == LBQ_BOUND_EXCEEDED);
-            Limelog("Input queue reached maximum size limit\n");
-            // A failed handoff can retry after the queue drains. Do not let the
-            // retry merge into a holder that was never actually enqueued.
-            PltLockMutex(&batchedInputMutex);
             if (currentQueuedControllerPacket[controllerNumber] == holder) {
                 currentQueuedControllerPacket[controllerNumber] = NULL;
             }
-            PltUnlockMutex(&batchedInputMutex);
-            freePacketHolder(holder);
         }
     }
     else {
         // The packet holder we updated was already enqueued
         err = 0;
+    }
+
+    PltUnlockMutex(&batchedInputMutex);
+
+    if (enqueueHolder && err != LBQ_SUCCESS) {
+        LC_ASSERT(err == LBQ_BOUND_EXCEEDED);
+        Limelog("Input queue reached maximum size limit\n");
+        freePacketHolder(holder);
     }
 
     return err;

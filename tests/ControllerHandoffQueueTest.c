@@ -8,6 +8,21 @@ static PPACKET_HOLDER pop(void) {
     return holder;
 }
 
+typedef struct _REJECTED_PRODUCER {
+    PLT_EVENT start;
+    int accepted;
+} REJECTED_PRODUCER;
+
+static void sendRejectedUpdates(void* context) {
+    REJECTED_PRODUCER* producer = context;
+    PltWaitForEvent(&producer->start);
+    for (int i = 0; i < 5000; i++) {
+        int result = LiSendMultiControllerEvent(0, 0, 0, 0, 0, 0, 0, 0, 0);
+        assert(result == LBQ_BOUND_EXCEEDED || result == LBQ_SUCCESS);
+        if (result == LBQ_SUCCESS) producer->accepted++;
+    }
+}
+
 int main(void) {
     AppVersionQuad[0] = 7;
     AppVersionQuad[1] = 1;
@@ -49,6 +64,23 @@ int main(void) {
     for (int i = 0; i < MAX_QUEUED_INPUT_PACKETS; i++) {
         assert(LiSendMultiControllerEvent(0, 1, (i & 1) ? A_FLAG : 0, 0, 0, 0, 0, 0, 0) == 0);
     }
+
+    // No removal update can be accepted while this full queue contains only
+    // active-mask-1 packets. Concurrent producers must not batch into a rejected
+    // mask-0 holder and report success for an update that will never be sent.
+    REJECTED_PRODUCER producers[2] = {0};
+    PLT_THREAD threads[2];
+    for (int i = 0; i < 2; i++) {
+        assert(PltCreateEvent(&producers[i].start) == 0);
+        assert(PltCreateThread("Rejected input", sendRejectedUpdates, &producers[i], &threads[i]) == 0);
+    }
+    for (int i = 0; i < 2; i++) PltSetEvent(&producers[i].start);
+    for (int i = 0; i < 2; i++) {
+        PltJoinThread(&threads[i]);
+        PltCloseEvent(&producers[i].start);
+        assert(producers[i].accepted == 0);
+    }
+
     assert(LiSendMultiControllerEvent(0, 0, 0, 0, 0, 0, 0, 0, 0) == LBQ_BOUND_EXCEEDED);
     for (int i = 0; i < MAX_QUEUED_INPUT_PACKETS; i++) free(pop());
     assert(LiSendMultiControllerEvent(0, 0, 0, 0, 0, 0, 0, 0, 0) == 0);
