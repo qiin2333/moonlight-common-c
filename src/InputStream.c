@@ -1084,7 +1084,8 @@ static int sendControllerEventInternal(short controllerNumber, short activeGamep
 
         // If this new packet has different button flags, end the batch to ensure the
         // host receives the exact axis values present at the time of the button press.
-        if (holder->packet.multiController.buttonFlags != LE16((short)buttonFlags) ||
+        if (holder->packet.multiController.activeGamepadMask != LE16(activeGamepadMask) ||
+            holder->packet.multiController.buttonFlags != LE16((short)buttonFlags) ||
             holder->packet.multiController.buttonFlags2 != (IS_SUNSHINE() ? LE16((short)(buttonFlags >> 16)) : 0)) {
             // Pretend there wasn't a currently queued controller packet
             holder = NULL;
@@ -1183,6 +1184,13 @@ static int sendControllerEventInternal(short controllerNumber, short activeGamep
         if (err != LBQ_SUCCESS) {
             LC_ASSERT(err == LBQ_BOUND_EXCEEDED);
             Limelog("Input queue reached maximum size limit\n");
+            // A failed handoff can retry after the queue drains. Do not let the
+            // retry merge into a holder that was never actually enqueued.
+            PltLockMutex(&batchedInputMutex);
+            if (currentQueuedControllerPacket[controllerNumber] == holder) {
+                currentQueuedControllerPacket[controllerNumber] = NULL;
+            }
+            PltUnlockMutex(&batchedInputMutex);
             freePacketHolder(holder);
         }
     }

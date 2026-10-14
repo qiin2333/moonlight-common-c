@@ -123,6 +123,18 @@ target_compile_definitions(moonlight-common-c PRIVATE HAS_SOCKLEN_T)
 if (BUILD_TESTING)
   get_target_property(_common_c_type moonlight-common-c TYPE)
   if(_common_c_type STREQUAL "STATIC_LIBRARY")
+    # This test includes the sender and links its internal platform/queue helpers.
+    add_executable(controller-handoff-queue-tests tests/ControllerHandoffQueueTest.c)
+    target_include_directories(controller-handoff-queue-tests PRIVATE src enet/include)
+    target_link_libraries(controller-handoff-queue-tests PRIVATE moonlight-common-c)
+    target_compile_definitions(controller-handoff-queue-tests PRIVATE LC_DEBUG HAS_SOCKLEN_T)
+    # Assertions also execute the sends in release builds.
+    if(MSVC)
+      target_compile_options(controller-handoff-queue-tests PRIVATE /UNDEBUG)
+    else()
+      target_compile_options(controller-handoff-queue-tests PRIVATE -UNDEBUG)
+    endif()
+    add_test(NAME controller-handoff-queue-tests COMMAND controller-handoff-queue-tests)
     add_executable(pyrowave-decode-unit-tests tests/PyrowaveDecodeUnitTest.c)
     target_include_directories(pyrowave-decode-unit-tests PRIVATE
       enet/include $<TARGET_PROPERTY:moonlight-common-c,INCLUDE_DIRECTORIES>)
