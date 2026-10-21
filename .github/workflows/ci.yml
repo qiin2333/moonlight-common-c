@@ -11,6 +11,7 @@ on:
       - synchronize
       - reopened
   push:
+  workflow_dispatch:
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
