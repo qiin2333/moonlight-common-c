@@ -1279,9 +1279,18 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             Limelog("Host lacks valid MAT dump v1 capability/manifest; refusing implicit fallback\n");
             ret = -1; freeMessage(&response); goto Exit;
         }
-        if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_IEC61937 && !MatPlaybackProfileParse(&MatDumpProfile,response.payload)) {
-            Limelog("Host lacks explicit finite MAT IEC playback profile; refusing fallback\n");
-            ret = -1; freeMessage(&response); goto Exit;
+        if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_IEC61937) {
+            int selected = MatPlaybackProfileSelect(&MatDumpProfile,response.payload,
+                StreamConfig.audioCodec == AUDIO_CODEC_MAT_AUTO);
+            if (selected < 0) {
+                Limelog("Host lacks explicit finite MAT IEC playback profile; refusing fallback\n");
+                ret = -1; freeMessage(&response); goto Exit;
+            }
+            NegotiatedAudioCodec = selected;
+            if (selected == AUDIO_CODEC_OPUS) {
+                NegotiatedAudioBitrate = 0;
+                Limelog("Host MAT profile unavailable or incompatible; selecting Opus before ANNOUNCE\n");
+            }
         }
         uint32_t pyrowaveProtocolVersion = 0;
         uint32_t pyrowaveBitstreamVersion = 0;
@@ -1701,6 +1710,18 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
                 uniqueMatOption(response.options,"X-SS-Mat-Clock"))) {
             Limelog("MAT IEC playback ANNOUNCE confirmation missing or mismatched\n");
             ret = -1; freeMessage(&response); goto Exit;
+        }
+        if (NegotiatedAudioCodec == AUDIO_CODEC_OPUS) {
+            const char* confirmedCodec = getOptionContent(response.options,"X-SS-Audio-Codec");
+            if ((confirmedCodec && (strcmp(confirmedCodec,"opus") ||
+                    !uniqueMatOption(response.options,"X-SS-Audio-Codec"))) ||
+                getOptionContent(response.options,"X-SS-Mat-SHA256") ||
+                getOptionContent(response.options,"X-SS-Mat-Cycles") ||
+                getOptionContent(response.options,"X-SS-Mat-Carrier") ||
+                getOptionContent(response.options,"X-SS-Mat-Clock")) {
+                Limelog("Unexpected codec/MAT confirmation after selecting Opus; refusing media\n");
+                ret = -1; freeMessage(&response); goto Exit;
+            }
         }
         if (!parseDynamicHdrNegotiation(&response)) {
             ret = 415;

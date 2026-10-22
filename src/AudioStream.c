@@ -95,9 +95,11 @@ static void AudioPingThreadProc(void* context) {
 
 // Initialize the audio stream and start
 int initializeAudioStream(void) {
-    LbqInitializeLinkedBlockingQueue(&packetQueue, AUDIO_CODEC_IS_MAT(StreamConfig.audioCodec)?512:30);
+    // RTSP can still select Opus for a MAT preference. Final receive parameters
+    // are set in startAudioStream(), before either queue worker starts.
+    LbqInitializeLinkedBlockingQueue(&packetQueue, 30);
     RtpaInitializeQueue(&rtpAudioQueue);
-    lastSeq = AUDIO_CODEC_IS_MAT(StreamConfig.audioCodec)?3:0;
+    lastSeq = 0;
     matDumpFailedReported=matDumpPublishedReported=false;
     matPlaybackFailedReported=matPlaybackCompleteReported=false;
     receivedDataFromPeer = false;
@@ -469,6 +471,10 @@ void stopAudioStream(void) {
 int startAudioStream(void* audioContext, int arFlags) {
     int err;
     OPUS_MULTISTREAM_CONFIGURATION chosenConfig;
+
+    LC_ASSERT(packetQueue.currentSize == 0);
+    packetQueue.sizeBound = AUDIO_CODEC_IS_MAT(NegotiatedAudioCodec) ? 512 : 30;
+    lastSeq = AUDIO_CODEC_IS_MAT(NegotiatedAudioCodec) ? 3 : 0;
 
     if (HighQualitySurroundEnabled) {
         LC_ASSERT(HighQualitySurroundSupported);

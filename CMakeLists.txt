@@ -121,6 +121,15 @@ target_include_directories(moonlight-common-c SYSTEM PRIVATE
 target_compile_definitions(moonlight-common-c PRIVATE HAS_SOCKLEN_T)
 
 if (BUILD_TESTING)
+  add_executable(mat-playback-selection-tests tests/MatPlaybackSelectionTest.c)
+  target_include_directories(mat-playback-selection-tests PRIVATE src)
+  if(MSVC)
+    target_compile_options(mat-playback-selection-tests PRIVATE /W3 /WX)
+  else()
+    target_compile_options(mat-playback-selection-tests PRIVATE -Wall -Wextra -Werror)
+  endif()
+  add_test(NAME mat-playback-selection-tests COMMAND mat-playback-selection-tests)
+
   add_executable(rtsp-parser-mat-tests tests/RtspParserMatTest.c src/RtspParser.c)
   target_include_directories(rtsp-parser-mat-tests PRIVATE src enet/include)
   target_compile_definitions(rtsp-parser-mat-tests PRIVATE HAS_SOCKLEN_T)
@@ -128,6 +137,16 @@ if (BUILD_TESTING)
 
   get_target_property(_common_c_type moonlight-common-c TYPE)
   if(_common_c_type STREQUAL "STATIC_LIBRARY")
+    add_executable(audio-codec-selection-tests tests/AudioCodecSelectionTest.c)
+    target_include_directories(audio-codec-selection-tests PRIVATE
+      enet/include $<TARGET_PROPERTY:moonlight-common-c,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(audio-codec-selection-tests PRIVATE
+      $<TARGET_PROPERTY:moonlight-common-c,COMPILE_DEFINITIONS>)
+    target_compile_options(audio-codec-selection-tests PRIVATE
+      $<TARGET_PROPERTY:moonlight-common-c,COMPILE_OPTIONS>)
+    target_link_libraries(audio-codec-selection-tests PRIVATE moonlight-common-c)
+    add_test(NAME audio-codec-selection-tests COMMAND audio-codec-selection-tests)
+
     # This test includes the sender and links its internal platform/queue helpers.
     add_executable(controller-handoff-queue-tests tests/ControllerHandoffQueueTest.c)
     target_include_directories(controller-handoff-queue-tests PRIVATE src enet/include)

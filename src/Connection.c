@@ -357,6 +357,17 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
                     : (StreamConfig.audioCodec == AUDIO_CODEC_AC3 ? 640000 : 384000);
             }
             break;
+        case AUDIO_CODEC_MAT_AUTO:
+            if (StreamConfig.matDumpPath[0]) {
+                Limelog("MAT preference cannot use a dump path\n");
+                err = -1; goto Cleanup;
+            }
+            if (!IS_SUNSHINE() || StreamConfig.controlOnly) {
+                Limelog("MAT preference unavailable for this session; selecting Opus\n");
+                break;
+            }
+            NegotiatedAudioCodec = AUDIO_CODEC_MAT_IEC61937;
+            break;
         case AUDIO_CODEC_MAT_IEC61937:
             if (!IS_SUNSHINE() || StreamConfig.controlOnly || StreamConfig.matDumpPath[0]) {
                 Limelog("MAT playback requires Sunshine audio session and no dump path\n");

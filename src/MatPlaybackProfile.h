@@ -21,3 +21,10 @@ static inline int MatPlaybackProfileConfirm(const LI_MAT_DUMP_PROFILE* expected,
         clock && !strcmp(clock,MAT_PLAYBACK_CLOCK) && MatProfileSet(&got,hash,count) &&
         got.cycles==expected->cycles && !strcmp(got.sha256,expected->sha256);
 }
+/* Fallback is legal only during DESCRIBE, before any codec is announced or media is consumed.
+ * Strict diagnostic requests retain their failure behavior. Never accept a dump-only profile. */
+static inline int MatPlaybackProfileSelect(LI_MAT_DUMP_PROFILE* out,const char* sdp,int allowFallback) {
+    if(sdp && MatPlaybackProfileParse(out,sdp))return MAT_PLAYBACK_CODEC;
+    memset(out,0,sizeof(*out));
+    return allowFallback?0:-1;
+}

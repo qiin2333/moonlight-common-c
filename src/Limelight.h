@@ -305,6 +305,7 @@ typedef struct _DECODE_UNIT {
 #define AUDIO_CODEC_PCM_S16 3
 #define AUDIO_CODEC_MAT_DUMP 4
 #define AUDIO_CODEC_MAT_IEC61937 5
+#define AUDIO_CODEC_MAT_AUTO 6 // Local preference: select codec 5 or 0 before ANNOUNCE; never a wire codec.
 #define AUDIO_CODEC_IS_MAT(c) ((c)==AUDIO_CODEC_MAT_DUMP || (c)==AUDIO_CODEC_MAT_IEC61937)
 
 /* Registered from audio init, cleared after audio threads join. Never called for
