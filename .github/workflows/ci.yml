@@ -5,11 +5,13 @@ on:
   pull_request:
     branches:
       - master
+      - mic
     types:
       - opened
       - synchronize
       - reopened
   push:
+  workflow_dispatch:
 
 concurrency:
   group: "${{ github.workflow }}-${{ github.ref }}"
