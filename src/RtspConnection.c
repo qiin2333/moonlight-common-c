@@ -580,7 +580,8 @@ static bool requestDescribe(PRTSP_MESSAGE response, int* error) {
         if (addOption(&request, "Accept",
             "application/sdp") &&
             addOption(&request, "If-Modified-Since",
-                "Thu, 01 Jan 1970 00:00:00 GMT")) {
+                "Thu, 01 Jan 1970 00:00:00 GMT") &&
+            (NegotiatedAudioCodec != AUDIO_CODEC_MAT_LIVE || addOption(&request,"X-ML-Mat-Live","1"))) {
             ret = transactRtspMessage(&request, response, true, error);
         }
         else {
@@ -1279,6 +1280,15 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             Limelog("Host lacks valid MAT dump v1 capability/manifest; refusing implicit fallback\n");
             ret = -1; freeMessage(&response); goto Exit;
         }
+        if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_LIVE && !MatLiveProfileParse(&MatLiveProfile,response.payload)) {
+            memset(&MatLiveProfile,0,sizeof(MatLiveProfile));
+            if(StreamConfig.audioCodec!=AUDIO_CODEC_MAT_AUTO) {
+                Limelog("Host has no compatible live MAT source/profile\n");
+                ret=-1;freeMessage(&response);goto Exit;
+            }
+            NegotiatedAudioCodec=AUDIO_CODEC_OPUS;NegotiatedAudioBitrate=0;
+            Limelog("Live MAT source unavailable; selecting Opus before ANNOUNCE (no replay fallback)\n");
+        }
         if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_IEC61937) {
             int selected = MatPlaybackProfileSelect(&MatDumpProfile,response.payload,
                 StreamConfig.audioCodec == AUDIO_CODEC_MAT_AUTO);
@@ -1718,10 +1728,21 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
                 getOptionContent(response.options,"X-SS-Mat-SHA256") ||
                 getOptionContent(response.options,"X-SS-Mat-Cycles") ||
                 getOptionContent(response.options,"X-SS-Mat-Carrier") ||
-                getOptionContent(response.options,"X-SS-Mat-Clock")) {
+                getOptionContent(response.options,"X-SS-Mat-Clock") ||
+                getOptionContent(response.options,"X-SS-Mat-Live-Epoch") ||
+                getOptionContent(response.options,"X-SS-Mat-Live-Domain") ||
+                getOptionContent(response.options,"X-SS-Mat-Live-Crypto")) {
                 Limelog("Unexpected codec/MAT confirmation after selecting Opus; refusing media\n");
                 ret = -1; freeMessage(&response); goto Exit;
             }
+        }
+        if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_LIVE && !MatLiveProfileConfirm(&MatLiveProfile,
+            uniqueMatOption(response.options,"X-SS-Audio-Codec"),
+            uniqueMatOption(response.options,"X-SS-Mat-Carrier"),uniqueMatOption(response.options,"X-SS-Mat-Clock"),
+            uniqueMatOption(response.options,"X-SS-Mat-Live-Crypto"),uniqueMatOption(response.options,"X-SS-Mat-Live-Epoch"),
+            uniqueMatOption(response.options,"X-SS-Mat-Live-Domain"))) {
+            Limelog("Live MAT ANNOUNCE confirmation missing or mismatched\n");
+            ret=-1;freeMessage(&response);goto Exit;
         }
         if (!parseDynamicHdrNegotiation(&response)) {
             ret = 415;

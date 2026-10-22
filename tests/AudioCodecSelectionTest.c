@@ -15,8 +15,8 @@ static int stopBeforeHardware(int configuration,const POPUS_MULTISTREAM_CONFIGUR
 }
 int main(void) {
     CHECK(initializePlatform()==0);
-    const int requests[]={AUDIO_CODEC_MAT_AUTO,AUDIO_CODEC_MAT_AUTO,AUDIO_CODEC_MAT_IEC61937,AUDIO_CODEC_OPUS};
-    const int selections[]={AUDIO_CODEC_MAT_IEC61937,AUDIO_CODEC_OPUS,AUDIO_CODEC_MAT_IEC61937,AUDIO_CODEC_OPUS};
+    const int requests[]={AUDIO_CODEC_MAT_AUTO,AUDIO_CODEC_MAT_AUTO,AUDIO_CODEC_MAT_IEC61937,AUDIO_CODEC_OPUS,AUDIO_CODEC_MAT_LIVE};
+    const int selections[]={AUDIO_CODEC_MAT_LIVE,AUDIO_CODEC_OPUS,AUDIO_CODEC_MAT_IEC61937,AUDIO_CODEC_OPUS,AUDIO_CODEC_MAT_LIVE};
     for(unsigned i=0;i<sizeof(requests)/sizeof(requests[0]);i++) {
         StreamConfig.audioCodec=requests[i];
         StreamConfig.audioConfiguration=AUDIO_CONFIGURATION_STEREO;

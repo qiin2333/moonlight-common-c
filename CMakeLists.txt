@@ -121,6 +121,17 @@ target_include_directories(moonlight-common-c SYSTEM PRIVATE
 target_compile_definitions(moonlight-common-c PRIVATE HAS_SOCKLEN_T)
 
 if (BUILD_TESTING)
+  add_executable(mat-live-tests tests/MatLiveTest.c)
+  target_include_directories(mat-live-tests PRIVATE src)
+  target_link_libraries(mat-live-tests PRIVATE moonlight-common-c)
+  if(USE_MBEDTLS)
+    target_compile_definitions(mat-live-tests PRIVATE USE_MBEDTLS)
+  else()
+    target_include_directories(mat-live-tests SYSTEM PRIVATE ${OPENSSL_INCLUDE_DIR})
+    target_link_libraries(mat-live-tests PRIVATE ${OPENSSL_CRYPTO_LIBRARY})
+  endif()
+  add_test(NAME mat-live-tests COMMAND mat-live-tests)
+
   add_executable(mat-playback-selection-tests tests/MatPlaybackSelectionTest.c)
   target_include_directories(mat-playback-selection-tests PRIVATE src)
   if(MSVC)
@@ -137,6 +148,17 @@ if (BUILD_TESTING)
 
   get_target_property(_common_c_type moonlight-common-c TYPE)
   if(_common_c_type STREQUAL "STATIC_LIBRARY")
+    add_executable(mat-live-rtp-tests tests/MatLiveRtpTest.c)
+    target_include_directories(mat-live-rtp-tests PRIVATE enet/include
+      $<TARGET_PROPERTY:moonlight-common-c,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(mat-live-rtp-tests PRIVATE
+      $<TARGET_PROPERTY:moonlight-common-c,COMPILE_DEFINITIONS>)
+    target_link_libraries(mat-live-rtp-tests PRIVATE moonlight-common-c)
+    if(NOT USE_MBEDTLS)
+      target_include_directories(mat-live-rtp-tests SYSTEM PRIVATE ${OPENSSL_INCLUDE_DIR})
+      target_link_libraries(mat-live-rtp-tests PRIVATE ${OPENSSL_CRYPTO_LIBRARY})
+    endif()
+    add_test(NAME mat-live-rtp-tests COMMAND mat-live-rtp-tests)
     add_executable(audio-codec-selection-tests tests/AudioCodecSelectionTest.c)
     target_include_directories(audio-codec-selection-tests PRIVATE
       enet/include $<TARGET_PROPERTY:moonlight-common-c,INCLUDE_DIRECTORIES>)

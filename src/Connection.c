@@ -27,6 +27,7 @@ int AudioPacketDuration;
 bool AudioEncryptionEnabled;
 bool ReferenceFrameInvalidationSupported;
 int NegotiatedAudioCodec;
+LI_MAT_LIVE_PROFILE MatLiveProfile;
 LI_MAT_DUMP_PROFILE MatDumpProfile;
 int NegotiatedAudioBitrate;
 int NegotiatedDynamicHdrFormat;
@@ -333,6 +334,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     NegotiatedAudioCodec = AUDIO_CODEC_OPUS;
     NegotiatedAudioBitrate = 0;
     memset(&MatDumpProfile,0,sizeof(MatDumpProfile));
+    memset(&MatLiveProfile,0,sizeof(MatLiveProfile));
     switch (StreamConfig.audioCodec) {
         case AUDIO_CODEC_OPUS:
             // Default; nothing to do.
@@ -366,7 +368,14 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
                 Limelog("MAT preference unavailable for this session; selecting Opus\n");
                 break;
             }
-            NegotiatedAudioCodec = AUDIO_CODEC_MAT_IEC61937;
+            NegotiatedAudioCodec = AUDIO_CODEC_MAT_LIVE;
+            break;
+        case AUDIO_CODEC_MAT_LIVE:
+            if (!IS_SUNSHINE() || StreamConfig.controlOnly || StreamConfig.matDumpPath[0]) {
+                Limelog("Live MAT requires a Sunshine audio session and no dump path\n");
+                err = -1; goto Cleanup;
+            }
+            NegotiatedAudioCodec = AUDIO_CODEC_MAT_LIVE;
             break;
         case AUDIO_CODEC_MAT_IEC61937:
             if (!IS_SUNSHINE() || StreamConfig.controlOnly || StreamConfig.matDumpPath[0]) {
