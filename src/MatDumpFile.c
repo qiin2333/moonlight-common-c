@@ -38,7 +38,10 @@ struct MAT_DUMP_FILE {
 };
 static FILE* exclusive(const char* path) {
     int fd=mat_open(path,O_WRONLY|O_CREAT|O_EXCL|O_BINARY,0600);
-    if(fd<0)return NULL;FILE* f=mat_fdopen(fd,"wb");if(!f)mat_close(fd);return f;
+    if(fd<0)return NULL;
+    FILE* f=mat_fdopen(fd,"wb");
+    if(!f)mat_close(fd);
+    return f;
 }
 static int write_cycle(void* context,const MAT_CYCLE_INFO* info,const uint8_t* p,size_t n) {
     MAT_DUMP_FILE* s=context;
@@ -89,7 +92,9 @@ int MatDumpPush(MAT_DUMP_FILE* s,const unsigned char* p,size_t n) {
 #endif
     if(length!=32)s->failed=1;
     if(!s->failed)for(unsigned i=0;i<32;i++)snprintf(s->sha256+i*2,3,"%02x",bytes[i]);
-    if(fflush(s->file))s->failed=1;if(fclose(s->file))s->failed=1;s->file=NULL;
+    if(fflush(s->file))s->failed=1;
+    if(fclose(s->file))s->failed=1;
+    s->file=NULL;
     if(s->receiver.depacketizer.next_frame!=s->expected.cycles || strcmp(s->sha256,s->expected.sha256))s->failed=1;
     // link() on POSIX refuses an existing destination, unlike rename(). Android
     // app-private files support same-directory links. Never overwrite a dump.
