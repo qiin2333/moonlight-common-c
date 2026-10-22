@@ -1,9 +1,9 @@
 #pragma once
+#include "Platform.h"
 #include "MatDumpProfile.h"
 extern LI_MAT_DUMP_PROFILE MatDumpProfile;
 #include "MatPlaybackProfile.h"
 
-#include "Platform.h"
 #include "Limelight.h"
 #include "PlatformSockets.h"
 #include "PlatformThreads.h"

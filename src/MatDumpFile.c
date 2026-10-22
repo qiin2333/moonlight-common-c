@@ -63,7 +63,7 @@ MAT_DUMP_FILE* MatDumpOpen(const char* path,const LI_MAT_DUMP_PROFILE* expected)
     char count[16];snprintf(count,sizeof(count),"%u",expected->cycles);LI_MAT_DUMP_PROFILE checked;
     if(!MatProfileSet(&checked,expected->sha256,count))return NULL;
     MAT_DUMP_FILE* s=calloc(1,sizeof(*s));if(!s)return NULL;s->expected=checked;
-    strcpy(s->final_path,path);snprintf(s->partial_path,sizeof(s->partial_path),"%s.partial",path);
+    memcpy(s->final_path,path,strlen(path)+1);snprintf(s->partial_path,sizeof(s->partial_path),"%s.partial",path);
     snprintf(s->status_path,sizeof(s->status_path),"%s.json",path);
     struct stat st;if(stat(path,&st)==0 || stat(s->status_path,&st)==0){free(s);return NULL;}
 #if defined(USE_MBEDTLS) || defined(USE_PSA_CRYPTO)
