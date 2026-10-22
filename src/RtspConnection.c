@@ -1736,11 +1736,13 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
                 ret = -1; freeMessage(&response); goto Exit;
             }
         }
-        if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_LIVE && !MatLiveProfileConfirm(&MatLiveProfile,
+        if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_LIVE &&
+            (getOptionContent(response.options,"X-SS-Mat-SHA256") || getOptionContent(response.options,"X-SS-Mat-Cycles") ||
+            !MatLiveProfileConfirm(&MatLiveProfile,
             uniqueMatOption(response.options,"X-SS-Audio-Codec"),
             uniqueMatOption(response.options,"X-SS-Mat-Carrier"),uniqueMatOption(response.options,"X-SS-Mat-Clock"),
             uniqueMatOption(response.options,"X-SS-Mat-Live-Crypto"),uniqueMatOption(response.options,"X-SS-Mat-Live-Epoch"),
-            uniqueMatOption(response.options,"X-SS-Mat-Live-Domain"))) {
+            uniqueMatOption(response.options,"X-SS-Mat-Live-Domain")))) {
             Limelog("Live MAT ANNOUNCE confirmation missing or mismatched\n");
             ret=-1;freeMessage(&response);goto Exit;
         }
