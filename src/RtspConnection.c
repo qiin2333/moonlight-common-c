@@ -2,6 +2,26 @@
 #include "Limelight-internal.h"
 #include "Rtsp.h"
 
+/* MAT playback confirmation is security/format critical: duplicates fail even
+ * if they repeat the same value. Header names are ASCII case-insensitive. */
+static int matHeaderEqual(const char* a,const char* b) {
+    while(*a && *b) {
+        unsigned x=(unsigned char)*a++,y=(unsigned char)*b++;
+        if(x>='A' && x<='Z')x+=32;
+        if(y>='A' && y<='Z')y+=32;
+        if(x!=y)return 0;
+    }
+    return !*a && !*b;
+}
+static char* uniqueMatOption(POPTION_ITEM options,const char* name) {
+    char* value=NULL;unsigned count=0;
+    for(;options;options=options->next)if(matHeaderEqual(options->option,name)){
+        if(options->flags & FLAG_DUPLICATE_OPTION)return NULL;
+        value=options->content;++count;
+    }
+    return count==1?value:NULL;
+}
+
 #define RTSP_CONNECT_TIMEOUT_SEC 10
 #define RTSP_RECEIVE_TIMEOUT_SEC 15
 #define RTSP_RETRY_DELAY_MS 500
@@ -1255,6 +1275,14 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             goto Exit;
         }
 
+        if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_DUMP && !MatProfileParse(&MatDumpProfile,response.payload)) {
+            Limelog("Host lacks valid MAT dump v1 capability/manifest; refusing implicit fallback\n");
+            ret = -1; freeMessage(&response); goto Exit;
+        }
+        if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_IEC61937 && !MatPlaybackProfileParse(&MatDumpProfile,response.payload)) {
+            Limelog("Host lacks explicit finite MAT IEC playback profile; refusing fallback\n");
+            ret = -1; freeMessage(&response); goto Exit;
+        }
         uint32_t pyrowaveProtocolVersion = 0;
         uint32_t pyrowaveBitstreamVersion = 0;
         uint32_t pyrowavePayloadVersion = 0;
@@ -1658,6 +1686,22 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         // Sunshine dynamic HDR negotiation result. Hosts without the
         // extension send no X-SS-Dynamic-HDR header; that is the legacy
         // outcome (DYNAMIC_HDR_FORMAT_NONE) rather than an error.
+        if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_DUMP && !MatProfileConfirm(&MatDumpProfile,
+                getOptionContent(response.options,"X-SS-Audio-Codec"),
+                getOptionContent(response.options,"X-SS-Mat-SHA256"),
+                getOptionContent(response.options,"X-SS-Mat-Cycles"))) {
+            Limelog("MAT dump ANNOUNCE confirmation missing or mismatched\n");
+            ret = -1; freeMessage(&response); goto Exit;
+        }
+        if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_IEC61937 && !MatPlaybackProfileConfirm(&MatDumpProfile,
+                uniqueMatOption(response.options,"X-SS-Audio-Codec"),
+                uniqueMatOption(response.options,"X-SS-Mat-SHA256"),
+                uniqueMatOption(response.options,"X-SS-Mat-Cycles"),
+                uniqueMatOption(response.options,"X-SS-Mat-Carrier"),
+                uniqueMatOption(response.options,"X-SS-Mat-Clock"))) {
+            Limelog("MAT IEC playback ANNOUNCE confirmation missing or mismatched\n");
+            ret = -1; freeMessage(&response); goto Exit;
+        }
         if (!parseDynamicHdrNegotiation(&response)) {
             ret = 415;
             freeMessage(&response);

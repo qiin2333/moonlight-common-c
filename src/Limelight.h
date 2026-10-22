@@ -157,6 +157,7 @@ typedef struct _STREAM_CONFIGURATION {
     // RS FEC preference: -2=host default, -1=automatic, 0..100=fixed percentage.
     // Unsupported hosts ignore this preference. PyroWave uses its own protection.
     int videoFecPercentage;
+    char matDumpPath[1024]; // App-owned unique dump-only output, copied with config.
 } STREAM_CONFIGURATION, *PSTREAM_CONFIGURATION;
 
 // Initialize the stream configuration, including compatible host-default FEC.
@@ -302,6 +303,19 @@ typedef struct _DECODE_UNIT {
 // delay, no AVR decoder); biggest bandwidth (~1.5 Mbps stereo, ~4.6 Mbps 5.1).
 // LAN-only in practice.
 #define AUDIO_CODEC_PCM_S16 3
+#define AUDIO_CODEC_MAT_DUMP 4
+#define AUDIO_CODEC_MAT_IEC61937 5
+#define AUDIO_CODEC_IS_MAT(c) ((c)==AUDIO_CODEC_MAT_DUMP || (c)==AUDIO_CODEC_MAT_IEC61937)
+
+/* Registered from audio init, cleared after audio threads join. Never called for
+ * codec4. Return 0 to fail the loss-intolerant session. End is input SHA-verified
+ * EOS; the renderer must drain before returning success. No PCM/encoded callback. */
+typedef struct {
+    int (*cycle)(void*, const unsigned char*, int, uint64_t, uint64_t, uint64_t, uint64_t);
+    int (*end)(void*, uint64_t);
+    void* context;
+} LI_MAT_PLAYBACK_CALLBACKS;
+void LiSetMatPlaybackCallbacks(const LI_MAT_PLAYBACK_CALLBACKS* callbacks);
 
 // Bitmasks for STREAM_CONFIGURATION.supportedAudioCodecs (and reserved for a
 // future server-side capability advertisement). The set bit indicates that the

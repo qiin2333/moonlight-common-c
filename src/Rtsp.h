@@ -15,6 +15,7 @@
 #define SEQ_INVALID -1
 
 #define FLAG_ALLOCATED_OPTION_FIELDS 0x1
+#define FLAG_DUPLICATE_OPTION 0x10 /* Parsed duplicate, even if legacy last-value-wins coalesces it. */
 #define FLAG_ALLOCATED_MESSAGE_BUFFER 0x2
 #define FLAG_ALLOCATED_OPTION_ITEMS 0x4
 #define FLAG_ALLOCATED_PAYLOAD 0x8

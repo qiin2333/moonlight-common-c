@@ -163,7 +163,16 @@ int parseRtspMessage(PRTSP_MESSAGE msg, char* rtspMessage, int length) {
                 newOpt->option = opt;
                 newOpt->content = token + 1; // Skip the protocol defined blank space
                 newOpt->next = NULL;
+                bool duplicate = false;
+                for (POPTION_ITEM existing = options; existing; existing = existing->next) {
+                    if (!strcmp(existing->option, newOpt->option)) {
+                        existing->flags |= FLAG_DUPLICATE_OPTION;
+                        duplicate = true;
+                        break;
+                    }
+                }
                 insertOption(&options, newOpt);
+                if (duplicate) free(newOpt); // insertOption retained the existing node.
 
                 // Check if we're at the end of the message portion marked by \r\n\r\n
                 // endCheck points to the remainder of messageBuffer after the token

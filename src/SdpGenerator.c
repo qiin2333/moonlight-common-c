@@ -587,8 +587,22 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         if (NegotiatedAudioCodec != AUDIO_CODEC_OPUS) {
             const char* codecStr = (NegotiatedAudioCodec == AUDIO_CODEC_AC3) ? "ac3" :
                                    (NegotiatedAudioCodec == AUDIO_CODEC_EAC3) ? "eac3" :
-                                   (NegotiatedAudioCodec == AUDIO_CODEC_PCM_S16) ? "pcm" : "opus";
+                                   (NegotiatedAudioCodec == AUDIO_CODEC_PCM_S16) ? "pcm" :
+                                   (NegotiatedAudioCodec == AUDIO_CODEC_MAT_DUMP) ? MAT_DUMP_NAME :
+                                   (NegotiatedAudioCodec == AUDIO_CODEC_MAT_IEC61937) ? MAT_PLAYBACK_NAME : "opus";
             err |= addAttributeString(&optionHead, "x-ml-audio.codec", codecStr);
+            if (AUDIO_CODEC_IS_MAT(NegotiatedAudioCodec)) {
+                if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_DUMP)
+                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-dump","1");
+                else {
+                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-playback","1");
+                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-carrier",MAT_PLAYBACK_CARRIER);
+                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-clock",MAT_PLAYBACK_CLOCK);
+                }
+                err |= addAttributeString(&optionHead,"x-ml-audio.mat-sha256",MatDumpProfile.sha256);
+                snprintf(payloadStr,sizeof(payloadStr),"%u",MatDumpProfile.cycles);
+                err |= addAttributeString(&optionHead,"x-ml-audio.mat-cycles",payloadStr);
+            }
             if (NegotiatedAudioBitrate > 0) {
                 snprintf(payloadStr, sizeof(payloadStr), "%d", NegotiatedAudioBitrate);
                 err |= addAttributeString(&optionHead, "x-ml-audio.bitrate", payloadStr);
@@ -634,6 +648,9 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         }
         // PCM passthrough: keep frames as small as possible. 5 ms @ 48 kHz =
         // 240 samples, 5.1ch = 2880 B which fits the 4 KB receive buffer.
+        else if (AUDIO_CODEC_IS_MAT(NegotiatedAudioCodec)) {
+            AudioPacketDuration = 1; // FEC transport tick; carrier PTS is in SMAT.
+        }
         else if (NegotiatedAudioCodec == AUDIO_CODEC_PCM_S16) {
             AudioPacketDuration = 5;
         }

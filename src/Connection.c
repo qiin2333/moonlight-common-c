@@ -27,6 +27,7 @@ int AudioPacketDuration;
 bool AudioEncryptionEnabled;
 bool ReferenceFrameInvalidationSupported;
 int NegotiatedAudioCodec;
+LI_MAT_DUMP_PROFILE MatDumpProfile;
 int NegotiatedAudioBitrate;
 int NegotiatedDynamicHdrFormat;
 int NegotiatedDynamicHdrFallback;
@@ -331,6 +332,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     // LiGetNegotiatedAudioCodec() to check what was actually selected.
     NegotiatedAudioCodec = AUDIO_CODEC_OPUS;
     NegotiatedAudioBitrate = 0;
+    memset(&MatDumpProfile,0,sizeof(MatDumpProfile));
     switch (StreamConfig.audioCodec) {
         case AUDIO_CODEC_OPUS:
             // Default; nothing to do.
@@ -354,6 +356,21 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
                     ? StreamConfig.audioBitrate
                     : (StreamConfig.audioCodec == AUDIO_CODEC_AC3 ? 640000 : 384000);
             }
+            break;
+        case AUDIO_CODEC_MAT_IEC61937:
+            if (!IS_SUNSHINE() || StreamConfig.controlOnly || StreamConfig.matDumpPath[0]) {
+                Limelog("MAT playback requires Sunshine audio session and no dump path\n");
+                err = -1; goto Cleanup;
+            }
+            NegotiatedAudioCodec = AUDIO_CODEC_MAT_IEC61937;
+            break;
+        case AUDIO_CODEC_MAT_DUMP:
+            if (!IS_SUNSHINE() || StreamConfig.controlOnly || !StreamConfig.matDumpPath[0] ||
+                    !memchr(StreamConfig.matDumpPath,0,sizeof(StreamConfig.matDumpPath))) {
+                Limelog("MAT dump requires Sunshine, audio session and app-owned output path\n");
+                err = -1; goto Cleanup;
+            }
+            NegotiatedAudioCodec = AUDIO_CODEC_MAT_DUMP;
             break;
         case AUDIO_CODEC_PCM_S16:
             if (!IS_SUNSHINE()) {

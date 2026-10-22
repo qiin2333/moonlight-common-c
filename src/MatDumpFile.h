@@ -1,0 +1,15 @@
+#pragma once
+#include "MatDumpProfile.h"
+#include <stddef.h>
+#ifdef __cplusplus
+extern "C" {
+#endif
+typedef struct MAT_DUMP_FILE MAT_DUMP_FILE;
+MAT_DUMP_FILE* MatDumpOpen(const char* final_path,const LI_MAT_DUMP_PROFILE* expected);
+int MatDumpPush(MAT_DUMP_FILE*,const unsigned char*,size_t); // -1 failed, 0 pending, 2 published
+void MatDumpFail(MAT_DUMP_FILE*);
+int MatDumpPublished(const MAT_DUMP_FILE*);
+void MatDumpClose(MAT_DUMP_FILE*); // Missing EOS remains .partial; never overwrites.
+#ifdef __cplusplus
+}
+#endif
