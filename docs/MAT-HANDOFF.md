@@ -5,6 +5,18 @@ not default master. Baseline: b91c7cd72764320edd6140a16f8614aeb63dc42a.
 Keep Sunshine and moonlight-vplus pinned to the same resulting commit; rebuild
 all consumers because STREAM_CONFIGURATION and the JNI entry point changed.
 
+Upstream integration on 2026-10-22 includes mic commit
+`2aa14ffeb877f9093993d9c9cf3c3440e2d2220d`.
+The upstream line-based RTSP parser, whitespace/binary-payload support,
+case-insensitive last-value-wins lookup and duplicate-node free are retained.
+MAT marks the incoming replacement node before upstream insertion; do not
+restore the old caller-side free or set flags only on the overwritten node.
+`tests/RtspParserMatTest.c` covers unique, identical/case-folded/triple duplicate
+headers plus whitespace and embedded-NUL payload handling. With this regression
+the parent's rebuilt static-library CTest suites each contain ten tests.
+The parent handoff records fresh end-to-end no-device acceptance separately
+from the original historical C proof; no Android hardware claim is added.
+
 ## Contract
 
 - Codec 4 / `mat-dump-v1`: bounded, app-owned file publication after count/SHA/EOS
