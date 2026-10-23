@@ -2,8 +2,8 @@
 #include "MatDumpProfile.h"
 #define MAT_PLAYBACK_CODEC 5
 #define MAT_PLAYBACK_NAME "mat-iec61937-v1"
-#define MAT_PLAYBACK_CARRIER "iec61937-192000-8-s16le"
-#define MAT_PLAYBACK_CLOCK "48000"
+#define MAT_PLAYBACK_CARRIER MAT_CARRIER
+#define MAT_PLAYBACK_CLOCK MAT_CLOCK
 /* Finite replay v1 only. No claim of an infinite/live capture source. */
 static inline int MatPlaybackProfileParse(LI_MAT_DUMP_PROFILE* out,const char* sdp) {
     char version[8],carrier[48],clock[16],hash[65],count[16];

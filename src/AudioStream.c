@@ -1,5 +1,4 @@
 #include "Limelight-internal.h"
-#include "MatDumpFile.h"
 #include "MatPlayback.h"
 #include "MatLivePlayback.h"
 #include <stdatomic.h>
@@ -18,9 +17,7 @@ static int liveEnd(void* context,uint64_t cycles) {
     atomic_store_explicit(&liveInputEnded,true,memory_order_relaxed);
     return matCallbacks.end(context,cycles);
 }
-static MAT_DUMP_FILE* matDump;
-static void failMatInput(void) { MatDumpFail(matDump); MatPlaybackFail(matPlayback);MatLivePlaybackFail(matLive); }
-static bool matDumpFailedReported,matDumpPublishedReported;
+static void failMatInput(void) { MatPlaybackFail(matPlayback);MatLivePlaybackFail(matLive); }
 static void consumeAudio(char* data,int size) {
     if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_LIVE) {
         int result=MatLivePlaybackPush(matLive,(unsigned char*)data,(size_t)(size>0?size:0));
@@ -29,16 +26,13 @@ static void consumeAudio(char* data,int size) {
         else if(result==2&&!matPlaybackCompleteReported){matPlaybackCompleteReported=true;Limelog("Live MAT authenticated EOS and renderer drain completed\n");}
         return;
     }
-    if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_IEC61937){
+    if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_IEC61937 || NegotiatedAudioCodec==AUDIO_CODEC_MAT_DUMP){
         int result=MatPlaybackPush(matPlayback,(unsigned char*)data,(size_t)(size>0?size:0));
-        if(result<0 && !matPlaybackFailedReported){matPlaybackFailedReported=true;Limelog("MAT IEC playback failed\n");ListenerCallbacks.connectionTerminated(-1);}
-        else if(result==2 && !matPlaybackCompleteReported){matPlaybackCompleteReported=true;Limelog("MAT IEC playback SHA/count verified and renderer drained: %s\n",MatDumpProfile.sha256);}
+        if(result<0 && !matPlaybackFailedReported){matPlaybackFailedReported=true;Limelog("Finite MAT receive/consumer failed\n");ListenerCallbacks.connectionTerminated(-1);}
+        else if(result==2 && !matPlaybackCompleteReported){matPlaybackCompleteReported=true;Limelog("Finite MAT SHA/count verified and consumer completed: %s\n",MatDumpProfile.sha256);}
         return;
     }
-    if(!AUDIO_CODEC_IS_MAT(NegotiatedAudioCodec)){AudioCallbacks.decodeAndPlaySample(data,size);return;}
-    int result=MatDumpPush(matDump,(unsigned char*)data,(size_t)(size>0?size:0));
-    if(result<0 && !matDumpFailedReported){matDumpFailedReported=true;Limelog("MAT dump failed: preserving partial file\n");ListenerCallbacks.connectionTerminated(-1);}
-    else if(result==2 && !matDumpPublishedReported){matDumpPublishedReported=true;Limelog("MAT dump SHA256 verified and published: %s (%s)\n",StreamConfig.matDumpPath,MatDumpProfile.sha256);}
+    AudioCallbacks.decodeAndPlaySample(data,size);
 }
 
 static SOCKET rtpSocket = INVALID_SOCKET;
@@ -118,7 +112,6 @@ int initializeAudioStream(void) {
     LbqInitializeLinkedBlockingQueue(&packetQueue, 30);
     RtpaInitializeQueue(&rtpAudioQueue);
     lastSeq = 0;
-    matDumpFailedReported=matDumpPublishedReported=false;
     matPlaybackFailedReported=matPlaybackCompleteReported=false;
     receivedDataFromPeer = false;
     pingThreadStarted = false;
@@ -180,7 +173,6 @@ static void freePacketList(PLINKED_BLOCKING_QUEUE_ENTRY entry) {
 // Tear down the audio stream once we're done with it
 void destroyAudioStream(void) {
     MatLivePlaybackClose(matLive);matLive=NULL;
-    MatDumpClose(matDump);matDump=NULL;
     MatPlaybackClose(matPlayback);matPlayback=NULL;
     if (rtpSocket != INVALID_SOCKET) {
         if (pingThreadStarted) {
@@ -486,7 +478,6 @@ void stopAudioStream(void) {
         PltJoinThread(&decoderThread);
     }
 
-    MatDumpClose(matDump);matDump=NULL;
     MatPlaybackClose(matPlayback);matPlayback=NULL;
     MatLivePlaybackClose(matLive);matLive=NULL;
     AudioCallbacks.cleanup();
@@ -519,11 +510,7 @@ int startAudioStream(void* audioContext, int arFlags) {
         return err;
     }
 
-    if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_DUMP){
-        matDump=MatDumpOpen(StreamConfig.matDumpPath,&MatDumpProfile);
-        if(!matDump){AudioCallbacks.cleanup();return -1;}
-    }
-    if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_IEC61937){
+    if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_IEC61937 || NegotiatedAudioCodec==AUDIO_CODEC_MAT_DUMP){
         matPlayback=MatPlaybackOpen(&MatDumpProfile,&matCallbacks);
         if(!matPlayback){AudioCallbacks.cleanup();return -1;}
     }

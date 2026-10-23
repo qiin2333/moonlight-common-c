@@ -1,4 +1,36 @@
-# Experimental finite MAT transport handoff — 2026-10-22
+# MAT transport boundary — 2026-10-23
+
+This PR targets **mic**. It contains network negotiation, authenticated live
+transport, bounded depacketization and synchronous cycle/EOS callbacks. It does
+not own files, offline recording input, native capture, encoding or hardware.
+
+- Codec 7 / `mat-live-v1` uses HKDF-SHA256, AES-128-GCM with authenticated headers
+  and a 64-bit packet counter. Network failure is terminal; it cannot synthesize
+  a successful EOS. Normal MAT preference selects live7 or Opus0, never replay.
+- `MatProfile.h` contains shared SDP parsing and carrier/clock constants; the
+  live profile no longer depends on finite dump/playback profile headers.
+- Explicit finite codec4/5 profiles remain protocol features. Both validate
+  count/SHA and deliver complete cycles/EOS through `LiSetMatPlaybackCallbacks`.
+  Codec4 is diagnostic data, never device playback. Consumers own any storage
+  policy, publication or bounded hardware drain; errors terminate the stream.
+- `MatDumpFile.c/.h`, `STREAM_CONFIGURATION.matDumpPath` and
+  `MatReceiverPushRecordingCycle`/`MatReceiverEndRecording` are removed. The
+  Sunshine parent contains the migrated diagnostic writer, independent raw-cycle
+  adapter and mock replay tool under `spatial-object-spike/mat-diagnostics`.
+- Rebuild consumers: the unpublished configuration ABI changed, and diagnostic
+  codec4 now requires registered callbacks. The historical Android PR stays on
+  its old shared revision; new acceptance uses mock frontends against this PR.
+
+Static CTest has 14 tests, including production AudioStream codec4/5 callback
+delivery, SHA/count rejection and consumer failure. Parent software acceptance
+also covers the independent crypto oracle, RTSP negotiation, UDP/FEC, RTP wrap,
+native-source contracts and migrated diagnostic failure cases. Generated test
+bytes do not establish native capture or hardware/Atmos playback acceptance.
+
+## Historical finite handoff — 2026-10-22
+
+The following records the earlier API and acceptance only; it does not describe
+the current file ownership, recording input or live transport boundary above.
 
 This branch targets **mic**, the branch consumed by both parent repositories,
 not default master. Baseline: b91c7cd72764320edd6140a16f8614aeb63dc42a.

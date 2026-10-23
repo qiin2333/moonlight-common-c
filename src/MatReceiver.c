@@ -29,30 +29,10 @@ static int complete(MAT_RECEIVER* s) {
     return 2;
 }
 int MatReceiverPush(MAT_RECEIVER* s, const uint8_t* p, size_t n) {
-    if (s->failed || s->mode == 2) return fail(s);
-    s->mode = 1;
+    if (s->failed) return fail(s);
     int result = MatDepacketizerPush(&s->depacketizer, p, n);
     if (result < 0) return fail(s);
     return result == 2 ? complete(s) : result;
-}
-int MatReceiverPushRecordingCycle(MAT_RECEIVER* s, const MAT_CYCLE_INFO* i,
-                                 const uint8_t* p, size_t n) {
-    MAT_DEPACKETIZER* d = &s->depacketizer;
-    if (s->failed || s->completed || s->mode == 1 || !i || !i->epoch || !i->domain ||
-        i->index != d->next_frame || i->index >= UINT64_MAX / 960 ||
-        i->pts48k != i->index * 960 || !MatCarrierIsValid(p, n)) return fail(s);
-    if (d->started && (i->epoch != d->epoch || i->domain != d->domain)) return fail(s);
-    s->mode = 2;
-    d->started = 1; d->epoch = i->epoch; d->domain = i->domain;
-    if (!s->consume || !s->consume(s->context, i, p, n)) return fail(s);
-    ++d->next_frame;
-    return 1;
-}
-int MatReceiverEndRecording(MAT_RECEIVER* s, uint64_t expectedCycles) {
-    if (s->failed || s->mode != 2 || !expectedCycles ||
-        expectedCycles != s->depacketizer.next_frame) return fail(s);
-    s->depacketizer.ended = 1;
-    return complete(s);
 }
 int MatReceiverFinish(const MAT_RECEIVER* s) {
     return s && !s->failed && s->completed && MatDepacketizerFinish(&s->depacketizer);

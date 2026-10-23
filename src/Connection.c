@@ -360,10 +360,6 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
             }
             break;
         case AUDIO_CODEC_MAT_AUTO:
-            if (StreamConfig.matDumpPath[0]) {
-                Limelog("MAT preference cannot use a dump path\n");
-                err = -1; goto Cleanup;
-            }
             if (!IS_SUNSHINE() || StreamConfig.controlOnly) {
                 Limelog("MAT preference unavailable for this session; selecting Opus\n");
                 break;
@@ -371,23 +367,22 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
             NegotiatedAudioCodec = AUDIO_CODEC_MAT_LIVE;
             break;
         case AUDIO_CODEC_MAT_LIVE:
-            if (!IS_SUNSHINE() || StreamConfig.controlOnly || StreamConfig.matDumpPath[0]) {
-                Limelog("Live MAT requires a Sunshine audio session and no dump path\n");
+            if (!IS_SUNSHINE() || StreamConfig.controlOnly) {
+                Limelog("Live MAT requires a Sunshine audio session\n");
                 err = -1; goto Cleanup;
             }
             NegotiatedAudioCodec = AUDIO_CODEC_MAT_LIVE;
             break;
         case AUDIO_CODEC_MAT_IEC61937:
-            if (!IS_SUNSHINE() || StreamConfig.controlOnly || StreamConfig.matDumpPath[0]) {
-                Limelog("MAT playback requires Sunshine audio session and no dump path\n");
+            if (!IS_SUNSHINE() || StreamConfig.controlOnly) {
+                Limelog("MAT playback requires a Sunshine audio session\n");
                 err = -1; goto Cleanup;
             }
             NegotiatedAudioCodec = AUDIO_CODEC_MAT_IEC61937;
             break;
         case AUDIO_CODEC_MAT_DUMP:
-            if (!IS_SUNSHINE() || StreamConfig.controlOnly || !StreamConfig.matDumpPath[0] ||
-                    !memchr(StreamConfig.matDumpPath,0,sizeof(StreamConfig.matDumpPath))) {
-                Limelog("MAT dump requires Sunshine, audio session and app-owned output path\n");
+            if (!IS_SUNSHINE() || StreamConfig.controlOnly) {
+                Limelog("MAT dump requires a Sunshine audio session and registered consumer\n");
                 err = -1; goto Cleanup;
             }
             NegotiatedAudioCodec = AUDIO_CODEC_MAT_DUMP;

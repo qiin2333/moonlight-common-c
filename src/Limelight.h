@@ -157,7 +157,6 @@ typedef struct _STREAM_CONFIGURATION {
     // RS FEC preference: -2=host default, -1=automatic, 0..100=fixed percentage.
     // Unsupported hosts ignore this preference. PyroWave uses its own protection.
     int videoFecPercentage;
-    char matDumpPath[1024]; // App-owned unique dump-only output, copied with config.
 } STREAM_CONFIGURATION, *PSTREAM_CONFIGURATION;
 
 // Initialize the stream configuration, including compatible host-default FEC.
@@ -309,10 +308,10 @@ typedef struct _DECODE_UNIT {
 #define AUDIO_CODEC_MAT_LIVE 7
 #define AUDIO_CODEC_IS_MAT(c) ((c)==AUDIO_CODEC_MAT_DUMP || (c)==AUDIO_CODEC_MAT_IEC61937 || (c)==AUDIO_CODEC_MAT_LIVE)
 
-/* Registered from audio init, cleared after audio threads join. Never called for
- * codec4. Return 0 to fail the loss-intolerant session. End is verified EOS
- * (finite SHA/count for 5, authenticated END for 7); the renderer must drain
- * before returning success. No PCM/encoded callback. */
+/* Registered from audio init, cleared after audio threads join. Codec4 uses a
+ * diagnostic consumer, never a renderer. Return 0 to fail the loss-intolerant session. End is verified EOS
+ * (finite SHA/count for 4/5, authenticated END for 7); consumers own any file
+ * publication or bounded hardware drain before returning success. No PCM/encoded callback. */
 typedef struct {
     int (*cycle)(void*, const unsigned char*, int, uint64_t, uint64_t, uint64_t, uint64_t);
     int (*end)(void*, uint64_t);

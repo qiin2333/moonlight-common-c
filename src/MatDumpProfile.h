@@ -1,23 +1,8 @@
 #pragma once
-#include <stdint.h>
-#include <stdlib.h>
-#include <string.h>
+#include "MatProfile.h"
 #define MAT_DUMP_CODEC 4
 #define MAT_DUMP_NAME "mat-dump-v1"
 typedef struct { char sha256[65]; uint32_t cycles; } LI_MAT_DUMP_PROFILE;
-/* Strict bounded SDP attributes: exact name, no duplicates or truncation. */
-static inline int MatSdpValue(const char* sdp,const char* name,char* out,size_t cap) {
-    int found=0;size_t key=strlen(name);out[0]=0;
-    for(const char* p=sdp;p && *p;) {
-        const char* end=strchr(p,'\n');if(!end)end=p+strlen(p);
-        const char* trimmed=end;if(trimmed>p && trimmed[-1]=='\r')--trimmed;
-        if((size_t)(trimmed-p)>=key+3 && !memcmp(p,"a=",2) && !memcmp(p+2,name,key) && p[key+2]==':') {
-            size_t n=(size_t)(trimmed-p)-key-3;if(found || n>=cap)return -1;
-            memcpy(out,p+key+3,n);out[n]=0;found=1;
-        }
-        p=*end?end+1:end;
-    }return found;
-}
 static inline int MatProfileSet(LI_MAT_DUMP_PROFILE* out,const char* hash,const char* count) {
     memset(out,0,sizeof(*out));
     if(!hash || !count || strlen(hash)!=64 || !*count)return 0;

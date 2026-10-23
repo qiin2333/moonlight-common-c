@@ -15,14 +15,11 @@ typedef struct {
     MAT_CONSUME_CYCLE consume;
     MAT_COMPLETE_STREAM complete;
     void* context;
-    unsigned mode, failed, completed;
+    unsigned failed, completed;
 } MAT_RECEIVER;
 int MatCarrierIsValid(const uint8_t*, size_t);
 void MatReceiverInit(MAT_RECEIVER*, MAT_CONSUME_CYCLE, MAT_COMPLETE_STREAM, void*);
 int MatReceiverPush(MAT_RECEIVER*, const uint8_t*, size_t);
-/* Offline recordings only: never mix raw cycles and SMAT packets in one receiver. */
-int MatReceiverPushRecordingCycle(MAT_RECEIVER*, const MAT_CYCLE_INFO*, const uint8_t*, size_t);
-int MatReceiverEndRecording(MAT_RECEIVER*, uint64_t expectedCycles);
 int MatReceiverFinish(const MAT_RECEIVER*);
 void MatReceiverAbort(MAT_RECEIVER*);
 #ifdef __cplusplus
