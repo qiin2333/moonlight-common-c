@@ -58,8 +58,8 @@ MAT_PLAYBACK_RECEIVER* MatPlaybackOpen(const LI_MAT_DUMP_PROFILE* expected,const
     s->digest=psa_hash_operation_init();
     if(psa_crypto_init()!=PSA_SUCCESS || psa_hash_setup(&s->digest,PSA_ALG_SHA_256)!=PSA_SUCCESS){free(s);return NULL;}
 #else
-    s->digest=EVP_MD_CTX_new();
-    if(!s->digest || EVP_DigestInit_ex(s->digest,EVP_sha256(),NULL)!=1){EVP_MD_CTX_free(s->digest);free(s);return NULL;}
+    s->digest=EVP_MD_CTX_create();
+    if(!s->digest || EVP_DigestInit_ex(s->digest,EVP_sha256(),NULL)!=1){EVP_MD_CTX_destroy(s->digest);free(s);return NULL;}
 #endif
     MatReceiverInit(&s->receiver,cycle,end,s);return s;
 }
@@ -75,7 +75,7 @@ void MatPlaybackClose(MAT_PLAYBACK_RECEIVER* s) {
 #if defined(USE_MBEDTLS) || defined(USE_PSA_CRYPTO)
     psa_hash_abort(&s->digest);
 #else
-    EVP_MD_CTX_free(s->digest);
+    EVP_MD_CTX_destroy(s->digest);
 #endif
     free(s);
 }

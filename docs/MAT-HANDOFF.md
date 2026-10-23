@@ -27,6 +27,15 @@ also covers the independent crypto oracle, RTSP negotiation, UDP/FEC, RTP wrap,
 native-source contracts and migrated diagnostic failure cases. Generated test
 bytes do not establish native capture or hardware/Atmos playback acceptance.
 
+Review fixes: both live and explicit finite input have a two-second inactivity
+deadline, stopped only after verified END before the consumer's bounded drain.
+The receive thread loads the last accepted timestamp before sampling its clock.
+MSVC static RTP tests explicitly enable C11 atomics and now run in Windows CI;
+finite digest contexts use the OpenSSL 1.0.2-compatible create/destroy names.
+Local MinGW and MSVC static CTest suites pass; this does not claim a runtime test
+against an installed OpenSSL 1.0.2 SDK. Parent diagnostics exercise real receive
+threads with generated UDP data and missing END/final-fragment failures.
+
 ## Historical finite handoff — 2026-10-22
 
 The following records the earlier API and acceptance only; it does not describe

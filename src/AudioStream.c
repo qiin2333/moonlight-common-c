@@ -2,8 +2,8 @@
 #include "MatPlayback.h"
 #include "MatLivePlayback.h"
 #include <stdatomic.h>
-static atomic_bool liveInputEnded;
-static atomic_ullong liveLastAuthenticatedMs;
+static atomic_bool matInputEnded;
+static atomic_ullong matLastAcceptedMs;
 static MAT_LIVE_PLAYBACK* matLive;
 static MAT_PLAYBACK_RECEIVER* matPlayback;
 static LI_MAT_PLAYBACK_CALLBACKS matCallbacks;
@@ -11,23 +11,32 @@ static bool matPlaybackFailedReported,matPlaybackCompleteReported;
 void LiSetMatPlaybackCallbacks(const LI_MAT_PLAYBACK_CALLBACKS* callbacks) {
     if(callbacks) matCallbacks=*callbacks; else memset(&matCallbacks,0,sizeof(matCallbacks));
 }
-static int liveEnd(void* context,uint64_t cycles) {
+static int matEnd(void* context,uint64_t cycles) {
     // A verified END may take time to drain the hardware. Stop the network
     // watchdog before that bounded drain, not before authentication.
-    atomic_store_explicit(&liveInputEnded,true,memory_order_relaxed);
+    atomic_store_explicit(&matInputEnded,true,memory_order_relaxed);
     return matCallbacks.end(context,cycles);
+}
+static bool matInputTimedOut(void) {
+    if(!AUDIO_CODEC_IS_MAT(NegotiatedAudioCodec)||atomic_load_explicit(&matInputEnded,memory_order_relaxed))return false;
+    // The decoder can publish a newer timestamp while the receive thread runs.
+    // Load it before reading the clock so unsigned subtraction cannot underflow.
+    uint64_t last=atomic_load_explicit(&matLastAcceptedMs,memory_order_relaxed);
+    uint64_t now=PltGetMillis();
+    return now>=last && now-last>=2000;
 }
 static void failMatInput(void) { MatPlaybackFail(matPlayback);MatLivePlaybackFail(matLive); }
 static void consumeAudio(char* data,int size) {
     if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_LIVE) {
         int result=MatLivePlaybackPush(matLive,(unsigned char*)data,(size_t)(size>0?size:0));
-        if(result>=0)atomic_store_explicit(&liveLastAuthenticatedMs,PltGetMillis(),memory_order_relaxed);
+        if(result>=0)atomic_store_explicit(&matLastAcceptedMs,PltGetMillis(),memory_order_relaxed);
         if(result<0&&!matPlaybackFailedReported){matPlaybackFailedReported=true;Limelog("Live MAT authentication/sequence/source failed\n");ListenerCallbacks.connectionTerminated(-1);}
         else if(result==2&&!matPlaybackCompleteReported){matPlaybackCompleteReported=true;Limelog("Live MAT authenticated EOS and renderer drain completed\n");}
         return;
     }
     if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_IEC61937 || NegotiatedAudioCodec==AUDIO_CODEC_MAT_DUMP){
         int result=MatPlaybackPush(matPlayback,(unsigned char*)data,(size_t)(size>0?size:0));
+        if(result>=0)atomic_store_explicit(&matLastAcceptedMs,PltGetMillis(),memory_order_relaxed);
         if(result<0 && !matPlaybackFailedReported){matPlaybackFailedReported=true;Limelog("Finite MAT receive/consumer failed\n");ListenerCallbacks.connectionTerminated(-1);}
         else if(result==2 && !matPlaybackCompleteReported){matPlaybackCompleteReported=true;Limelog("Finite MAT SHA/count verified and consumer completed: %s\n",MatDumpProfile.sha256);}
         return;
@@ -315,9 +324,8 @@ static void AudioReceiveThreadProc(void* context) {
 
     waitingForAudioMs = 0;
     while (!PltIsThreadInterrupted(&receiveThread)) {
-        if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_LIVE && !atomic_load_explicit(&liveInputEnded,memory_order_relaxed) &&
-           PltGetMillis()-atomic_load_explicit(&liveLastAuthenticatedMs,memory_order_relaxed)>=2000) {
-            Limelog("Live MAT authenticated input timed out (no EOS)\n");ListenerCallbacks.connectionTerminated(-1);break;
+        if(matInputTimedOut()) {
+            Limelog("MAT validated input timed out (no verified EOS)\n");ListenerCallbacks.connectionTerminated(-1);break;
         }
         if (packet == NULL) {
             packet = (PQUEUED_AUDIO_PACKET)malloc(sizeof(*packet));
@@ -510,15 +518,17 @@ int startAudioStream(void* audioContext, int arFlags) {
         return err;
     }
 
+    LI_MAT_PLAYBACK_CALLBACKS callbacks=matCallbacks;callbacks.end=matCallbacks.end?matEnd:NULL;
+    if(AUDIO_CODEC_IS_MAT(NegotiatedAudioCodec)) {
+        atomic_store_explicit(&matInputEnded,false,memory_order_relaxed);
+        atomic_store_explicit(&matLastAcceptedMs,PltGetMillis(),memory_order_relaxed);
+    }
     if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_IEC61937 || NegotiatedAudioCodec==AUDIO_CODEC_MAT_DUMP){
-        matPlayback=MatPlaybackOpen(&MatDumpProfile,&matCallbacks);
+        matPlayback=MatPlaybackOpen(&MatDumpProfile,&callbacks);
         if(!matPlayback){AudioCallbacks.cleanup();return -1;}
     }
     if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_LIVE) {
-        LI_MAT_PLAYBACK_CALLBACKS liveCallbacks=matCallbacks;liveCallbacks.end=matCallbacks.end?liveEnd:NULL;
-        atomic_store_explicit(&liveInputEnded,false,memory_order_relaxed);
-        atomic_store_explicit(&liveLastAuthenticatedMs,PltGetMillis(),memory_order_relaxed);
-        matLive=MatLivePlaybackOpen(&MatLiveProfile,(const uint8_t*)StreamConfig.remoteInputAesKey,&liveCallbacks);
+        matLive=MatLivePlaybackOpen(&MatLiveProfile,(const uint8_t*)StreamConfig.remoteInputAesKey,&callbacks);
         if(!matLive){AudioCallbacks.cleanup();return -1;}
     }
     AudioCallbacks.start();
