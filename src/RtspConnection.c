@@ -1276,10 +1276,6 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             goto Exit;
         }
 
-        if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_DUMP && !MatProfileParse(&MatDumpProfile,response.payload)) {
-            Limelog("Host lacks valid MAT dump v1 capability/manifest; refusing implicit fallback\n");
-            ret = -1; freeMessage(&response); goto Exit;
-        }
         if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_LIVE && !MatLiveProfileParse(&MatLiveProfile,response.payload)) {
             memset(&MatLiveProfile,0,sizeof(MatLiveProfile));
             if(StreamConfig.audioCodec!=AUDIO_CODEC_MAT_AUTO) {
@@ -1288,19 +1284,6 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             }
             NegotiatedAudioCodec=AUDIO_CODEC_OPUS;NegotiatedAudioBitrate=0;
             Limelog("Live MAT source unavailable; selecting Opus before ANNOUNCE (no replay fallback)\n");
-        }
-        if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_IEC61937) {
-            int selected = MatPlaybackProfileSelect(&MatDumpProfile,response.payload,
-                StreamConfig.audioCodec == AUDIO_CODEC_MAT_AUTO);
-            if (selected < 0) {
-                Limelog("Host lacks explicit finite MAT IEC playback profile; refusing fallback\n");
-                ret = -1; freeMessage(&response); goto Exit;
-            }
-            NegotiatedAudioCodec = selected;
-            if (selected == AUDIO_CODEC_OPUS) {
-                NegotiatedAudioBitrate = 0;
-                Limelog("Host MAT profile unavailable or incompatible; selecting Opus before ANNOUNCE\n");
-            }
         }
         uint32_t pyrowaveProtocolVersion = 0;
         uint32_t pyrowaveBitstreamVersion = 0;
@@ -1705,22 +1688,6 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         // Sunshine dynamic HDR negotiation result. Hosts without the
         // extension send no X-SS-Dynamic-HDR header; that is the legacy
         // outcome (DYNAMIC_HDR_FORMAT_NONE) rather than an error.
-        if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_DUMP && !MatProfileConfirm(&MatDumpProfile,
-                getOptionContent(response.options,"X-SS-Audio-Codec"),
-                getOptionContent(response.options,"X-SS-Mat-SHA256"),
-                getOptionContent(response.options,"X-SS-Mat-Cycles"))) {
-            Limelog("MAT dump ANNOUNCE confirmation missing or mismatched\n");
-            ret = -1; freeMessage(&response); goto Exit;
-        }
-        if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_IEC61937 && !MatPlaybackProfileConfirm(&MatDumpProfile,
-                uniqueMatOption(response.options,"X-SS-Audio-Codec"),
-                uniqueMatOption(response.options,"X-SS-Mat-SHA256"),
-                uniqueMatOption(response.options,"X-SS-Mat-Cycles"),
-                uniqueMatOption(response.options,"X-SS-Mat-Carrier"),
-                uniqueMatOption(response.options,"X-SS-Mat-Clock"))) {
-            Limelog("MAT IEC playback ANNOUNCE confirmation missing or mismatched\n");
-            ret = -1; freeMessage(&response); goto Exit;
-        }
         if (NegotiatedAudioCodec == AUDIO_CODEC_OPUS) {
             const char* confirmedCodec = getOptionContent(response.options,"X-SS-Audio-Codec");
             if ((confirmedCodec && (strcmp(confirmedCodec,"opus") ||

@@ -34,7 +34,4 @@ int MatReceiverPush(MAT_RECEIVER* s, const uint8_t* p, size_t n) {
     if (result < 0) return fail(s);
     return result == 2 ? complete(s) : result;
 }
-int MatReceiverFinish(const MAT_RECEIVER* s) {
-    return s && !s->failed && s->completed && MatDepacketizerFinish(&s->depacketizer);
-}
 void MatReceiverAbort(MAT_RECEIVER* s) { if (s) fail(s); }

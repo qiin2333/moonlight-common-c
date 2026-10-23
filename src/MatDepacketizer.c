@@ -45,4 +45,3 @@ int MatDepacketizerPush(MAT_DEPACKETIZER* s,const uint8_t* p,size_t n) {
     s->stream_hash=mat_hash_update(s->stream_hash,s->cycle,sizeof(s->cycle));
     s->mask=0;++s->next_frame;return 1;
 }
-int MatDepacketizerFinish(const MAT_DEPACKETIZER* s) { return s->ended && !s->failed && !s->mask; }

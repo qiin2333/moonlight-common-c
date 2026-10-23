@@ -20,7 +20,6 @@ typedef struct {
 int MatCarrierIsValid(const uint8_t*, size_t);
 void MatReceiverInit(MAT_RECEIVER*, MAT_CONSUME_CYCLE, MAT_COMPLETE_STREAM, void*);
 int MatReceiverPush(MAT_RECEIVER*, const uint8_t*, size_t);
-int MatReceiverFinish(const MAT_RECEIVER*);
 void MatReceiverAbort(MAT_RECEIVER*);
 #ifdef __cplusplus
 }

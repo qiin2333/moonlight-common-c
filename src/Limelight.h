@@ -302,16 +302,14 @@ typedef struct _DECODE_UNIT {
 // delay, no AVR decoder); biggest bandwidth (~1.5 Mbps stereo, ~4.6 Mbps 5.1).
 // LAN-only in practice.
 #define AUDIO_CODEC_PCM_S16 3
-#define AUDIO_CODEC_MAT_DUMP 4
-#define AUDIO_CODEC_MAT_IEC61937 5
+// Values 4 and 5 are retired finite diagnostic profiles; they are rejected.
 #define AUDIO_CODEC_MAT_AUTO 6 // Local preference: select codec 7 or 0 before ANNOUNCE; never a wire codec.
 #define AUDIO_CODEC_MAT_LIVE 7
-#define AUDIO_CODEC_IS_MAT(c) ((c)==AUDIO_CODEC_MAT_DUMP || (c)==AUDIO_CODEC_MAT_IEC61937 || (c)==AUDIO_CODEC_MAT_LIVE)
+#define AUDIO_CODEC_IS_MAT(c) ((c)==AUDIO_CODEC_MAT_LIVE)
 
-/* Registered from audio init, cleared after audio threads join. Codec4 uses a
- * diagnostic consumer, never a renderer. Return 0 to fail the loss-intolerant session. End is verified EOS
- * (finite SHA/count for 4/5, authenticated END for 7); consumers own any file
- * publication or bounded hardware drain before returning success. No PCM/encoded callback. */
+/* Registered from audio init, cleared after audio threads join. Return 0 to fail
+ * the loss-intolerant live session. End is authenticated EOS; consumers complete
+ * any bounded drain before returning success. No PCM/encoded callback. */
 typedef struct {
     int (*cycle)(void*, const unsigned char*, int, uint64_t, uint64_t, uint64_t, uint64_t);
     int (*end)(void*, uint64_t);

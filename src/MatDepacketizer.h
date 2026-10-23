@@ -4,10 +4,10 @@
 #ifdef __cplusplus
 extern "C" {
 #endif
-/* Dump-only extension AFTER existing RTP reorder/FEC + decrypt. One bounded
+/* Live carrier reassembly AFTER existing RTP reorder/FEC + authentication. One bounded
  * carrier buffer; in-cycle reorder/identical duplicates allowed. Missing data,
  * epoch changes, cross-cycle gaps and missing EOS are terminal, never concealed.
- * Callback must copy/write synchronously; zero return means IO failure. */
+ * Callback must copy/write synchronously; zero return means consumer failure. */
 typedef int (*MAT_WRITE_CYCLE)(void*,const uint8_t*,size_t);
 typedef struct {
     uint64_t epoch,domain,next_frame,mask;
@@ -20,7 +20,6 @@ typedef struct {
 void MatDepacketizerInit(MAT_DEPACKETIZER*,MAT_WRITE_CYCLE,void*);
 /* -1 sticky failure; 0 accepted, 1 whole cycle written, 2 complete EOS. */
 int MatDepacketizerPush(MAT_DEPACKETIZER*,const uint8_t*,size_t);
-int MatDepacketizerFinish(const MAT_DEPACKETIZER*);
 #ifdef __cplusplus
 }
 #endif

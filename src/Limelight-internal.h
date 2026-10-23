@@ -1,8 +1,5 @@
 #pragma once
 #include "Platform.h"
-#include "MatDumpProfile.h"
-extern LI_MAT_DUMP_PROFILE MatDumpProfile;
-#include "MatPlaybackProfile.h"
 #include "MatLiveProfile.h"
 extern LI_MAT_LIVE_PROFILE MatLiveProfile;
 

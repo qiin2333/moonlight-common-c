@@ -588,33 +588,17 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
             const char* codecStr = (NegotiatedAudioCodec == AUDIO_CODEC_AC3) ? "ac3" :
                                    (NegotiatedAudioCodec == AUDIO_CODEC_EAC3) ? "eac3" :
                                    (NegotiatedAudioCodec == AUDIO_CODEC_PCM_S16) ? "pcm" :
-                                   (NegotiatedAudioCodec == AUDIO_CODEC_MAT_DUMP) ? MAT_DUMP_NAME :
-                                   (NegotiatedAudioCodec == AUDIO_CODEC_MAT_IEC61937) ? MAT_PLAYBACK_NAME :
                                    (NegotiatedAudioCodec == AUDIO_CODEC_MAT_LIVE) ? MAT_LIVE_NAME : "opus";
             err |= addAttributeString(&optionHead, "x-ml-audio.codec", codecStr);
             if (AUDIO_CODEC_IS_MAT(NegotiatedAudioCodec)) {
-                if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_LIVE) {
-                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-live","1");
-                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-live-carrier",MAT_PLAYBACK_CARRIER);
-                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-live-clock",MAT_PLAYBACK_CLOCK);
-                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-live-crypto",MAT_LIVE_CRYPTO);
-                    snprintf(payloadStr,sizeof(payloadStr),"%llu",(unsigned long long)MatLiveProfile.epoch);
-                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-live-epoch",payloadStr);
-                    snprintf(payloadStr,sizeof(payloadStr),"%llu",(unsigned long long)MatLiveProfile.domain);
-                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-live-domain",payloadStr);
-                }
-                else if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_DUMP)
-                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-dump","1");
-                else {
-                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-playback","1");
-                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-carrier",MAT_PLAYBACK_CARRIER);
-                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-clock",MAT_PLAYBACK_CLOCK);
-                }
-                if(NegotiatedAudioCodec!=AUDIO_CODEC_MAT_LIVE) {
-                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-sha256",MatDumpProfile.sha256);
-                    snprintf(payloadStr,sizeof(payloadStr),"%u",MatDumpProfile.cycles);
-                    err |= addAttributeString(&optionHead,"x-ml-audio.mat-cycles",payloadStr);
-                }
+                err |= addAttributeString(&optionHead,"x-ml-audio.mat-live","1");
+                err |= addAttributeString(&optionHead,"x-ml-audio.mat-live-carrier",MAT_CARRIER);
+                err |= addAttributeString(&optionHead,"x-ml-audio.mat-live-clock",MAT_CLOCK);
+                err |= addAttributeString(&optionHead,"x-ml-audio.mat-live-crypto",MAT_LIVE_CRYPTO);
+                snprintf(payloadStr,sizeof(payloadStr),"%llu",(unsigned long long)MatLiveProfile.epoch);
+                err |= addAttributeString(&optionHead,"x-ml-audio.mat-live-epoch",payloadStr);
+                snprintf(payloadStr,sizeof(payloadStr),"%llu",(unsigned long long)MatLiveProfile.domain);
+                err |= addAttributeString(&optionHead,"x-ml-audio.mat-live-domain",payloadStr);
             }
             if (NegotiatedAudioBitrate > 0) {
                 snprintf(payloadStr, sizeof(payloadStr), "%d", NegotiatedAudioBitrate);
