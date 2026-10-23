@@ -2,6 +2,26 @@
 #include "Limelight-internal.h"
 #include "Rtsp.h"
 
+/* MAT playback confirmation is security/format critical: duplicates fail even
+ * if they repeat the same value. Header names are ASCII case-insensitive. */
+static int matHeaderEqual(const char* a,const char* b) {
+    while(*a && *b) {
+        unsigned x=(unsigned char)*a++,y=(unsigned char)*b++;
+        if(x>='A' && x<='Z')x+=32;
+        if(y>='A' && y<='Z')y+=32;
+        if(x!=y)return 0;
+    }
+    return !*a && !*b;
+}
+static char* uniqueMatOption(POPTION_ITEM options,const char* name) {
+    char* value=NULL;unsigned count=0;
+    for(;options;options=options->next)if(matHeaderEqual(options->option,name)){
+        if(options->flags & FLAG_DUPLICATE_OPTION)return NULL;
+        value=options->content;++count;
+    }
+    return count==1?value:NULL;
+}
+
 #define RTSP_CONNECT_TIMEOUT_SEC 10
 #define RTSP_RECEIVE_TIMEOUT_SEC 15
 #define RTSP_RETRY_DELAY_MS 500
@@ -560,7 +580,8 @@ static bool requestDescribe(PRTSP_MESSAGE response, int* error) {
         if (addOption(&request, "Accept",
             "application/sdp") &&
             addOption(&request, "If-Modified-Since",
-                "Thu, 01 Jan 1970 00:00:00 GMT")) {
+                "Thu, 01 Jan 1970 00:00:00 GMT") &&
+            (NegotiatedAudioCodec != AUDIO_CODEC_MAT_LIVE || addOption(&request,"X-ML-Mat-Live","1"))) {
             ret = transactRtspMessage(&request, response, true, error);
         }
         else {
@@ -1255,6 +1276,15 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             goto Exit;
         }
 
+        if (NegotiatedAudioCodec == AUDIO_CODEC_MAT_LIVE && !MatLiveProfileParse(&MatLiveProfile,response.payload)) {
+            memset(&MatLiveProfile,0,sizeof(MatLiveProfile));
+            if(StreamConfig.audioCodec!=AUDIO_CODEC_MAT_AUTO) {
+                Limelog("Host has no compatible live MAT source/profile\n");
+                ret=-1;freeMessage(&response);goto Exit;
+            }
+            NegotiatedAudioCodec=AUDIO_CODEC_OPUS;NegotiatedAudioBitrate=0;
+            Limelog("Live MAT source unavailable; selecting Opus before ANNOUNCE (no replay fallback)\n");
+        }
         uint32_t pyrowaveProtocolVersion = 0;
         uint32_t pyrowaveBitstreamVersion = 0;
         uint32_t pyrowavePayloadVersion = 0;
@@ -1658,6 +1688,31 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         // Sunshine dynamic HDR negotiation result. Hosts without the
         // extension send no X-SS-Dynamic-HDR header; that is the legacy
         // outcome (DYNAMIC_HDR_FORMAT_NONE) rather than an error.
+        if (NegotiatedAudioCodec == AUDIO_CODEC_OPUS) {
+            const char* confirmedCodec = getOptionContent(response.options,"X-SS-Audio-Codec");
+            if ((confirmedCodec && (strcmp(confirmedCodec,"opus") ||
+                    !uniqueMatOption(response.options,"X-SS-Audio-Codec"))) ||
+                getOptionContent(response.options,"X-SS-Mat-SHA256") ||
+                getOptionContent(response.options,"X-SS-Mat-Cycles") ||
+                getOptionContent(response.options,"X-SS-Mat-Carrier") ||
+                getOptionContent(response.options,"X-SS-Mat-Clock") ||
+                getOptionContent(response.options,"X-SS-Mat-Live-Epoch") ||
+                getOptionContent(response.options,"X-SS-Mat-Live-Domain") ||
+                getOptionContent(response.options,"X-SS-Mat-Live-Crypto")) {
+                Limelog("Unexpected codec/MAT confirmation after selecting Opus; refusing media\n");
+                ret = -1; freeMessage(&response); goto Exit;
+            }
+        }
+        if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_LIVE &&
+            (getOptionContent(response.options,"X-SS-Mat-SHA256") || getOptionContent(response.options,"X-SS-Mat-Cycles") ||
+            !MatLiveProfileConfirm(&MatLiveProfile,
+            uniqueMatOption(response.options,"X-SS-Audio-Codec"),
+            uniqueMatOption(response.options,"X-SS-Mat-Carrier"),uniqueMatOption(response.options,"X-SS-Mat-Clock"),
+            uniqueMatOption(response.options,"X-SS-Mat-Live-Crypto"),uniqueMatOption(response.options,"X-SS-Mat-Live-Epoch"),
+            uniqueMatOption(response.options,"X-SS-Mat-Live-Domain")))) {
+            Limelog("Live MAT ANNOUNCE confirmation missing or mismatched\n");
+            ret=-1;freeMessage(&response);goto Exit;
+        }
         if (!parseDynamicHdrNegotiation(&response)) {
             ret = 415;
             freeMessage(&response);

@@ -1,6 +1,8 @@
 #pragma once
-
 #include "Platform.h"
+#include "MatLiveProfile.h"
+extern LI_MAT_LIVE_PROFILE MatLiveProfile;
+
 #include "Limelight.h"
 #include "PlatformSockets.h"
 #include "PlatformThreads.h"

@@ -292,6 +292,15 @@ int parseRtspMessage(PRTSP_MESSAGE msg, char* rtspMessage, int length) {
         newOpt->option = opt;
         newOpt->content = val;
         newOpt->next = NULL;
+        // Upstream now coalesces names case-insensitively and frees the new
+        // node itself. Mark the replacement (not the old node whose flags are
+        // overwritten) so MAT's unique ACK check cannot miss a duplicate.
+        for (POPTION_ITEM existing = options; existing; existing = existing->next) {
+            if (!rtspStrCaseCmp(existing->option, newOpt->option)) {
+                newOpt->flags |= FLAG_DUPLICATE_OPTION;
+                break;
+            }
+        }
         insertOption(&options, newOpt);
 
         ptr = nextLine;

@@ -302,6 +302,20 @@ typedef struct _DECODE_UNIT {
 // delay, no AVR decoder); biggest bandwidth (~1.5 Mbps stereo, ~4.6 Mbps 5.1).
 // LAN-only in practice.
 #define AUDIO_CODEC_PCM_S16 3
+// Values 4 and 5 are retired finite diagnostic profiles; they are rejected.
+#define AUDIO_CODEC_MAT_AUTO 6 // Local preference: select codec 7 or 0 before ANNOUNCE; never a wire codec.
+#define AUDIO_CODEC_MAT_LIVE 7
+#define AUDIO_CODEC_IS_MAT(c) ((c)==AUDIO_CODEC_MAT_LIVE)
+
+/* Registered from audio init, cleared after audio threads join. Return 0 to fail
+ * the loss-intolerant live session. End is authenticated EOS; consumers complete
+ * any bounded drain before returning success. No PCM/encoded callback. */
+typedef struct {
+    int (*cycle)(void*, const unsigned char*, int, uint64_t, uint64_t, uint64_t, uint64_t);
+    int (*end)(void*, uint64_t);
+    void* context;
+} LI_MAT_PLAYBACK_CALLBACKS;
+void LiSetMatPlaybackCallbacks(const LI_MAT_PLAYBACK_CALLBACKS* callbacks);
 
 // Bitmasks for STREAM_CONFIGURATION.supportedAudioCodecs (and reserved for a
 // future server-side capability advertisement). The set bit indicates that the

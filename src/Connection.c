@@ -27,6 +27,7 @@ int AudioPacketDuration;
 bool AudioEncryptionEnabled;
 bool ReferenceFrameInvalidationSupported;
 int NegotiatedAudioCodec;
+LI_MAT_LIVE_PROFILE MatLiveProfile;
 int NegotiatedAudioBitrate;
 int NegotiatedDynamicHdrFormat;
 int NegotiatedDynamicHdrFallback;
@@ -331,6 +332,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     // LiGetNegotiatedAudioCodec() to check what was actually selected.
     NegotiatedAudioCodec = AUDIO_CODEC_OPUS;
     NegotiatedAudioBitrate = 0;
+    memset(&MatLiveProfile,0,sizeof(MatLiveProfile));
     switch (StreamConfig.audioCodec) {
         case AUDIO_CODEC_OPUS:
             // Default; nothing to do.
@@ -355,6 +357,24 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
                     : (StreamConfig.audioCodec == AUDIO_CODEC_AC3 ? 640000 : 384000);
             }
             break;
+        case AUDIO_CODEC_MAT_AUTO:
+            if (!IS_SUNSHINE() || StreamConfig.controlOnly) {
+                Limelog("MAT preference unavailable for this session; selecting Opus\n");
+                break;
+            }
+            NegotiatedAudioCodec = AUDIO_CODEC_MAT_LIVE;
+            break;
+        case AUDIO_CODEC_MAT_LIVE:
+            if (!IS_SUNSHINE() || StreamConfig.controlOnly) {
+                Limelog("Live MAT requires a Sunshine audio session\n");
+                err = -1; goto Cleanup;
+            }
+            NegotiatedAudioCodec = AUDIO_CODEC_MAT_LIVE;
+            break;
+        case 4: // Retired finite diagnostic profiles; never silently reinterpret.
+        case 5:
+            Limelog("Finite MAT codecs are not supported; request live MAT or Opus\n");
+            err = -1; goto Cleanup;
         case AUDIO_CODEC_PCM_S16:
             if (!IS_SUNSHINE()) {
                 Limelog("PCM passthrough is only supported by Sunshine; falling back to Opus\n");

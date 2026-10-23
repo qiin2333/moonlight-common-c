@@ -121,8 +121,53 @@ target_include_directories(moonlight-common-c SYSTEM PRIVATE
 target_compile_definitions(moonlight-common-c PRIVATE HAS_SOCKLEN_T)
 
 if (BUILD_TESTING)
+  add_executable(mat-live-tests tests/MatLiveTest.c src/MatLivePlayback.c src/MatReceiver.c src/MatDepacketizer.c)
+  target_include_directories(mat-live-tests PRIVATE src)
+  if(USE_MBEDTLS)
+    target_compile_definitions(mat-live-tests PRIVATE USE_MBEDTLS)
+    target_include_directories(mat-live-tests SYSTEM PRIVATE ${MBEDTLS_INCLUDE_DIRS})
+    if(MBEDTLS_FOUND)
+      target_link_libraries(mat-live-tests PRIVATE ${MBEDCRYPTO_LIBRARY})
+    else()
+      target_link_libraries(mat-live-tests PRIVATE mbedcrypto)
+    endif()
+  else()
+    target_include_directories(mat-live-tests SYSTEM PRIVATE ${OPENSSL_INCLUDE_DIR})
+    target_link_libraries(mat-live-tests PRIVATE ${OPENSSL_CRYPTO_LIBRARY})
+  endif()
+  add_test(NAME mat-live-tests COMMAND mat-live-tests)
+
+  add_executable(rtsp-parser-mat-tests tests/RtspParserMatTest.c src/RtspParser.c)
+  target_include_directories(rtsp-parser-mat-tests PRIVATE src enet/include)
+  target_compile_definitions(rtsp-parser-mat-tests PRIVATE HAS_SOCKLEN_T)
+  add_test(NAME rtsp-parser-mat-tests COMMAND rtsp-parser-mat-tests)
+
   get_target_property(_common_c_type moonlight-common-c TYPE)
   if(_common_c_type STREQUAL "STATIC_LIBRARY")
+    add_executable(mat-live-rtp-tests tests/MatLiveRtpTest.c)
+    target_include_directories(mat-live-rtp-tests PRIVATE enet/include
+      $<TARGET_PROPERTY:moonlight-common-c,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(mat-live-rtp-tests PRIVATE
+      $<TARGET_PROPERTY:moonlight-common-c,COMPILE_DEFINITIONS>)
+    target_link_libraries(mat-live-rtp-tests PRIVATE moonlight-common-c)
+    if(MSVC)
+      target_compile_options(mat-live-rtp-tests PRIVATE /experimental:c11atomics)
+    endif()
+    if(NOT USE_MBEDTLS)
+      target_include_directories(mat-live-rtp-tests SYSTEM PRIVATE ${OPENSSL_INCLUDE_DIR})
+      target_link_libraries(mat-live-rtp-tests PRIVATE ${OPENSSL_CRYPTO_LIBRARY})
+    endif()
+    add_test(NAME mat-live-rtp-tests COMMAND mat-live-rtp-tests)
+    add_executable(audio-codec-selection-tests tests/AudioCodecSelectionTest.c)
+    target_include_directories(audio-codec-selection-tests PRIVATE
+      enet/include $<TARGET_PROPERTY:moonlight-common-c,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(audio-codec-selection-tests PRIVATE
+      $<TARGET_PROPERTY:moonlight-common-c,COMPILE_DEFINITIONS>)
+    target_compile_options(audio-codec-selection-tests PRIVATE
+      $<TARGET_PROPERTY:moonlight-common-c,COMPILE_OPTIONS>)
+    target_link_libraries(audio-codec-selection-tests PRIVATE moonlight-common-c)
+    add_test(NAME audio-codec-selection-tests COMMAND audio-codec-selection-tests)
+
     # This test includes the sender and links its internal platform/queue helpers.
     add_executable(controller-handoff-queue-tests tests/ControllerHandoffQueueTest.c)
     target_include_directories(controller-handoff-queue-tests PRIVATE src enet/include)
