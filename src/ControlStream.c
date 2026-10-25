@@ -1302,9 +1302,6 @@ static void asyncCallbackThreadFunc(void* context) {
 
         case IDX_SET_MOTION_EVENT:
             // These events are infrequent and cannot be batched
-            LiSetControllerMotionEventState(queuedCb->data.setMotionEventState.controllerNumber,
-                                            queuedCb->data.setMotionEventState.motionType,
-                                            queuedCb->data.setMotionEventState.reportRateHz);
             ListenerCallbacks.setMotionEventState(queuedCb->data.setMotionEventState.controllerNumber,
                                                   queuedCb->data.setMotionEventState.motionType,
                                                   queuedCb->data.setMotionEventState.reportRateHz);
@@ -1393,6 +1390,10 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
         BbGet16(&bb, &queuedCb->data.setMotionEventState.reportRateHz);
         BbGet8(&bb, &queuedCb->data.setMotionEventState.motionType);
 
+        // Remote demand must not depend on a delayed or full platform callback queue.
+        LiSetControllerMotionEventState(queuedCb->data.setMotionEventState.controllerNumber,
+                                        queuedCb->data.setMotionEventState.motionType,
+                                        queuedCb->data.setMotionEventState.reportRateHz);
         queuedCb->typeIndex = IDX_SET_MOTION_EVENT;
     }
     else if (ctlHdr->type == packetTypes[IDX_SET_RGB_LED]) {
