@@ -1302,6 +1302,9 @@ static void asyncCallbackThreadFunc(void* context) {
 
         case IDX_SET_MOTION_EVENT:
             // These events are infrequent and cannot be batched
+            LiSetControllerMotionEventState(queuedCb->data.setMotionEventState.controllerNumber,
+                                            queuedCb->data.setMotionEventState.motionType,
+                                            queuedCb->data.setMotionEventState.reportRateHz);
             ListenerCallbacks.setMotionEventState(queuedCb->data.setMotionEventState.controllerNumber,
                                                   queuedCb->data.setMotionEventState.motionType,
                                                   queuedCb->data.setMotionEventState.reportRateHz);
