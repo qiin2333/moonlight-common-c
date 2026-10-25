@@ -177,6 +177,8 @@ int initializeInputStream(void);
 void destroyInputStream(void);
 int startInputStream(void);
 int stopInputStream(void);
+// Only the control stream updates remote demand, before dispatching platform callbacks.
+int setControllerMotionEnabled(uint16_t controller, uint8_t type, bool enabled);
 
 int initializeMicrophoneStream(void);
 void destroyMicrophoneStream(void);

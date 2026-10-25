@@ -1390,6 +1390,10 @@ static void queueAsyncCallback(PNVCTL_ENET_PACKET_HEADER_V1 ctlHdr, int packetLe
         BbGet16(&bb, &queuedCb->data.setMotionEventState.reportRateHz);
         BbGet8(&bb, &queuedCb->data.setMotionEventState.motionType);
 
+        // Remote demand must not depend on a delayed or full platform callback queue.
+        setControllerMotionEnabled(queuedCb->data.setMotionEventState.controllerNumber,
+                                   queuedCb->data.setMotionEventState.motionType,
+                                   queuedCb->data.setMotionEventState.reportRateHz > 0);
         queuedCb->typeIndex = IDX_SET_MOTION_EVENT;
     }
     else if (ctlHdr->type == packetTypes[IDX_SET_RGB_LED]) {
