@@ -8,7 +8,7 @@ static PPACKET_HOLDER popMotion(bool expectedCurrent) {
     PPACKET_HOLDER holder = NULL;
     assert(LbqPollQueueElement(&packetQueue, (void**)&holder) == LBQ_SUCCESS);
     assert(holder->packet.header.magic == LE32(SS_CONTROLLER_MOTION_MAGIC));
-    assert(motionPacketIsCurrent(holder, false) == expectedCurrent);
+    assert(prepareQueuedMotionPacket(holder) == expectedCurrent);
     return holder;
 }
 
@@ -22,8 +22,8 @@ static float value(netfloat data) {
 }
 
 static void enable(uint8_t slot) {
-    assert(LiSetControllerMotionEventState(slot, LI_MOTION_TYPE_GYRO, 100) == 0);
-    assert(LiSetControllerMotionEventState(slot, LI_MOTION_TYPE_ACCEL, 100) == 0);
+    assert(setControllerMotionEnabled(slot, LI_MOTION_TYPE_GYRO, true) == 0);
+    assert(setControllerMotionEnabled(slot, LI_MOTION_TYPE_ACCEL, true) == 0);
 }
 
 static void emptyMotion(void) {
@@ -82,19 +82,18 @@ int main(void) {
     assert(LiSendKeyboardEvent(0x41, KEY_ACTION_UP, 0) == 0);
     assert(LiSendControllerMotionFrame(0, 0, 0, 0, 1, 2, 3) == LBQ_BOUND_EXCEEDED);
     PACKET_HOLDER fullQueueStop;
-    assert(takePendingMotionStop(&fullQueueStop) && motionPacketIsCurrent(&fullQueueStop, true));
+    assert(takePendingMotionStop(&fullQueueStop) && motionStopIsCurrent(&fullQueueStop));
     finishMotionStop(&fullQueueStop);
     PPACKET_HOLDER queued;
     while (LbqPollQueueElement(&packetQueue, (void**)&queued) == LBQ_SUCCESS) freePacketHolder(queued);
 
     // A paired frame must not partly enter a nearly full motion budget.
-    // Failed USB input does not claim the phone source, and buttons retain capacity.
+    // Failed frames do not consume motion capacity, and buttons retain queue capacity.
     assert(LiSendControllerMotionEvent(0, 2, 1, 0, 0) == 0);
     for (int i = 1; i < MAX_QUEUED_MOTION_PACKETS; i++) {
         assert(LiSendControllerMotionEvent(0, 1, (float)i, 0, 0) == 0);
     }
     assert(LiSendControllerMotionFrame(0, 9, 0, 0, 1, 2, 3) != 0);
-    assert(LiStopControllerMotionEvent(0, true) == 0);
     assert(pendingGyroStops == 0);
     assert(LbqGetItemCount(&packetQueue) == MAX_QUEUED_MOTION_PACKETS);
     assert(LiSendKeyboardEvent(0x41, KEY_ACTION_DOWN, 0) == 0);
@@ -107,14 +106,14 @@ int main(void) {
     // Stops need no queue capacity and invalidate preceding movement. A dequeued
     // stop cannot survive a source replacement or a newly accepted gyro sample.
     assert(LiSendControllerMotionFrame(0, 7, 0, 0, 1, 2, 3) == 0);
-    assert(LiStopControllerMotionEvent(0, true) == 0);
+    assert(LiStopControllerMotionEvent(0) == 0);
     PACKET_HOLDER oldStop, replacementStop;
     assert(takePendingMotionStop(&oldStop));
     assert(LiResetControllerMotionEvents(0, false) == 0);
-    assert(!motionPacketIsCurrent(&oldStop, true));
+    assert(!motionStopIsCurrent(&oldStop));
     assert(takePendingMotionStop(&replacementStop));
     assert(LiSendControllerMotionEvent(0, 2, 8, 0, 0) == 0);
-    assert(!motionPacketIsCurrent(&replacementStop, true));
+    assert(!motionStopIsCurrent(&replacementStop));
     freePacketHolder(popMotion(false)); freePacketHolder(popMotion(false));
     PPACKET_HOLDER fresh = popMotion(true);
     assert(value(fresh->packet.controllerMotion.x) == 8);
@@ -124,9 +123,9 @@ int main(void) {
     // Rejected final zero still clears rotation when the queue is saturated.
     for (int i = 0; i < MAX_QUEUED_MOTION_PACKETS; i++) assert(LiSendControllerMotionEvent(0, 2, 9, 0, 0) == 0);
     assert(LiSendControllerMotionEvent(0, 2, 0, 0, 0) != 0);
-    assert(LiStopControllerMotionEvent(0, false) == 0); // No extra pending stop.
+    assert(LiStopControllerMotionEvent(0) == 0); // No extra pending stop.
     assert(takePendingMotionStop(&oldStop));
-    assert(motionPacketIsCurrent(&oldStop, true));
+    assert(motionStopIsCurrent(&oldStop));
     assert(value(oldStop.packet.controllerMotion.x) == 0 && oldStop.enetPacketFlags == ENET_PACKET_FLAG_RELIABLE);
     finishMotionStop(&oldStop);
     assert(!takePendingMotionStop(&oldStop));
@@ -136,26 +135,32 @@ int main(void) {
     // owes its stop, whereas removing its host slot cancels all remaining work.
     enable(1);
     assert(LiSendControllerMotionEvent(0, 2, 10, 0, 0) == 0);
-    assert(LiSetControllerMotionEventState(0, 2, 0) == 0);
-    assert(takePendingMotionStop(&oldStop) && motionPacketIsCurrent(&oldStop, true));
+    assert(setControllerMotionEnabled(0, 2, 0) == 0);
+    assert(takePendingMotionStop(&oldStop) && motionStopIsCurrent(&oldStop));
     assert(LiSendControllerMotionEvent(0, 2, 99, 0, 0) == 0);
     assert(LiSendControllerMotionEvent(1, 2, 11, 0, 0) == 0);
     assert(LiResetControllerMotionEvents(0, true) == 0);
-    assert(!motionPacketIsCurrent(&oldStop, true));
+    assert(!motionStopIsCurrent(&oldStop));
     freePacketHolder(popMotion(false));
     fresh = popMotion(true);
     assert(fresh->packet.controllerMotion.controllerNumber == 1);
     freePacketHolder(fresh);
-    assert(LiSetControllerMotionEventState(256, 2, 100) == -3);
-    assert(LiSetControllerMotionEventState(0, 3, 100) == -3);
-    assert(LiSetControllerMotionEventState(0, 0, 100) == -3);
+    assert(setControllerMotionEnabled(256, 2, true) == -3);
+    assert(setControllerMotionEnabled(0, 3, true) == -3);
+    assert(setControllerMotionEnabled(0, 0, true) == -3);
     assert(LiSendControllerMotionEvent(0, 0, 0, 0, 0) == -3);
+    uint64_t sequence = currentGamepadSensorState[0][1].sequence;
+    assert(LiSendControllerMotionFrame(16, 1, 0, 0, 0, 0, 0) == -3);
+    assert(LiSendControllerMotionFrame(255, 1, 0, 0, 0, 0, 0) == -3);
+    assert(currentGamepadSensorState[0][1].sequence == sequence);
+    assert(LiStopControllerMotionEvent(16) == -3);
+    assert(LiResetControllerMotionEvents(16, false) == -3);
     initialized = false;
     assert(LiSendControllerMotionFrame(0, 0, 0, 0, 0, 0, 0) == -2);
     LbqSignalQueueShutdown(&packetQueue);
     LbqSignalQueueShutdown(&packetHolderFreeList);
     destroyInputStream();
-    assert(LiSetControllerMotionEventState(0, 2, 100) == -2);
+    assert(setControllerMotionEnabled(0, 2, true) == -2);
     puts("Shared motion queue, frame, pressure and stop lifecycle checks passed");
     return 0;
 }

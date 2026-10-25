@@ -1095,16 +1095,13 @@ int LiSendControllerTouchEvent2(uint8_t controllerNumber, uint8_t eventType, uin
 #define LI_MOTION_TYPE_GYRO  0x02
 int LiSendControllerMotionEvent(uint8_t controllerNumber, uint8_t motionType, float x, float y, float z);
 
-// Motion demand controls remote forwarding only; local sensor consumers remain platform-owned.
-// Called by the control stream before the client's setMotionEventState callback.
-int LiSetControllerMotionEventState(uint16_t controllerNumber, uint8_t motionType, uint16_t rateHz);
 // Atomically enqueue one source frame using the existing per-sensor wire format.
 // If both sensors are requested, either both vectors are queued or neither is.
+// Controller numbers outside 0..15 are rejected.
 int LiSendControllerMotionFrame(uint8_t controllerNumber, float gx, float gy, float gz, float ax, float ay, float az);
 // Immediately discard queued old gyro motion and send a reliable zero from the input thread.
 // A new accepted gyro supersedes an unsent stop. No allocation or timer is needed for a stop.
-// onlyFromFrame protects a single-sensor source from another source's rejected USB frame.
-int LiStopControllerMotionEvent(uint8_t controllerNumber, bool onlyFromFrame);
+int LiStopControllerMotionEvent(uint8_t controllerNumber);
 // Retire queued source data; preserve demand on replacement, clear it when the host slot is removed.
 int LiResetControllerMotionEvents(uint8_t controllerNumber, bool clearDemand);
 

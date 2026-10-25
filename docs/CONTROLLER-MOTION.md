@@ -7,20 +7,21 @@ host disablement must not disable a sensor still needed by a local consumer.
 
 ## Contract
 
-- The control stream calls `LiSetControllerMotionEventState` before notifying the
-  platform. Positive rates enable that remote sensor; zero disables it. Platforms
+- The control stream calls the internal `setControllerMotionEnabled` before notifying the
+  platform. Positive host rates enable that remote sensor; zero disables it. Platforms
   apply acquisition rates where supported, without decimating callback samples.
 - `LiSendControllerMotionEvent` stores the supplied vector in an immutable packet.
   Ordinary zero readings remain ordinary samples. Its return value reports enqueue
-  success, not host acknowledgement. Rejected movement is never replayed later.
+  acceptance (or a no-op for a disabled sensor), not host acknowledgement. Rejected
+  movement is never replayed later.
 - `LiSendControllerMotionFrame` atomically queues gyro then acceleration when both
   are requested. Use it only for vectors from the same physical report. Independent
   sensor callbacks must not be paired by arrival time.
 - `LiStopControllerMotionEvent` invalidates older queued gyro samples and requests
   a reliable zero. The input sender processes this fixed slot even when the queue
   is full. New accepted gyro samples supersede an unsent stop; an already dequeued
-  old stop cannot stop newer queued motion. `onlyFromFrame` protects a single-sensor
-  source from a rejected frame supplied by another source.
+  old stop cannot stop newer queued motion. Platforms decide which physical source
+  may request a stop; the core does not infer ownership from report format.
 - `LiResetControllerMotionEvents` retires queued source data. Preserve demand when
   replacing a source in a surviving host slot; clear it when the host slot is removed.
   Platform callbacks must still reject data from retired physical sources.
