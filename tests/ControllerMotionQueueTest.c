@@ -56,11 +56,11 @@ int main(void) {
     double integral = 0;
     for (int batch = 0; batch < 125; batch++) {
         for (int sample = 0; sample < 10; sample++) {
-            float x = sample % 5 == 0 ? 0 : sample % 5 < 3 ? 1 : -1;
+            float x = sample % 5 == 0 ? 0.0f : sample % 5 < 3 ? 1.0f : -1.0f;
             assert(LiSendControllerMotionFrame(0, x, x / 2, -x, 0, 9.80665f, 1) == 0);
         }
         for (int sample = 0; sample < 10; sample++) {
-            float x = sample % 5 == 0 ? 0 : sample % 5 < 3 ? 1 : -1;
+            float x = sample % 5 == 0 ? 0.0f : sample % 5 < 3 ? 1.0f : -1.0f;
             PPACKET_HOLDER gyro = popMotion(true), accel = popMotion(true);
             assert(gyro->packet.controllerMotion.motionType == 2);
             assert(accel->packet.controllerMotion.motionType == 1);
@@ -91,7 +91,7 @@ int main(void) {
     // Failed USB input does not claim the phone source, and buttons retain capacity.
     assert(LiSendControllerMotionEvent(0, 2, 1, 0, 0) == 0);
     for (int i = 1; i < MAX_QUEUED_MOTION_PACKETS; i++) {
-        assert(LiSendControllerMotionEvent(0, 1, i, 0, 0) == 0);
+        assert(LiSendControllerMotionEvent(0, 1, (float)i, 0, 0) == 0);
     }
     assert(LiSendControllerMotionFrame(0, 9, 0, 0, 1, 2, 3) != 0);
     assert(LiStopControllerMotionEvent(0, true) == 0);

@@ -1915,7 +1915,7 @@ int LiSetControllerMotionEventState(uint16_t controller, uint8_t type, uint16_t 
     PltLockMutex(&batchedInputMutex);
     currentGamepadSensorState[controller][type - 1].enabled = rateHz > 0;
     if (rateHz == 0) {
-        if (type == LI_MOTION_TYPE_GYRO) stopControllerMotionLocked(controller, false);
+        if (type == LI_MOTION_TYPE_GYRO) stopControllerMotionLocked((uint8_t)controller, false);
         else currentGamepadSensorState[controller][0].discardThrough = ++currentGamepadSensorState[controller][0].sequence;
     }
     PltUnlockMutex(&batchedInputMutex);
