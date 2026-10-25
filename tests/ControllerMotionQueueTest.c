@@ -75,12 +75,14 @@ int main(void) {
     assert(fabs(integral) < 1e-9 && LbqGetItemCount(&packetQueue) == 0);
 
     // One free entry in the shared queue cannot accept half a frame. A final
-    // zero still uses the fixed stop slot when all shared queue entries are full.
+    // zero can still use an explicit stop when all shared queue entries are full.
     for (int i = 0; i < MAX_QUEUED_INPUT_PACKETS - 1; i++) assert(LiSendKeyboardEvent(0x41, KEY_ACTION_DOWN, 0) == 0);
     assert(LiSendControllerMotionFrame(0, 3, 0, 0, 1, 2, 3) == LBQ_BOUND_EXCEEDED);
     assert(LbqGetItemCount(&packetQueue) == MAX_QUEUED_INPUT_PACKETS - 1 && queuedMotionPackets == 0);
     assert(LiSendKeyboardEvent(0x41, KEY_ACTION_UP, 0) == 0);
     assert(LiSendControllerMotionFrame(0, 0, 0, 0, 1, 2, 3) == LBQ_BOUND_EXCEEDED);
+    assert(pendingGyroStops == 0);
+    assert(LiStopControllerMotionEvent(0) == 0);
     PACKET_HOLDER fullQueueStop;
     assert(takePendingMotionStop(&fullQueueStop) && motionStopIsCurrent(&fullQueueStop));
     finishMotionStop(&fullQueueStop);
@@ -93,7 +95,7 @@ int main(void) {
     for (int i = 1; i < MAX_QUEUED_MOTION_PACKETS; i++) {
         assert(LiSendControllerMotionEvent(0, 1, (float)i, 0, 0) == 0);
     }
-    assert(LiSendControllerMotionFrame(0, 9, 0, 0, 1, 2, 3) != 0);
+    assert(LiSendControllerMotionFrame(0, 0, 0, 0, 1, 2, 3) != 0);
     assert(pendingGyroStops == 0);
     assert(LbqGetItemCount(&packetQueue) == MAX_QUEUED_MOTION_PACKETS);
     assert(LiSendKeyboardEvent(0x41, KEY_ACTION_DOWN, 0) == 0);
@@ -130,6 +132,14 @@ int main(void) {
     finishMotionStop(&oldStop);
     assert(!takePendingMotionStop(&oldStop));
     emptyMotion();
+
+    // The gyro-only frame fallback also rolls back without stopping a raw source.
+    assert(setControllerMotionEnabled(0, LI_MOTION_TYPE_ACCEL, false) == 0);
+    for (int i = 0; i < MAX_QUEUED_MOTION_PACKETS; i++) assert(LiSendControllerMotionEvent(0, 2, 9, 0, 0) == 0);
+    assert(LiSendControllerMotionFrame(0, 0, 0, 0, 1, 2, 3) != 0);
+    assert(pendingGyroStops == 0);
+    for (int i = 0; i < MAX_QUEUED_MOTION_PACKETS; i++) freePacketHolder(popMotion(true));
+    assert(setControllerMotionEnabled(0, LI_MOTION_TYPE_ACCEL, true) == 0);
 
     // Demand and generations are per sensor and per slot. A disabled gyro still
     // owes its stop, whereas removing its host slot cancels all remaining work.

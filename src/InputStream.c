@@ -1,9 +1,10 @@
 #include "Limelight-internal.h"
+#include <stdatomic.h>
 
 static SOCKET inputSock = INVALID_SOCKET;
 static unsigned char currentAesIv[16];
 static bool initialized;
-static bool motionStateReady;
+static atomic_bool motionStateReady;
 static bool encryptedControlStream;
 static bool needsBatchedScroll;
 static int batchedScrollDelta;
@@ -138,7 +139,7 @@ int initializeInputStream(void) {
     memset(&currentRelativeMouseState, 0, sizeof(currentRelativeMouseState));
     memset(&currentAbsoluteMouseState, 0, sizeof(currentAbsoluteMouseState));
     PltCreateMutex(&batchedInputMutex);
-    motionStateReady = true;
+    atomic_store(&motionStateReady, true);
 
     return 0;
 }
@@ -146,7 +147,7 @@ int initializeInputStream(void) {
 // Destroys and cleans up the input stream
 void destroyInputStream(void) {
     PLINKED_BLOCKING_QUEUE_ENTRY entry, nextEntry;
-    motionStateReady = false;
+    atomic_store(&motionStateReady, false);
 
     PltDestroyCryptoContext(cryptoContext);
 
@@ -830,7 +831,7 @@ int startInputStream(void) {
 int stopInputStream(void) {
     // No more packets should be queued now
     initialized = false;
-    motionStateReady = false;
+    atomic_store(&motionStateReady, false);
     LbqSignalQueueShutdown(&packetHolderFreeList);
 
     // Signal the input send thread to drain all pending
@@ -1820,9 +1821,6 @@ static int enqueueControllerMotionLocked(uint8_t controller, uint8_t type,
     if (err == LBQ_SUCCESS) {
         acceptControllerMotionLocked(controller, type, x, y, z);
     }
-    else if (type == LI_MOTION_TYPE_GYRO && x == 0 && y == 0 && z == 0) {
-        stopControllerMotionLocked(controller);
-    }
     return err;
 }
 
@@ -1834,6 +1832,9 @@ int LiSendControllerMotionEvent(uint8_t controllerNumber, uint8_t motionType, fl
     controllerNumber %= MAX_GAMEPADS;
     PltLockMutex(&batchedInputMutex);
     err = enqueueControllerMotionLocked(controllerNumber, motionType, x, y, z);
+    if (err != LBQ_SUCCESS && motionType == LI_MOTION_TYPE_GYRO && x == 0 && y == 0 && z == 0) {
+        stopControllerMotionLocked(controllerNumber);
+    }
     PltUnlockMutex(&batchedInputMutex);
     return err;
 }
@@ -1873,7 +1874,6 @@ int LiSendControllerMotionFrame(uint8_t controller, float gx, float gy, float gz
         else {
             if (gyro) freePacketHolder(gyro);
             if (accel) freePacketHolder(accel);
-            if (gx == 0 && gy == 0 && gz == 0) stopControllerMotionLocked(controller);
         }
     }
     PltUnlockMutex(&batchedInputMutex);
@@ -1890,7 +1890,7 @@ int LiStopControllerMotionEvent(uint8_t controller) {
 }
 
 int LiResetControllerMotionEvents(uint8_t controller, bool clearDemand) {
-    if (!motionStateReady) return -2;
+    if (!atomic_load(&motionStateReady)) return -2;
     if (controller >= MAX_GAMEPADS) return -3;
     PltLockMutex(&batchedInputMutex);
     for (int sensor = 0; sensor < MAX_MOTION_EVENTS; sensor++) {
@@ -1912,7 +1912,7 @@ int LiResetControllerMotionEvents(uint8_t controller, bool clearDemand) {
 
 // Can arrive before startInputStream(), after the queue and mutex have been initialized.
 int setControllerMotionEnabled(uint16_t controller, uint8_t type, bool enabled) {
-    if (!motionStateReady) return -2;
+    if (!atomic_load(&motionStateReady)) return -2;
     if (controller >= MAX_GAMEPADS || type < 1 || type > MAX_MOTION_EVENTS) return -3;
     PltLockMutex(&batchedInputMutex);
     currentGamepadSensorState[controller][type - 1].enabled = enabled;

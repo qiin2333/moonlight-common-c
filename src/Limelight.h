@@ -1098,6 +1098,8 @@ int LiSendControllerMotionEvent(uint8_t controllerNumber, uint8_t motionType, fl
 // Atomically enqueue one source frame using the existing per-sensor wire format.
 // If both sensors are requested, either both vectors are queued or neither is.
 // Controller numbers outside 0..15 are rejected.
+// Rejection leaves queued motion unchanged. The platform owning this source must
+// explicitly request a stop if its final zero frame is rejected.
 int LiSendControllerMotionFrame(uint8_t controllerNumber, float gx, float gy, float gz, float ax, float ay, float az);
 // Immediately discard queued old gyro motion and send a reliable zero from the input thread.
 // A new accepted gyro supersedes an unsent stop. No allocation or timer is needed for a stop.

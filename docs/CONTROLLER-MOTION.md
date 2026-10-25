@@ -16,7 +16,8 @@ host disablement must not disable a sensor still needed by a local consumer.
   movement is never replayed later.
 - `LiSendControllerMotionFrame` atomically queues gyro then acceleration when both
   are requested. Use it only for vectors from the same physical report. Independent
-  sensor callbacks must not be paired by arrival time.
+  sensor callbacks must not be paired by arrival time. Rejection leaves prior motion
+  intact; the platform owning this source must explicitly stop on a rejected final zero.
 - `LiStopControllerMotionEvent` invalidates older queued gyro samples and requests
   a reliable zero. The input sender processes this fixed slot even when the queue
   is full. New accepted gyro samples supersede an unsent stop; an already dequeued
@@ -27,7 +28,7 @@ host disablement must not disable a sensor still needed by a local consumer.
   Platform callbacks must still reject data from retired physical sources.
 - Motion retains the former maximum queue footprint of 32 entries, leaving room for
   buttons and releases. A frame is accepted completely or rejected completely. A
-  rejected final gyro zero requests a stop through the fixed slot.
+  rejected individually submitted final gyro zero requests a stop through the fixed slot.
 - Input shutdown cancels pending work. There is no extra motion worker or retry timer.
 
 The gyro unit is degrees/second; acceleration includes gravity in meters/second².
