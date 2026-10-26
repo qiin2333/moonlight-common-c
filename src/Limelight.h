@@ -745,7 +745,12 @@ void LiSetRemoteTextContextCallback(ConnListenerRemoteTextContext callback);
 
 // Optional absolute actuator controls accompanying authored PCM. State is eight
 // bytes: mode0, mode2, known controls, right/left motor, power-save, reduction, LPF.
+// Called synchronously on the control receive thread. The state buffer is valid
+// only during this callback; copy all eight bytes before deferring processing.
 typedef void(*ConnListenerDs5HapticsState)(uint16_t controllerNumber, const uint8_t* state);
+
+// Register before LiStartConnection(), while no connection is running. This
+// function is not thread-safe. Pass NULL to unregister before the next connection.
 void LiSetDs5HapticsStateCallback(ConnListenerDs5HapticsState callback);
 
 // ServerCodecModeSupport values
