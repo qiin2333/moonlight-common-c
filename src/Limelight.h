@@ -743,6 +743,11 @@ void LiInitializeConnectionCallbacks(PCONNECTION_LISTENER_CALLBACKS clCallbacks)
 // LiStartConnection(). This function is not thread-safe.
 void LiSetRemoteTextContextCallback(ConnListenerRemoteTextContext callback);
 
+// Optional absolute actuator controls accompanying authored PCM. State is eight
+// bytes: mode0, mode2, known controls, right/left motor, power-save, reduction, LPF.
+typedef void(*ConnListenerDs5HapticsState)(uint16_t controllerNumber, const uint8_t* state);
+void LiSetDs5HapticsStateCallback(ConnListenerDs5HapticsState callback);
+
 // ServerCodecModeSupport values
 #define SCM_H264            0x00000001
 #define SCM_HEVC            0x00000100

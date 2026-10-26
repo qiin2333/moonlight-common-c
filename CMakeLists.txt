@@ -246,6 +246,15 @@ if (BUILD_TESTING)
   endif()
   add_test(NAME ds5-haptics-protocol-golden-tests COMMAND ds5-haptics-protocol-golden-tests)
 
+  add_executable(ds5-haptics-state-golden-tests tests/Ds5HapticsStateGoldenTest.c)
+  target_include_directories(ds5-haptics-state-golden-tests PRIVATE src)
+  if (MSVC)
+    target_compile_options(ds5-haptics-state-golden-tests PRIVATE /W3 /WX /UNDEBUG)
+  else()
+    target_compile_options(ds5-haptics-state-golden-tests PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+  endif()
+  add_test(NAME ds5-haptics-state-golden-tests COMMAND ds5-haptics-state-golden-tests)
+
   add_executable(ds5-haptics-ir-protocol-golden-tests
     tests/Ds5HapticsIrStreamGoldenTest.c
     src/Ds5HapticsIrStream.c
