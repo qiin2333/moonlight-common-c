@@ -267,6 +267,18 @@ if (BUILD_TESTING)
   endif()
   add_test(NAME ds5-haptics-ir-protocol-golden-tests COMMAND ds5-haptics-ir-protocol-golden-tests)
 
+  if(_common_c_type STREQUAL "STATIC_LIBRARY")
+    add_executable(ds5-haptics-negotiation-tests tests/Ds5HapticsNegotiationTest.c)
+    target_include_directories(ds5-haptics-negotiation-tests PRIVATE
+      enet/include $<TARGET_PROPERTY:moonlight-common-c,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(ds5-haptics-negotiation-tests PRIVATE
+      $<TARGET_PROPERTY:moonlight-common-c,COMPILE_DEFINITIONS>)
+    target_compile_options(ds5-haptics-negotiation-tests PRIVATE
+      $<TARGET_PROPERTY:moonlight-common-c,COMPILE_OPTIONS>)
+    target_link_libraries(ds5-haptics-negotiation-tests PRIVATE moonlight-common-c)
+    add_test(NAME ds5-haptics-negotiation-tests COMMAND ds5-haptics-negotiation-tests)
+  endif()
+
   add_executable(pyrowave-protocol-golden-tests
     tests/PyrowaveProtocolGoldenTest.c
     src/PyrowaveProtocol.c

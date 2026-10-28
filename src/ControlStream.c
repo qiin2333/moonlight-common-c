@@ -1488,6 +1488,11 @@ static void dispatchDs5HapticsIrV2(const LI_DS5_HAPTICS_IR_FRAME_V2* frame, void
     ListenerCallbacks.ds5HapticsIrV2(frame);
 }
 
+static void dispatchDs5HapticsIrExtended(const LI_DS5_HAPTICS_IR_EXTENDED_FRAME* frame, void* context) {
+    (void)context;
+    ListenerCallbacks.ds5HapticsIrExtended(frame);
+}
+
 static void processRemoteTextContext(const uint8_t* payload, int payloadLength) {
     LI_REMOTE_TEXT_CONTEXT context;
 
@@ -1758,12 +1763,16 @@ static void controlReceiveThreadFunc(void* context) {
                 }
             }
             else if (ctlHdr->type == packetTypes[IDX_DS5_HAPTICS_IR_V2]) {
-                if (ListenerCallbacks.ds5HapticsIrV2 != NULL &&
-                        packetLength > (int)sizeof(*ctlHdr)) {
-                    processDs5HapticsIrStreamPacket((const uint8_t*)(ctlHdr + 1),
-                                                    packetLength - (int)sizeof(*ctlHdr),
-                                                    dispatchDs5HapticsIrV2,
-                                                    NULL);
+                if (ListenerCallbacks.ds5HapticsIrV2 != NULL && packetLength > (int)sizeof(*ctlHdr)) {
+                    const uint8_t* irPayload = (const uint8_t*)(ctlHdr + 1);
+                    const int irLength = packetLength - (int)sizeof(*ctlHdr);
+                    if (irLength == DS5_HAPTICS_IR_STREAM_WIRE_SIZE) {
+                        processDs5HapticsIrStreamPacket(irPayload, irLength, dispatchDs5HapticsIrV2, NULL);
+                    }
+                    else if (ListenerCallbacks.ds5HapticsIrExtended != NULL) {
+                        processDs5HapticsIrExtendedStreamPacket(irPayload, irLength,
+                                                               dispatchDs5HapticsIrExtended, NULL);
+                    }
                 }
             }
             else if (ctlHdr->type == packetTypes[IDX_REMOTE_TEXT_CONTEXT]) {

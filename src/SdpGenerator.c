@@ -283,6 +283,10 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         if (ListenerCallbacks.ds5HapticsIrV2 != NULL) {
             moonlightFeatureFlags |= ML_FF_DS5_HAPTICS_IR_V2;
         }
+        if (ListenerCallbacks.ds5HapticsIrV2 != NULL && ListenerCallbacks.ds5HapticsIrExtended != NULL) {
+            // Enhancement is optional and requires the existing v2 base capability.
+            moonlightFeatureFlags |= ML_FF_DS5_HAPTICS_IR_EXTENDED;
+        }
         if (RemoteTextContextCallback != NULL) {
             moonlightFeatureFlags |= ML_FF_REMOTE_TEXT_CONTEXT;
         }
