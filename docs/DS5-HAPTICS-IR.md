@@ -13,12 +13,16 @@ clients continue receiving exactly that path. No reserved v2 field is reused.
 
 A client can additionally register `ds5HapticsIrExtended` alongside its required
 `ds5HapticsIrV2` callback to advertise `ML_FF_DS5_HAPTICS_IR_EXTENDED = 0x80`.
-This accepts an enhanced message (`0x5511`) consisting of the original 72-byte
+This accepts an enhanced payload on the existing message (`0x550B`) consisting of the original 72-byte
 v2 base followed by an optional continuous/event extension. The host sends one
 representation per connection: enhanced when both capabilities are present,
 v2 for v2-only clients, ordinary rumble when neither is present. An old host
 sees the base capability and sends v2. Raw authored PCM and IR remain exclusive.
 The enhanced callback alone is not a complete v2 receiver and is rejected.
+
+The control receiver uses the existing v2 message route: a 72-byte payload
+goes to the original callback; a longer payload is decoded only when the
+enhancement callback was negotiated. No extra message type or channel is added.
 
 The enhanced decoder reuses the existing v2 decoder on the first 72 bytes.
 It delivers the base and enhancement together in one callback, without also

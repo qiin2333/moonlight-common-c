@@ -162,7 +162,6 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 #define IDX_DS5_HAPTICS_PCM 22
 #define IDX_DS5_HAPTICS_IR_V2 23
 #define IDX_REMOTE_TEXT_CONTEXT 24
-#define IDX_DS5_HAPTICS_IR_EXTENDED 25
 
 static CURSOR_STREAM_STATE cursorReassembly;
 
@@ -195,7 +194,6 @@ static const short packetTypesGen3[] = {
     -1,     // DualSense haptics PCM (unused)
     -1,     // DualSense haptics IR v2 (unused)
     -1,     // Remote text context (unused)
-    -1, // DualSense haptics v2 IR enhancement (index 25)
 };
 static const short packetTypesGen4[] = {
     0x0606, // Start A (Gen4 uses IDR request here)
@@ -223,7 +221,6 @@ static const short packetTypesGen4[] = {
     -1,     // DualSense haptics PCM (unused)
     -1,     // DualSense haptics IR v2 (unused)
     -1,     // Remote text context (unused)
-    -1, // DualSense haptics v2 IR enhancement (index 25)
 };
 static const short packetTypesGen5[] = {
     0x0305, // Start A
@@ -251,7 +248,6 @@ static const short packetTypesGen5[] = {
     -1,     // DualSense haptics PCM (unused)
     -1,     // DualSense haptics IR v2 (unused)
     -1,     // Remote text context (unused)
-    -1, // DualSense haptics v2 IR enhancement (index 25)
 };
 static const short packetTypesGen7[] = {
     0x0305, // Start A
@@ -279,7 +275,6 @@ static const short packetTypesGen7[] = {
     -1,     // DualSense haptics PCM (unused)
     -1,     // DualSense haptics IR v2 (unused)
     -1,     // Remote text context (unused)
-    -1, // DualSense haptics v2 IR enhancement (index 25)
 };
 static const short packetTypesGen7Enc[] = {
     0x0305, // Start A (index 0)
@@ -307,7 +302,6 @@ static const short packetTypesGen7Enc[] = {
     0x550A, // Authored DualSense haptics PCM (Sunshine protocol extension) (index 22)
     0x550B, // Device-independent DualSense haptics IR v2 (Sunshine protocol extension) (index 23)
     0x550C, // Remote text context (Sunshine protocol extension) (index 24)
-    DS5_HAPTICS_IR_EXTENDED_STREAM_PACKET_TYPE, // DualSense haptics v2 IR enhancement (index 25)
 };
 
 static const char requestIdrFrameGen3[] = { 0, 0 };
@@ -347,7 +341,6 @@ static const short payloadLengthsGen3[] = {
     -1,                          // DualSense haptics PCM (variable-length)
     -1,                          // DualSense haptics IR v2 (fixed payload, validated by parser)
     -1,                          // Remote text context (fixed payload, validated by parser)
-    -1, // DualSense haptics v2 IR enhancement (index 25)
 };
 static const short payloadLengthsGen4[] = {
     sizeof(requestIdrFrameGen4), // Start A (Gen4 uses IDR request here)
@@ -375,7 +368,6 @@ static const short payloadLengthsGen4[] = {
     -1,                          // DualSense haptics PCM (variable-length)
     -1,                          // DualSense haptics IR v2 (fixed payload, validated by parser)
     -1,                          // Remote text context (fixed payload, validated by parser)
-    -1, // DualSense haptics v2 IR enhancement (index 25)
 };
 static const short payloadLengthsGen5[] = {
     sizeof(startAGen5), // Start A
@@ -403,7 +395,6 @@ static const short payloadLengthsGen5[] = {
     -1,                 // DualSense haptics PCM (variable-length)
     -1,                 // DualSense haptics IR v2 (fixed payload, validated by parser)
     -1,                 // Remote text context (fixed payload, validated by parser)
-    -1, // DualSense haptics v2 IR enhancement (index 25)
 };
 static const short payloadLengthsGen7[] = {
     sizeof(startAGen5), // Start A
@@ -431,7 +422,6 @@ static const short payloadLengthsGen7[] = {
     -1,                 // DualSense haptics PCM (variable-length)
     -1,                 // DualSense haptics IR v2 (fixed payload, validated by parser)
     -1,                 // Remote text context (fixed payload, validated by parser)
-    -1, // DualSense haptics v2 IR enhancement (index 25)
 };
 static const short payloadLengthsGen7Enc[] = {
     sizeof(startAGen5),             // Start A
@@ -459,7 +449,6 @@ static const short payloadLengthsGen7Enc[] = {
     -1,                             // DualSense haptics PCM (variable-length)
     -1,                             // DualSense haptics IR v2 (fixed payload, validated by parser)
     -1,                             // Remote text context (fixed payload, validated by parser)
-    -1, // DualSense haptics v2 IR enhancement (index 25)
 };
 
 static const char* preconstructedPayloadsGen3[] = {
@@ -488,7 +477,6 @@ static const char* preconstructedPayloadsGen3[] = {
     NULL,                // IDX_DS5_HAPTICS_PCM
     NULL,                // IDX_DS5_HAPTICS_IR_V2
     NULL,                // IDX_REMOTE_TEXT_CONTEXT
-    NULL, // DualSense haptics v2 IR enhancement (index 25)
 };
 static const char* preconstructedPayloadsGen4[] = {
     requestIdrFrameGen4, // IDX_START_A
@@ -516,7 +504,6 @@ static const char* preconstructedPayloadsGen4[] = {
     NULL,                // IDX_DS5_HAPTICS_PCM
     NULL,                // IDX_DS5_HAPTICS_IR_V2
     NULL,                // IDX_REMOTE_TEXT_CONTEXT
-    NULL, // DualSense haptics v2 IR enhancement (index 25)
 };
 static const char* preconstructedPayloadsGen5[] = {
     startAGen5, // IDX_START_A
@@ -528,7 +515,6 @@ static const char* preconstructedPayloadsGen5[] = {
     NULL, // IDX_DS5_HAPTICS_PCM
     NULL, // IDX_DS5_HAPTICS_IR_V2
     NULL, // IDX_REMOTE_TEXT_CONTEXT
-    NULL, // DualSense haptics v2 IR enhancement (index 25)
 };
 static const char* preconstructedPayloadsGen7[] = {
     startAGen5, // IDX_START_A
@@ -540,7 +526,6 @@ static const char* preconstructedPayloadsGen7[] = {
     NULL, // IDX_DS5_HAPTICS_PCM
     NULL, // IDX_DS5_HAPTICS_IR_V2
     NULL, // IDX_REMOTE_TEXT_CONTEXT
-    NULL, // DualSense haptics v2 IR enhancement (index 25)
 };
 static const char* preconstructedPayloadsGen7Enc[] = {
     startAGen5,             // IDX_START_A
@@ -568,7 +553,6 @@ static const char* preconstructedPayloadsGen7Enc[] = {
     NULL,                   // IDX_DS5_HAPTICS_PCM
     NULL,                   // IDX_DS5_HAPTICS_IR_V2
     NULL,                   // IDX_REMOTE_TEXT_CONTEXT
-    NULL, // DualSense haptics v2 IR enhancement (index 25)
 };
 
 static short* packetTypes;
@@ -1779,21 +1763,16 @@ static void controlReceiveThreadFunc(void* context) {
                 }
             }
             else if (ctlHdr->type == packetTypes[IDX_DS5_HAPTICS_IR_V2]) {
-                if (ListenerCallbacks.ds5HapticsIrV2 != NULL &&
-                        packetLength > (int)sizeof(*ctlHdr)) {
-                    processDs5HapticsIrStreamPacket((const uint8_t*)(ctlHdr + 1),
-                                                    packetLength - (int)sizeof(*ctlHdr),
-                                                    dispatchDs5HapticsIrV2,
-                                                    NULL);
-                }
-            }
-            else if (ctlHdr->type == packetTypes[IDX_DS5_HAPTICS_IR_EXTENDED]) {
-                if (ListenerCallbacks.ds5HapticsIrExtended != NULL &&
-                        packetLength > (int)sizeof(*ctlHdr)) {
-                    processDs5HapticsIrExtendedStreamPacket((const uint8_t*)(ctlHdr + 1),
-                                                      packetLength - (int)sizeof(*ctlHdr),
-                                                      dispatchDs5HapticsIrExtended,
-                                                      NULL);
+                if (ListenerCallbacks.ds5HapticsIrV2 != NULL && packetLength > (int)sizeof(*ctlHdr)) {
+                    const uint8_t* irPayload = (const uint8_t*)(ctlHdr + 1);
+                    const int irLength = packetLength - (int)sizeof(*ctlHdr);
+                    if (irLength == DS5_HAPTICS_IR_STREAM_WIRE_SIZE) {
+                        processDs5HapticsIrStreamPacket(irPayload, irLength, dispatchDs5HapticsIrV2, NULL);
+                    }
+                    else if (ListenerCallbacks.ds5HapticsIrExtended != NULL) {
+                        processDs5HapticsIrExtendedStreamPacket(irPayload, irLength,
+                                                               dispatchDs5HapticsIrExtended, NULL);
+                    }
                 }
             }
             else if (ctlHdr->type == packetTypes[IDX_REMOTE_TEXT_CONTEXT]) {
