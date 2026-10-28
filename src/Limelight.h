@@ -681,7 +681,6 @@ typedef void(*ConnListenerDs5HapticsIrV2)(const LI_DS5_HAPTICS_IR_FRAME_V2* fram
 // See docs/DS5-HAPTICS-IR.md. This callback borrows the complete frame on the
 // control receive thread; copy it before deferring work and do not block.
 #define LI_DS5_HAPTICS_IR_EXTENDED_MAX_EVENTS 8
-#define LI_DS5_HAPTICS_IR_EXTENDED_PROFILE 1
 typedef struct _LI_DS5_HAPTICS_IR_CONTINUOUS_LANE {
     float continuousLow;         // 50-180 Hz, linear full scale [0, 1].
     float continuousHigh;        // 180-400 Hz, linear full scale [0, 1].
@@ -691,12 +690,9 @@ typedef struct _LI_DS5_HAPTICS_IR_EVENT {
     uint64_t sourceTimeUs;
     float leftStrength;
     float rightStrength;
-    float confidence;            // Evidence score, not a calibrated probability.
-    float sharpness;
 } LI_DS5_HAPTICS_IR_EVENT, *PLI_DS5_HAPTICS_IR_EVENT;
 typedef struct _LI_DS5_HAPTICS_IR_EXTENDED_FRAME {
     LI_DS5_HAPTICS_IR_FRAME_V2 base;
-    uint16_t profile;
     uint32_t epoch;
     uint64_t windowEndUs;         // Enhancement state end; may follow the base hop.
     uint8_t eventCount;

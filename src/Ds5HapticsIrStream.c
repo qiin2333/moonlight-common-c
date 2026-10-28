@@ -104,8 +104,6 @@ bool processDs5HapticsIrExtendedStreamPacket(const uint8_t* payload,
     if (extension[0] != DS5_HAPTICS_IR_EXTENSION_VERSION ||
             extension[1] > LI_DS5_HAPTICS_IR_EXTENDED_MAX_EVENTS ||
             readLe16(extension + 2) != payloadLength - DS5_HAPTICS_IR_STREAM_WIRE_SIZE ||
-            readLe16(extension + 4) != LI_DS5_HAPTICS_IR_EXTENDED_PROFILE ||
-            readLe16(extension + 6) != 0 || readLe32(extension + 36) != 0 ||
             payloadLength != DS5_HAPTICS_IR_EXTENDED_STREAM_BASE_SIZE +
                 extension[1] * DS5_HAPTICS_IR_EXTENDED_STREAM_EVENT_SIZE) return false;
 
@@ -115,14 +113,13 @@ bool processDs5HapticsIrExtendedStreamPacket(const uint8_t* payload,
                                         captureBaseFrame, &frame.base)) return false;
     if (frame.base.sourceFrameCount == 0 &&
             !(frame.base.flags & LI_DS5_HAPTICS_IR_FLAG_STREAM_END)) return false;
-    frame.profile = readLe16(extension + 4);
-    frame.epoch = readLe32(extension + 8);
-    frame.windowEndUs = readLe64(extension + 12);
+    frame.epoch = readLe32(extension + 4);
+    frame.windowEndUs = readLe64(extension + 8);
     frame.eventCount = extension[1];
     if (frame.windowEndUs < frame.base.timestampUs) return false;
     for (i = 0; i < 2; i++) {
-        frame.lanes[i].continuousLow = readLeFloat(extension + 20 + i * 8);
-        frame.lanes[i].continuousHigh = readLeFloat(extension + 24 + i * 8);
+        frame.lanes[i].continuousLow = readLeFloat(extension + 16 + i * 8);
+        frame.lanes[i].continuousHigh = readLeFloat(extension + 20 + i * 8);
         if (!isNormalized(frame.lanes[i].continuousLow) ||
                 !isNormalized(frame.lanes[i].continuousHigh)) return false;
     }
@@ -130,16 +127,12 @@ bool processDs5HapticsIrExtendedStreamPacket(const uint8_t* payload,
         const uint8_t* event = payload + DS5_HAPTICS_IR_EXTENDED_STREAM_BASE_SIZE +
             i * DS5_HAPTICS_IR_EXTENDED_STREAM_EVENT_SIZE;
         LI_DS5_HAPTICS_IR_EVENT* out = &frame.events[i];
-        if (readLe32(event + 4) != 0) return false;
         out->eventId = readLe32(event);
-        out->sourceTimeUs = readLe64(event + 8);
-        out->leftStrength = readLeFloat(event + 16);
-        out->rightStrength = readLeFloat(event + 20);
-        out->confidence = readLeFloat(event + 24);
-        out->sharpness = readLeFloat(event + 28);
+        out->sourceTimeUs = readLe64(event + 4);
+        out->leftStrength = readLeFloat(event + 12);
+        out->rightStrength = readLeFloat(event + 16);
         if (out->sourceTimeUs > frame.windowEndUs ||
-                !isNormalized(out->leftStrength) || !isNormalized(out->rightStrength) ||
-                !isNormalized(out->confidence) || !isNormalized(out->sharpness)) return false;
+                !isNormalized(out->leftStrength) || !isNormalized(out->rightStrength)) return false;
     }
     callback(&frame, context);
     return true;

@@ -64,8 +64,8 @@ not repurposed as continuous envelope values, raw PCM statistics or event IDs.
 
 ## Optional enhancement version 1
 
-The outer control message length is `112 + 32 * eventCount`, maximum 368 bytes.
-The extension begins immediately after the base. Its length is `40 + 32*N`;
+The outer control message length is `104 + 20 * eventCount`, maximum 264 bytes.
+The extension begins immediately after the base. Its length is `32 + 20*N`;
 its version is independent of the unchanged base version.
 
 | Extension offset | Type | Meaning |
@@ -73,15 +73,12 @@ its version is independent of the unchanged base version.
 | 0 | u8 | Extension version, 1 |
 | 1 | u8 | Event count, 0-8 |
 | 2 | u16 | Complete extension length |
-| 4 | u16 | Analysis profile, 1 |
-| 6 | u16 | Reserved, zero |
-| 8 | u32 | Enhancement epoch |
-| 12 | u64 | End of the continuous/event analysis state, microseconds |
-| 20, 28 | 2 x f32 | Each lane: continuous low, continuous high |
-| 36 | u32 | Reserved, zero |
-| 40 onward | 32-byte records | Identified source-time events |
+| 4 | u32 | Enhancement epoch |
+| 8 | u64 | End of the continuous/event analysis state, microseconds |
+| 16, 24 | 2 x f32 | Each lane: continuous low, continuous high |
+| 32 onward | 20-byte records | Identified source-time events |
 
-Profile 1 describes 50-180 Hz / 180-400 Hz continuous levels in [0, 1], with
+Extension version 1 defines 50-180 Hz / 180-400 Hz continuous levels in [0, 1], with
 release history. The enhancement window end can follow the last completed v2
 hop, but cannot precede the base timestamp. It shares the same 48 kHz source
 clock. The source sequence, controller identity, lifecycle flags, source count
@@ -90,11 +87,12 @@ A source count is metadata, not a payload length or an allocation request;
 positive u32 counts are independent of the SDK's current 240-frame input limit.
 A zero count is accepted in an enhanced message only with END.
 
-Each event contains `eventId:u32`, `reserved:u32=0`, `sourceTimeUs:u64`, then
-`leftStrength`, `rightStrength`, `confidence`, `sharpness` as f32 values in [0, 1].
-Confidence is an evidence score, not a calibrated probability. Event time must
-not exceed the enhancement window end. Decoder validation covers the complete
-v2 base, extension sizes/version/profile, reserved fields and finite ranges.
+Each event contains `eventId:u32` at offset 0, `sourceTimeUs:u64` at offset 4,
+then `leftStrength:f32` and `rightStrength:f32` at offsets 12 and 16, in [0, 1].
+Wire records have no native alignment padding. Event time must not exceed the
+enhancement window end. Decoder validation covers the complete v2 base,
+extension sizes/version and finite ranges. Analysis profile, confidence and
+sharpness are not transported; the extension version fixes the field semantics.
 No device model, preset, gain or output-rate policy is carried here.
 
 ## Playback semantics
