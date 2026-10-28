@@ -11,7 +11,7 @@ static unsigned failures;
     } while (0)
 
 static void onV2(const LI_DS5_HAPTICS_IR_FRAME_V2 *frame) { (void)frame; }
-static void onExtended(const LI_DS5_HAPTICS_IR_FRAME_V3 *frame) { (void)frame; }
+static void onExtended(const LI_DS5_HAPTICS_IR_EXTENDED_FRAME *frame) { (void)frame; }
 static void onPcm(const LI_DS5_HAPTICS_PCM_FRAME *frame) { (void)frame; }
 
 static void checkFeatures(bool v2, bool enhanced, bool pcm, bool sunshine) {
