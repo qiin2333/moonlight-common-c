@@ -1504,7 +1504,7 @@ static void dispatchDs5HapticsIrV2(const LI_DS5_HAPTICS_IR_FRAME_V2* frame, void
     ListenerCallbacks.ds5HapticsIrV2(frame);
 }
 
-static void dispatchDs5HapticsIrExtended(const LI_DS5_HAPTICS_IR_FRAME_V3* frame, void* context) {
+static void dispatchDs5HapticsIrExtended(const LI_DS5_HAPTICS_IR_EXTENDED_FRAME* frame, void* context) {
     (void)context;
     ListenerCallbacks.ds5HapticsIrExtended(frame);
 }

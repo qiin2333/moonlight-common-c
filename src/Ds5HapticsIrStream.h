@@ -19,7 +19,7 @@ bool processDs5HapticsIrStreamPacket(const uint8_t* payload,
                                      Ds5HapticsIrStreamCallback callback,
                                      void* context);
 
-typedef void(*Ds5HapticsIrExtendedStreamCallback)(const LI_DS5_HAPTICS_IR_FRAME_V3* frame,
+typedef void(*Ds5HapticsIrExtendedStreamCallback)(const LI_DS5_HAPTICS_IR_EXTENDED_FRAME* frame,
                                           void* context);
 
 bool processDs5HapticsIrExtendedStreamPacket(const uint8_t* payload,

@@ -94,7 +94,7 @@ bool processDs5HapticsIrExtendedStreamPacket(const uint8_t* payload,
                                       int payloadLength,
                                       Ds5HapticsIrExtendedStreamCallback callback,
                                       void* context) {
-    LI_DS5_HAPTICS_IR_FRAME_V3 frame;
+    LI_DS5_HAPTICS_IR_EXTENDED_FRAME frame;
     const uint8_t* extension;
     unsigned int i;
     if (payload == NULL || callback == NULL ||
@@ -129,7 +129,7 @@ bool processDs5HapticsIrExtendedStreamPacket(const uint8_t* payload,
     for (i = 0; i < frame.eventCount; i++) {
         const uint8_t* event = payload + DS5_HAPTICS_IR_EXTENDED_STREAM_BASE_SIZE +
             i * DS5_HAPTICS_IR_EXTENDED_STREAM_EVENT_SIZE;
-        LI_DS5_HAPTICS_IR_EVENT_V3* out = &frame.events[i];
+        LI_DS5_HAPTICS_IR_EVENT* out = &frame.events[i];
         if (readLe32(event + 4) != 0) return false;
         out->eventId = readLe32(event);
         out->sourceTimeUs = readLe64(event + 8);

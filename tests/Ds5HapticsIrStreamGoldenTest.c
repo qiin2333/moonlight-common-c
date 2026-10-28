@@ -133,13 +133,13 @@ static void makeValidExtendedPacket(uint8_t* packet, unsigned events) {
     }
 }
 
-static void captureExtendedFrame(const LI_DS5_HAPTICS_IR_FRAME_V3* frame, void* context) {
-    *(LI_DS5_HAPTICS_IR_FRAME_V3*)context = *frame;
+static void captureExtendedFrame(const LI_DS5_HAPTICS_IR_EXTENDED_FRAME* frame, void* context) {
+    *(LI_DS5_HAPTICS_IR_EXTENDED_FRAME*)context = *frame;
 }
 
 static void testExtendedFrames(void) {
     uint8_t packet[DS5_HAPTICS_IR_EXTENDED_STREAM_MAX_SIZE + 1];
-    LI_DS5_HAPTICS_IR_FRAME_V3 captured = {0};
+    LI_DS5_HAPTICS_IR_EXTENDED_FRAME captured = {0};
     LI_DS5_HAPTICS_IR_FRAME_V2 base = {0};
     unsigned i, count;
     for (count = 0; count <= LI_DS5_HAPTICS_IR_EXTENDED_MAX_EVENTS; count++) {
