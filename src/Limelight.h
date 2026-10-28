@@ -676,6 +676,39 @@ typedef struct _LI_DS5_HAPTICS_IR_FRAME_V2 {
 } LI_DS5_HAPTICS_IR_FRAME_V2, *PLI_DS5_HAPTICS_IR_FRAME_V2;
 typedef void(*ConnListenerDs5HapticsIrV2)(const LI_DS5_HAPTICS_IR_FRAME_V2* frame);
 
+// Explicit continuous state plus identified source-time events. The wire layout
+// is serialized separately; these structures are callback values, not packed wire.
+#define LI_DS5_HAPTICS_IR_V3_MAX_EVENTS 8
+#define LI_DS5_HAPTICS_IR_V3_PROFILE 1
+typedef struct _LI_DS5_HAPTICS_IR_LANE_V3 {
+    float continuousLow;
+    float continuousHigh;
+    float rawRms;
+    float rawPeak;
+} LI_DS5_HAPTICS_IR_LANE_V3, *PLI_DS5_HAPTICS_IR_LANE_V3;
+typedef struct _LI_DS5_HAPTICS_IR_EVENT_V3 {
+    uint32_t eventId;             // Unique within the controller's epoch.
+    uint64_t sourceTimeUs;        // Source time, at or before windowEndUs.
+    float leftStrength;
+    float rightStrength;
+    float confidence;
+    float sharpness;
+} LI_DS5_HAPTICS_IR_EVENT_V3, *PLI_DS5_HAPTICS_IR_EVENT_V3;
+typedef struct _LI_DS5_HAPTICS_IR_FRAME_V3 {
+    uint8_t flags;                // LI_DS5_HAPTICS_IR_FLAG_*.
+    uint16_t controllerNumber;
+    uint16_t profile;             // LI_DS5_HAPTICS_IR_V3_PROFILE.
+    uint32_t epoch;               // Isolates restarts and controller-slot reuse.
+    uint32_t frameSequence;
+    uint64_t windowEndUs;
+    uint32_t sourceFrameCount;    // 48 kHz samples represented by this state.
+    uint8_t eventCount;
+    LI_DS5_HAPTICS_IR_LANE_V3 lanes[2];
+    LI_DS5_HAPTICS_IR_EVENT_V3 events[LI_DS5_HAPTICS_IR_V3_MAX_EVENTS];
+} LI_DS5_HAPTICS_IR_FRAME_V3, *PLI_DS5_HAPTICS_IR_FRAME_V3;
+typedef void(*ConnListenerDs5HapticsIrV3)(const LI_DS5_HAPTICS_IR_FRAME_V3* frame);
+
+
 // A host-side text focus observation correlated with input from this client.
 // Coordinates use the capture coordinate space described by captureWidth/Height.
 #define LI_TEXT_CONTEXT_FLAG_ACTIVE        0x0001
@@ -733,6 +766,8 @@ typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerCursorUpdate cursorUpdate;
     ConnListenerDs5HapticsPcm ds5HapticsPcm;
     ConnListenerDs5HapticsIrV2 ds5HapticsIrV2;
+    // Register both IR callbacks for v3 preference with older-host v2 fallback.
+    ConnListenerDs5HapticsIrV3 ds5HapticsIrV3;
 } CONNECTION_LISTENER_CALLBACKS, *PCONNECTION_LISTENER_CALLBACKS;
 
 // Use this function to zero the connection callbacks when allocated on the stack or heap

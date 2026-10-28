@@ -283,6 +283,11 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         if (ListenerCallbacks.ds5HapticsIrV2 != NULL) {
             moonlightFeatureFlags |= ML_FF_DS5_HAPTICS_IR_V2;
         }
+        if (ListenerCallbacks.ds5HapticsIrV3 != NULL) {
+            // A client may advertise both IR versions. The host selects v3
+            // when supported and otherwise retains the existing v2 path.
+            moonlightFeatureFlags |= ML_FF_DS5_HAPTICS_IR_V3;
+        }
         if (RemoteTextContextCallback != NULL) {
             moonlightFeatureFlags |= ML_FF_REMOTE_TEXT_CONTEXT;
         }

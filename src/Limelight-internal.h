@@ -109,6 +109,7 @@ extern uint32_t EncryptionFeaturesEnabled;
 #define ML_FF_SESSION_ID_V1 0x02 // Client supports X-SS-Ping-Payload and X-SS-Connect-Data
 #define ML_FF_DS5_HAPTICS_PCM 0x04 // Client accepts authored DualSense PCM on the control stream
 #define ML_FF_DS5_HAPTICS_IR_V2 0x08 // Client selected simulated DualSense and accepts authored IR v2
+#define ML_FF_DS5_HAPTICS_IR_V3 0x80 // Client accepts continuous-state/source-event IR v3 (0x5511)
 #define ML_FF_REMOTE_TEXT_CONTEXT 0x10 // Client accepts remote text context updates
 #define ML_FF_PYROWAVE 0x20 // Client accepts the experimental PyroWave video contract
 #define ML_FF_DS5_HAPTICS_STATE 0x40 // Client accepts absolute DS5 actuator controls (0x550D)

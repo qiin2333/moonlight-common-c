@@ -85,3 +85,78 @@ bool processDs5HapticsIrStreamPacket(const uint8_t* payload,
     callback(&frame, context);
     return true;
 }
+
+bool processDs5HapticsIrV3StreamPacket(const uint8_t* payload,
+                                      int payloadLength,
+                                      Ds5HapticsIrV3StreamCallback callback,
+                                      void* context) {
+    LI_DS5_HAPTICS_IR_FRAME_V3 frame;
+    const uint8_t knownFlags = LI_DS5_HAPTICS_IR_FLAG_DISCONTINUITY |
+                               LI_DS5_HAPTICS_IR_FLAG_PARTIAL |
+                               LI_DS5_HAPTICS_IR_FLAG_STREAM_END |
+                               LI_DS5_HAPTICS_IR_FLAG_SILENT;
+    unsigned int i;
+    if (payload == NULL || callback == NULL ||
+            payloadLength < DS5_HAPTICS_IR_V3_STREAM_BASE_SIZE ||
+            payloadLength > DS5_HAPTICS_IR_V3_STREAM_MAX_SIZE ||
+            payload[0] != DS5_HAPTICS_IR_V3_STREAM_PROTOCOL_VERSION ||
+            (payload[1] & ~knownFlags) != 0 ||
+            readLe16(payload + 2) != (unsigned int)payloadLength ||
+            readLe16(payload + 6) != LI_DS5_HAPTICS_IR_V3_PROFILE ||
+            payload[28] > LI_DS5_HAPTICS_IR_V3_MAX_EVENTS ||
+            payload[29] != 2 || readLe16(payload + 30) != 0 ||
+            payloadLength != DS5_HAPTICS_IR_V3_STREAM_BASE_SIZE +
+                payload[28] * DS5_HAPTICS_IR_V3_STREAM_EVENT_SIZE) {
+        return false;
+    }
+
+    memset(&frame, 0, sizeof(frame));
+    frame.flags = payload[1];
+    frame.controllerNumber = readLe16(payload + 4);
+    frame.profile = readLe16(payload + 6);
+    frame.epoch = readLe32(payload + 8);
+    frame.frameSequence = readLe32(payload + 12);
+    frame.windowEndUs = readLe64(payload + 16);
+    frame.sourceFrameCount = readLe32(payload + 24);
+    frame.eventCount = payload[28];
+    if (frame.sourceFrameCount > 240 ||
+            (frame.sourceFrameCount == 0 && !(frame.flags & LI_DS5_HAPTICS_IR_FLAG_STREAM_END))) {
+        return false;
+    }
+    for (i = 0; i < 2; i++) {
+        const uint8_t* lane = payload + 32 + i * 16;
+        LI_DS5_HAPTICS_IR_LANE_V3* out = &frame.lanes[i];
+        out->continuousLow = readLeFloat(lane);
+        out->continuousHigh = readLeFloat(lane + 4);
+        out->rawRms = readLeFloat(lane + 8);
+        out->rawPeak = readLeFloat(lane + 12);
+        if (!isNormalized(out->continuousLow) || !isNormalized(out->continuousHigh) ||
+                !isNormalized(out->rawRms) || !isNormalized(out->rawPeak) ||
+                out->rawRms > out->rawPeak) {
+            return false;
+        }
+        // Continuous envelopes carry a release tail and may exceed rawPeak.
+    }
+    for (i = 0; i < frame.eventCount; i++) {
+        const uint8_t* event = payload + DS5_HAPTICS_IR_V3_STREAM_BASE_SIZE +
+            i * DS5_HAPTICS_IR_V3_STREAM_EVENT_SIZE;
+        LI_DS5_HAPTICS_IR_EVENT_V3* out = &frame.events[i];
+        if (readLe32(event + 4) != 0) {
+            return false;
+        }
+        out->eventId = readLe32(event);
+        out->sourceTimeUs = readLe64(event + 8);
+        out->leftStrength = readLeFloat(event + 16);
+        out->rightStrength = readLeFloat(event + 20);
+        out->confidence = readLeFloat(event + 24);
+        out->sharpness = readLeFloat(event + 28);
+        if (out->sourceTimeUs > frame.windowEndUs ||
+                !isNormalized(out->leftStrength) || !isNormalized(out->rightStrength) ||
+                !isNormalized(out->confidence) || !isNormalized(out->sharpness)) {
+            return false;
+        }
+    }
+
+    callback(&frame, context);
+    return true;
+}

@@ -248,7 +248,8 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
         goto Cleanup;
     }
 
-    if (clCallbacks != NULL && clCallbacks->ds5HapticsPcm != NULL && clCallbacks->ds5HapticsIrV2 != NULL) {
+    if (clCallbacks != NULL && clCallbacks->ds5HapticsPcm != NULL &&
+            (clCallbacks->ds5HapticsIrV2 != NULL || clCallbacks->ds5HapticsIrV3 != NULL)) {
         Limelog("Physical and simulated DualSense haptics modes are mutually exclusive\n");
         LC_ASSERT(false);
         err = -1;
