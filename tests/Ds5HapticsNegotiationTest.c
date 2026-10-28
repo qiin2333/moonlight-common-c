@@ -11,10 +11,10 @@ static unsigned failures;
     } while (0)
 
 static void onV2(const LI_DS5_HAPTICS_IR_FRAME_V2 *frame) { (void)frame; }
-static void onV3(const LI_DS5_HAPTICS_IR_FRAME_V3 *frame) { (void)frame; }
+static void onExtended(const LI_DS5_HAPTICS_IR_FRAME_V3 *frame) { (void)frame; }
 static void onPcm(const LI_DS5_HAPTICS_PCM_FRAME *frame) { (void)frame; }
 
-static void checkFeatures(bool v2, bool v3, bool pcm, bool sunshine) {
+static void checkFeatures(bool v2, bool enhanced, bool pcm, bool sunshine) {
     int length = 0;
     char *sdp;
     const char *field;
@@ -22,7 +22,7 @@ static void checkFeatures(bool v2, bool v3, bool pcm, bool sunshine) {
     AppVersionQuad[3] = sunshine ? -1 : 0;
     LiInitializeConnectionCallbacks(&ListenerCallbacks);
     ListenerCallbacks.ds5HapticsIrV2 = v2 ? onV2 : NULL;
-    ListenerCallbacks.ds5HapticsIrV3 = v3 ? onV3 : NULL;
+    ListenerCallbacks.ds5HapticsIrExtended = enhanced ? onExtended : NULL;
     ListenerCallbacks.ds5HapticsPcm = pcm ? onPcm : NULL;
     sdp = getSdpPayloadForStreamConfig(14, &length);
     CHECK(sdp != NULL && length > 0);
@@ -38,7 +38,7 @@ static void checkFeatures(bool v2, bool v3, bool pcm, bool sunshine) {
     if (field != NULL) {
         flags = (uint32_t)strtoul(field + strlen("a=x-ml-general.featureFlags:"), NULL, 10);
         CHECK((flags & ML_FF_DS5_HAPTICS_IR_V2) == (v2 ? ML_FF_DS5_HAPTICS_IR_V2 : 0));
-        CHECK((flags & ML_FF_DS5_HAPTICS_IR_V3) == (v3 ? ML_FF_DS5_HAPTICS_IR_V3 : 0));
+        CHECK((flags & ML_FF_DS5_HAPTICS_IR_EXTENDED) == (enhanced ? ML_FF_DS5_HAPTICS_IR_EXTENDED : 0));
         CHECK((flags & ML_FF_DS5_HAPTICS_PCM) == (pcm ? ML_FF_DS5_HAPTICS_PCM : 0));
         CHECK((flags & (ML_FF_FEC_STATUS | ML_FF_SESSION_ID_V1)) ==
               (ML_FF_FEC_STATUS | ML_FF_SESSION_ID_V1));
@@ -47,9 +47,9 @@ static void checkFeatures(bool v2, bool v3, bool pcm, bool sunshine) {
 }
 
 int main(void) {
-    CHECK(ML_FF_DS5_HAPTICS_IR_V3 == 0x80);
+    CHECK(ML_FF_DS5_HAPTICS_IR_EXTENDED == 0x80);
     CHECK(
-        (ML_FF_DS5_HAPTICS_IR_V3 & (ML_FF_FEC_STATUS | ML_FF_SESSION_ID_V1 | ML_FF_DS5_HAPTICS_PCM |
+        (ML_FF_DS5_HAPTICS_IR_EXTENDED & (ML_FF_FEC_STATUS | ML_FF_SESSION_ID_V1 | ML_FF_DS5_HAPTICS_PCM |
                                     ML_FF_DS5_HAPTICS_IR_V2 | ML_FF_REMOTE_TEXT_CONTEXT)) == 0);
     CHECK(initializePlatform() == 0);
     AppVersionQuad[0] = 7;
@@ -77,8 +77,7 @@ int main(void) {
     CHECK(initializeControlStream() == 0);
     checkFeatures(false, false, false, true);
     checkFeatures(true, false, false, true);
-    checkFeatures(false, true, false, true);
-    // Both IR versions must remain advertised so old hosts see the v2 bit.
+    // Enhanced sessions retain the base bit so old hosts can still send v2.
     checkFeatures(true, true, false, true);
     checkFeatures(false, false, true, true);
     checkFeatures(true, true, false, false);

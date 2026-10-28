@@ -248,8 +248,16 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
         goto Cleanup;
     }
 
+    if (clCallbacks != NULL && clCallbacks->ds5HapticsIrExtended != NULL &&
+            clCallbacks->ds5HapticsIrV2 == NULL) {
+        Limelog("Authored IR enhancement requires the v2 base callback\n");
+        LC_ASSERT(false);
+        err = -1;
+        goto Cleanup;
+    }
+
     if (clCallbacks != NULL && clCallbacks->ds5HapticsPcm != NULL &&
-            (clCallbacks->ds5HapticsIrV2 != NULL || clCallbacks->ds5HapticsIrV3 != NULL)) {
+            (clCallbacks->ds5HapticsIrV2 != NULL || clCallbacks->ds5HapticsIrExtended != NULL)) {
         Limelog("Physical and simulated DualSense haptics modes are mutually exclusive\n");
         LC_ASSERT(false);
         err = -1;

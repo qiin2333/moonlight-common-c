@@ -1,107 +1,111 @@
-# DualSense authored haptics IR
+# DualSense authored IR: v2 base with optional enhancement
 
-This library owns the transport contract: capability advertisement, control
-message dispatch, bounded decoding, validation, and synchronous callbacks.
-The producer SDK owns PCM analysis. Sunshine owns source/controller association,
-encoding, and sending. Clients own playback clocks, deduplication, expiry,
-device calibration, and actuator allocation. No SDK, device model, effect preset,
-analysis threshold, or output-rate policy is required by the protocol library.
+The protocol library owns capability advertisement, message dispatch, decoding,
+validation and synchronous callbacks. The SDK owns PCM analysis. Sunshine owns
+controller association, encoding and sending. Clients own playback clocks,
+deduplication, expiry, calibration and actuator allocation.
 
-## Integration and compatibility
+## Compatibility and negotiation
 
-V3 follows the existing v2 source API: initialize
-`CONNECTION_LISTENER_CALLBACKS`, set `ds5HapticsIrV2` and/or `ds5HapticsIrV3`,
-and pass it to `LiStartConnection()`. Register both to accept v3 on newer hosts
-and v2 on older hosts. Registering neither keeps ordinary rumble. Authored raw
-PCM and either IR callback are mutually exclusive.
+The original v2 capability `ML_FF_DS5_HAPTICS_IR_V2 = 0x08`, control message
+`0x550B`, 72-byte payload and feature semantics remain unchanged. Existing v2
+clients continue receiving exactly that path. No reserved v2 field is reused.
 
-Appending the optional v3 member leaves existing members and v2 wire semantics
-unchanged. Callers and the library must be rebuilt together against the updated
-header, as with the v2 callback integration. This is source and wire
-compatibility, not binary compatibility for an old application replacing only
-its shared library: the callback structure is larger, and initialization/copying
-use its complete size. A same-header initializer defaults the new member to
-NULL; callers should use `LiInitializeConnectionCallbacks()` before assignment.
+A client can additionally register `ds5HapticsIrExtended` alongside its required
+`ds5HapticsIrV2` callback to advertise `ML_FF_DS5_HAPTICS_IR_EXTENDED = 0x80`.
+This accepts an enhanced message (`0x5511`) consisting of the original 72-byte
+v2 base followed by an optional continuous/event extension. The host sends one
+representation per connection: enhanced when both capabilities are present,
+v2 for v2-only clients, ordinary rumble when neither is present. An old host
+sees the base capability and sends v2. Raw authored PCM and IR remain exclusive.
+The enhanced callback alone is not a complete v2 receiver and is rejected.
 
-For Sunshine, non-NULL callbacks advertise `ML_FF_DS5_HAPTICS_IR_V2 = 0x08`
-and `ML_FF_DS5_HAPTICS_IR_V3 = 0x80` independently. These are client `ML_FF_*`
-capabilities, separate from host `LI_FF_*` features. Version selection belongs
-to the host. Old hosts can continue using v2, or ordinary rumble if they support
-neither version. Non-Sunshine sessions advertise neither extension.
+The enhanced decoder reuses the existing v2 decoder on the first 72 bytes.
+It delivers the base and enhancement together in one callback, without also
+issuing a legacy callback or sending a duplicate base message. This avoids
+joining separately lost/reordered base and enhancement packets.
 
-Both IR callbacks execute synchronously on the control receive thread. The
-frame and its members are borrowed values valid only until the callback returns.
-Copy before deferring work; do not block this thread. Callback C structures are
-not packed wire structures and must not be serialized with `memcpy()`.
+Both callbacks execute on the control receive thread and borrow their frame
+until return. Copy before deferring work; do not block this thread. C callback
+structs are native values, not packed wire layouts. As with the v2 source API,
+rebuild callers, headers and library together when the callback struct grows.
+Old applications cannot replace only their shared library across that change;
+wire fallback and source recompilation compatibility are separate from binary ABI.
 
-## V2
+## Original v2 base
 
-The existing encrypted control message is `0x550B`, version 2, with a fixed
-72-byte payload. `Ds5HapticsIrStream.h` and its golden tests retain the existing
-field layout and validation. V3 does not reinterpret a v2 field or message.
+All integers and IEEE-754 binary32 floats are little-endian. The v2 base always
+has its own version 2 and length 72, even inside an enhanced message.
 
-## V3 wire layout
-
-The encrypted control message is `0x5511`, version 3. All integers and IEEE-754
-binary32 floats are little-endian. Payload length is `64 + eventCount * 32`,
-with 0-8 events and a maximum of 320 bytes. Profile 1 describes two authored
-actuator lanes derived from 48 kHz stereo PCM; no PCM samples are in this message.
-
-| Offset | Type | Meaning |
+| Base offset | Type | Meaning |
 | --- | --- | --- |
-| 0 | u8 | Version, 3 |
-| 1 | u8 | Flags: discontinuity 1, partial 2, stream end 4, silent 8 |
-| 2 | u16 | Complete payload length |
+| 0 | u8 | Version, 2 |
+| 1 | u8 | Discontinuity 1, partial 2, END 4, SILENT 8 |
+| 2 | u16 | Base length, 72 |
 | 4 | u16 | Client controller number |
-| 6 | u16 | Profile, 1 |
-| 8 | u32 | Stream epoch |
-| 12 | u32 | IR frame sequence within the epoch |
-| 16 | u64 | Source sampling window end, microseconds |
-| 24 | u32 | Number of stereo source frames represented; positive except at END |
-| 28 | u8 | Event count, 0-8 |
-| 29 | u8 | Lane count, 2 |
-| 30 | u16 | Reserved, zero |
-| 32, 48 | 4 x f32 | Each lane: continuous low, continuous high, raw RMS, raw peak |
-| 64 onward | 32-byte records | Identified source-time events |
+| 6 | u16 | Reserved, zero |
+| 8 | u32 | Source sequence, shared by base and enhancement |
+| 12 | u64 | End of the represented v2 source window, microseconds |
+| 20 | u32 | Number of stereo source frames represented |
+| 24, 44 | 5 x f32 | Each lane: tactile RMS, peak, relative attack, low-band ratio, sign-transition rate |
+| 64 | f32 | Lane correlation |
+| 68 | u32 | Reserved, zero |
 
-`sourceFrameCount` is metadata, not a payload size or an allocation request.
-As in v2, its positive u32 range is independent of the producer's processing
-block size; the SDK currently accepts up to 240 frames per call, but that is
-not a wire constraint. Zero is accepted only with END. Clients need not allocate
-or reconstruct source samples from this count.
+RMS/peak describe the 50-400 Hz tactile band, with `0 <= rms <= peak <= 1`.
+Attack and low-band energy ratio are in [0, 1]; the split is approximately
+160 Hz. Sign transitions are a trailing estimate in [0, 48000], not a pitch.
+Correlation is in [-1, 1]. All values must be finite. SILENT describes the
+current tactile input. These features retain their original v2 meaning and are
+not repurposed as continuous envelope values, raw PCM statistics or event IDs.
+
+## Optional enhancement version 1
+
+The outer control message length is `112 + 32 * eventCount`, maximum 368 bytes.
+The extension begins immediately after the base. Its length is `40 + 32*N`;
+its version is independent of the unchanged base version.
+
+| Extension offset | Type | Meaning |
+| --- | --- | --- |
+| 0 | u8 | Extension version, 1 |
+| 1 | u8 | Event count, 0-8 |
+| 2 | u16 | Complete extension length |
+| 4 | u16 | Analysis profile, 1 |
+| 6 | u16 | Reserved, zero |
+| 8 | u32 | Enhancement epoch |
+| 12 | u64 | End of the continuous/event analysis state, microseconds |
+| 20, 28 | 2 x f32 | Each lane: continuous low, continuous high |
+| 36 | u32 | Reserved, zero |
+| 40 onward | 32-byte records | Identified source-time events |
+
+Profile 1 describes 50-180 Hz / 180-400 Hz continuous levels in [0, 1], with
+release history. The enhancement window end can follow the last completed v2
+hop, but cannot precede the base timestamp. It shares the same 48 kHz source
+clock. The source sequence, controller identity, lifecycle flags, source count
+and original signal features are reused from the base rather than duplicated.
+A source count is metadata, not a payload length or an allocation request;
+positive u32 counts are independent of the SDK's current 240-frame input limit.
+A zero count is accepted in an enhanced message only with END.
 
 Each event contains `eventId:u32`, `reserved:u32=0`, `sourceTimeUs:u64`, then
-four f32 values: `leftStrength`, `rightStrength`, `confidence`, and `sharpness`.
-The decoder rejects unsupported versions/profiles, unknown flag bits, nonzero
-reserved fields, incorrect sizes/counts, future event times, and nonfinite or
-out-of-range normalized fields. No state is retained or filtered by the decoder.
+`leftStrength`, `rightStrength`, `confidence`, `sharpness` as f32 values in [0, 1].
+Confidence is an evidence score, not a calibrated probability. Event time must
+not exceed the enhancement window end. Decoder validation covers the complete
+v2 base, extension sizes/version/profile, reserved fields and finite ranges.
+No device model, preset, gain or output-rate policy is carried here.
 
-Profile 1 continuous low/high values describe 50-180 Hz / 180-400 Hz bands as
-linear full-scale levels in [0, 1]. They may retain release history and exceed
-the current raw peak. Raw RMS and peak refer to unfiltered PCM, with
-`0 <= rawRms <= rawPeak <= 1`; they are reference features, not an extra output
-layer. Event strengths, confidence, and sharpness are in [0, 1]. Confidence is
-an evidence score, not a calibrated probability. No field promises an actuator
-amplitude, waveform, preset, or physically achievable playback density.
+## Playback semantics
 
-## Time and lifecycle semantics
+Newer valid frames replace continuous state. Events use
+`(base.controllerNumber, epoch, eventId)` identity and immutable published values.
+A producer can repeat recent events as bounded transport redundancy. Clients
+can recover an unseen event from a reordered packet without replacing newer
+continuous state. The base source sequence and epoch use unsigned 32-bit serial
+ordering with rollover; zero is valid. Restart/discontinuity advances the epoch.
 
-Source times share a controller's relative sampling clock. They are not video
-or audio PTS. An event time is its source onset and must not exceed the frame's
-window end; analysis may publish it after a causal confirmation delay. Clients
-map this clock to their local monotonic playback clock.
-
-Continuous state is replaced by newer valid frames. Events are identified by
-`(controllerNumber, epoch, eventId)` and may recur in several packets as transport
-redundancy. An event's published time and features remain immutable. A client
-can accept an unseen, still-useful event from a reordered frame without replacing
-its newer continuous state. Frame and epoch ordering use unsigned 32-bit serial
-arithmetic; zero is a legal value and rollover does not imply a source reset.
-
-Source restarts/discontinuities establish a new epoch and retire old playback
-state. END terminates its epoch and clears pending output; an END for an old
-epoch must not stop a new one. SILENT describes current tactile-band input and
-does not mean a continuous release tail is zero. Source/actuator queues must
-remain bounded, with missed-event expiry and source-loss cleanup owned by the
-client. This protocol does not prescribe queue size, playout delay, retransmit
-history duration, phone effect cadence, or device-specific routing.
+Base END terminates its epoch and clears pending playback; old-epoch END must
+not stop a new source. Base SILENT must not erase an enhanced continuous release
+tail. When enhancement is absent, the client retains its v2 renderer. When it
+is present, it consumes the supplied continuous state and source events instead
+of also estimating and playing the base attack a second time. Queues, freshness
+limits, missed-event cleanup and phone/controller routing belong to the client.
+Source time is not audio/video PTS and does not promise cross-media synchronization.
