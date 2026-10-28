@@ -1,4 +1,5 @@
 #include "Limelight-internal.h"
+#include <stddef.h>
 #include <stdio.h>
 
 static unsigned failures;
@@ -13,6 +14,28 @@ static unsigned failures;
 static void onV2(const LI_DS5_HAPTICS_IR_FRAME_V2 *frame) { (void)frame; }
 static void onV3(const LI_DS5_HAPTICS_IR_FRAME_V3 *frame) { (void)frame; }
 static void onPcm(const LI_DS5_HAPTICS_PCM_FRAME *frame) { (void)frame; }
+
+static void checkCallbackSourceContract(void) {
+    struct {
+        uint8_t before[16];
+        CONNECTION_LISTENER_CALLBACKS callbacks;
+        uint8_t after[16];
+    } storage;
+    // Existing v2 source can keep its initializer after a synchronized rebuild.
+    CONNECTION_LISTENER_CALLBACKS v2Only = {.ds5HapticsIrV2 = onV2};
+    unsigned i;
+    CHECK(v2Only.ds5HapticsIrV2 == onV2 && v2Only.ds5HapticsIrV3 == NULL);
+    CHECK(offsetof(CONNECTION_LISTENER_CALLBACKS, ds5HapticsIrV3) ==
+          offsetof(CONNECTION_LISTENER_CALLBACKS, ds5HapticsIrV2) + sizeof(ConnListenerDs5HapticsIrV2));
+    memset(&storage, 0xa5, sizeof(storage));
+    LiInitializeConnectionCallbacks(&storage.callbacks);
+    CHECK(storage.callbacks.ds5HapticsPcm == NULL);
+    CHECK(storage.callbacks.ds5HapticsIrV2 == NULL);
+    CHECK(storage.callbacks.ds5HapticsIrV3 == NULL);
+    for (i = 0; i < sizeof(storage.before); i++) {
+        CHECK(storage.before[i] == 0xa5 && storage.after[i] == 0xa5);
+    }
+}
 
 static void checkFeatures(bool v2, bool v3, bool pcm, bool sunshine) {
     int length = 0;
@@ -47,6 +70,7 @@ static void checkFeatures(bool v2, bool v3, bool pcm, bool sunshine) {
 }
 
 int main(void) {
+    checkCallbackSourceContract();
     CHECK(ML_FF_DS5_HAPTICS_IR_V3 == 0x80);
     CHECK(
         (ML_FF_DS5_HAPTICS_IR_V3 & (ML_FF_FEC_STATUS | ML_FF_SESSION_ID_V1 | ML_FF_DS5_HAPTICS_PCM |

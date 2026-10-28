@@ -143,7 +143,6 @@ if (BUILD_TESTING)
   add_test(NAME rtsp-parser-mat-tests COMMAND rtsp-parser-mat-tests)
 
   get_target_property(_common_c_type moonlight-common-c TYPE)
-  get_target_property(_common_c_type moonlight-common-c TYPE)
   if(_common_c_type STREQUAL "STATIC_LIBRARY")
     add_executable(mat-live-rtp-tests tests/MatLiveRtpTest.c)
     target_include_directories(mat-live-rtp-tests PRIVATE enet/include

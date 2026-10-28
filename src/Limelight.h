@@ -676,14 +676,17 @@ typedef struct _LI_DS5_HAPTICS_IR_FRAME_V2 {
 } LI_DS5_HAPTICS_IR_FRAME_V2, *PLI_DS5_HAPTICS_IR_FRAME_V2;
 typedef void(*ConnListenerDs5HapticsIrV2)(const LI_DS5_HAPTICS_IR_FRAME_V2* frame);
 
-// Explicit continuous state plus identified source-time events. The wire layout
-// is serialized separately; these structures are callback values, not packed wire.
+// Explicit continuous state plus identified source-time events. Like v2, these
+// are normalized analysis features; device calibration and playback stay local.
+// See docs/DS5-HAPTICS-IR.md for the independently serialized wire contract.
+// Called synchronously on the control receive thread. The frame is valid only
+// during the callback; copy it before deferring work and do not block this thread.
 #define LI_DS5_HAPTICS_IR_V3_MAX_EVENTS 8
 #define LI_DS5_HAPTICS_IR_V3_PROFILE 1
 typedef struct _LI_DS5_HAPTICS_IR_LANE_V3 {
-    float continuousLow;
-    float continuousHigh;
-    float rawRms;
+    float continuousLow;         // 50-180 Hz, linear full scale [0, 1].
+    float continuousHigh;        // 180-400 Hz, linear full scale [0, 1].
+    float rawRms;                // Unfiltered source PCM, not an extra output layer.
     float rawPeak;
 } LI_DS5_HAPTICS_IR_LANE_V3, *PLI_DS5_HAPTICS_IR_LANE_V3;
 typedef struct _LI_DS5_HAPTICS_IR_EVENT_V3 {
@@ -691,7 +694,7 @@ typedef struct _LI_DS5_HAPTICS_IR_EVENT_V3 {
     uint64_t sourceTimeUs;        // Source time, at or before windowEndUs.
     float leftStrength;
     float rightStrength;
-    float confidence;
+    float confidence;            // Evidence score [0, 1], not a calibrated probability.
     float sharpness;
 } LI_DS5_HAPTICS_IR_EVENT_V3, *PLI_DS5_HAPTICS_IR_EVENT_V3;
 typedef struct _LI_DS5_HAPTICS_IR_FRAME_V3 {
@@ -701,7 +704,7 @@ typedef struct _LI_DS5_HAPTICS_IR_FRAME_V3 {
     uint32_t epoch;               // Isolates restarts and controller-slot reuse.
     uint32_t frameSequence;
     uint64_t windowEndUs;
-    uint32_t sourceFrameCount;    // 48 kHz samples represented by this state.
+    uint32_t sourceFrameCount;    // 48 kHz stereo frames, not a PCM payload length.
     uint8_t eventCount;
     LI_DS5_HAPTICS_IR_LANE_V3 lanes[2];
     LI_DS5_HAPTICS_IR_EVENT_V3 events[LI_DS5_HAPTICS_IR_V3_MAX_EVENTS];
@@ -747,6 +750,9 @@ typedef struct _LI_REMOTE_TEXT_CONTEXT {
 } LI_REMOTE_TEXT_CONTEXT, *PLI_REMOTE_TEXT_CONTEXT;
 typedef void(*ConnListenerRemoteTextContext)(const LI_REMOTE_TEXT_CONTEXT* context);
 
+// Source API: rebuild callers and the library together when this struct grows.
+// Appending the optional v3 callback follows the existing v2 integration model;
+// it preserves v2 member offsets and wire behavior, not a drop-in binary ABI.
 typedef struct _CONNECTION_LISTENER_CALLBACKS {
     ConnListenerStageStarting stageStarting;
     ConnListenerStageComplete stageComplete;

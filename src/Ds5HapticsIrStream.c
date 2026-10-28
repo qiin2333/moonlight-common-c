@@ -119,8 +119,9 @@ bool processDs5HapticsIrV3StreamPacket(const uint8_t* payload,
     frame.windowEndUs = readLe64(payload + 16);
     frame.sourceFrameCount = readLe32(payload + 24);
     frame.eventCount = payload[28];
-    if (frame.sourceFrameCount > 240 ||
-            (frame.sourceFrameCount == 0 && !(frame.flags & LI_DS5_HAPTICS_IR_FLAG_STREAM_END))) {
+    // As in v2, sourceFrameCount describes the source interval; it is not a
+    // payload length or the analyzer SDK's per-call block-size limit.
+    if (frame.sourceFrameCount == 0 && !(frame.flags & LI_DS5_HAPTICS_IR_FLAG_STREAM_END)) {
         return false;
     }
     for (i = 0; i < 2; i++) {

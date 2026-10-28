@@ -187,7 +187,7 @@ static void testV3Frames(void) {
     CHECK(!processDs5HapticsIrV3StreamPacket(packet, 321, captureV3Frame, &captured));
 
     // Header fields: unsupported version, flags, size, profile, lane count,
-    // reserved bits, event count and impossible source frame count.
+    // reserved bits and event count.
     {
         static const unsigned offsets[] = {0, 1, 2, 6, 29, 30, 28};
         static const uint8_t invalid[] = {2, 0x80, 95, 2, 1, 1, 9};
@@ -197,9 +197,16 @@ static void testV3Frames(void) {
             CHECK(!processDs5HapticsIrV3StreamPacket(packet, 96, captureV3Frame, &captured));
         }
     }
-    makeValidV3Packet(packet, 1);
-    writeLe32(packet + 24, 241);
-    CHECK(!processDs5HapticsIrV3StreamPacket(packet, 96, captureV3Frame, &captured));
+    // Source intervals are independent of the producer SDK's 240-frame chunks.
+    {
+        static const uint32_t frameCounts[] = {1, 241, 480, UINT32_MAX};
+        for (i = 0; i < sizeof(frameCounts) / sizeof(frameCounts[0]); i++) {
+            makeValidV3Packet(packet, 1);
+            writeLe32(packet + 24, frameCounts[i]);
+            CHECK(processDs5HapticsIrV3StreamPacket(packet, 96, captureV3Frame, &captured));
+            CHECK(captured.sourceFrameCount == frameCounts[i]);
+        }
+    }
     writeLe32(packet + 24, 0);
     CHECK(!processDs5HapticsIrV3StreamPacket(packet, 96, captureV3Frame, &captured));
     makeValidV3Packet(packet, 1);
