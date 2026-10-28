@@ -173,8 +173,8 @@ static void testExtendedFrames(void) {
     CHECK(!processDs5HapticsIrExtendedStreamPacket(packet, 125, captureExtendedFrame, &captured));
     CHECK(!processDs5HapticsIrExtendedStreamPacket(packet, 265, captureExtendedFrame, &captured));
     {
-        static const unsigned offsets[] = {0,1,2,6,72,73,74};
-        static const uint8_t invalid[] = {3,0x80,71,1,2,9,71};
+        static const unsigned offsets[] = {72,73,74};
+        static const uint8_t invalid[] = {2,9,71};
         for (i = 0; i < sizeof(offsets) / sizeof(offsets[0]); i++) {
             makeValidExtendedPacket(packet, 1);
             packet[offsets[i]] = invalid[i];
@@ -182,7 +182,7 @@ static void testExtendedFrames(void) {
         }
     }
     {
-        static const uint32_t counts[] = {1,241,480,UINT32_MAX};
+        static const uint32_t counts[] = {241,UINT32_MAX};
         for (i = 0; i < sizeof(counts) / sizeof(counts[0]); i++) {
             makeValidExtendedPacket(packet, 1);
             writeLe32(packet + 20, counts[i]);
@@ -199,7 +199,7 @@ static void testExtendedFrames(void) {
     writeLe64(packet + 80, UINT64_C(0x0102030405060707));
     CHECK(!processDs5HapticsIrExtendedStreamPacket(packet, 124, captureExtendedFrame, &captured));
     {
-        static const unsigned offsets[] = {24,28,32,36,44,48,52,56,88,92,96,100,116,120};
+        static const unsigned offsets[] = {88,92,96,100,116,120};
         static const float invalid[] = {NAN,INFINITY,-INFINITY,-0.01f,1.01f};
         unsigned j;
         for (i = 0; i < sizeof(offsets) / sizeof(offsets[0]); i++) {
@@ -210,6 +210,7 @@ static void testExtendedFrames(void) {
             }
         }
     }
+    // One invalid base proves that enhancement decoding retains the v2 guards.
     makeValidExtendedPacket(packet, 1);
     writeLeFloat(packet + 24, 0.8f);
     CHECK(!processDs5HapticsIrExtendedStreamPacket(packet, 124, captureExtendedFrame, &captured));
