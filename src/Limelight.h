@@ -682,28 +682,28 @@ typedef void(*ConnListenerDs5HapticsIrV2)(const LI_DS5_HAPTICS_IR_FRAME_V2* fram
 // control receive thread; copy it before deferring work and do not block.
 #define LI_DS5_HAPTICS_IR_EXTENDED_MAX_EVENTS 8
 #define LI_DS5_HAPTICS_IR_EXTENDED_PROFILE 1
-typedef struct _LI_DS5_HAPTICS_IR_LANE_V3 {
+typedef struct _LI_DS5_HAPTICS_IR_CONTINUOUS_LANE {
     float continuousLow;         // 50-180 Hz, linear full scale [0, 1].
     float continuousHigh;        // 180-400 Hz, linear full scale [0, 1].
-} LI_DS5_HAPTICS_IR_LANE_V3, *PLI_DS5_HAPTICS_IR_LANE_V3;
-typedef struct _LI_DS5_HAPTICS_IR_EVENT_V3 {
+} LI_DS5_HAPTICS_IR_CONTINUOUS_LANE, *PLI_DS5_HAPTICS_IR_CONTINUOUS_LANE;
+typedef struct _LI_DS5_HAPTICS_IR_EVENT {
     uint32_t eventId;
     uint64_t sourceTimeUs;
     float leftStrength;
     float rightStrength;
     float confidence;            // Evidence score, not a calibrated probability.
     float sharpness;
-} LI_DS5_HAPTICS_IR_EVENT_V3, *PLI_DS5_HAPTICS_IR_EVENT_V3;
-typedef struct _LI_DS5_HAPTICS_IR_FRAME_V3 {
+} LI_DS5_HAPTICS_IR_EVENT, *PLI_DS5_HAPTICS_IR_EVENT;
+typedef struct _LI_DS5_HAPTICS_IR_EXTENDED_FRAME {
     LI_DS5_HAPTICS_IR_FRAME_V2 base;
     uint16_t profile;
     uint32_t epoch;
     uint64_t windowEndUs;         // Enhancement state end; may follow the base hop.
     uint8_t eventCount;
-    LI_DS5_HAPTICS_IR_LANE_V3 lanes[2];
-    LI_DS5_HAPTICS_IR_EVENT_V3 events[LI_DS5_HAPTICS_IR_EXTENDED_MAX_EVENTS];
-} LI_DS5_HAPTICS_IR_FRAME_V3, *PLI_DS5_HAPTICS_IR_FRAME_V3;
-typedef void(*ConnListenerDs5HapticsIrExtended)(const LI_DS5_HAPTICS_IR_FRAME_V3* frame);
+    LI_DS5_HAPTICS_IR_CONTINUOUS_LANE lanes[2];
+    LI_DS5_HAPTICS_IR_EVENT events[LI_DS5_HAPTICS_IR_EXTENDED_MAX_EVENTS];
+} LI_DS5_HAPTICS_IR_EXTENDED_FRAME, *PLI_DS5_HAPTICS_IR_EXTENDED_FRAME;
+typedef void(*ConnListenerDs5HapticsIrExtended)(const LI_DS5_HAPTICS_IR_EXTENDED_FRAME* frame);
 
 // A host-side text focus observation correlated with input from this client.
 // Coordinates use the capture coordinate space described by captureWidth/Height.
