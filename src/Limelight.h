@@ -629,6 +629,52 @@ typedef struct _LI_CURSOR_UPDATE {
 } LI_CURSOR_UPDATE, *PLI_CURSOR_UPDATE;
 typedef void(*ConnListenerCursorUpdate)(const LI_CURSOR_UPDATE* update);
 
+// Cursor protocol v2 (Sunshine protocol extension, LI_FF_CURSOR_STATE). The host
+// reports its cursor's visibility, position, clip and shape so the client can
+// draw it as a local cursor and choose between absolute and relative mouse
+// input. Nothing is sent until the client subscribes with LiSendCursorControl().
+//
+// Coordinates are in the stream's coordinate space: (0, 0) to (referenceWidth,
+// referenceHeight) is the whole video frame, the same space as
+// LiSendMousePositionEvent().
+#define LI_CURSOR_STATE_FLAG_VISIBLE      0x01 // The host cursor is shown
+#define LI_CURSOR_STATE_FLAG_FALLBACK     0x02 // Cursor information is unavailable; use the regular mouse mode
+#define LI_CURSOR_STATE_FLAG_HAS_POSITION 0x04 // x/y are valid (the host moved the cursor, or a transition)
+#define LI_CURSOR_STATE_FLAG_HAS_CLIP     0x08 // The cursor is confined to clipLeft..clipRight/clipTop..clipBottom (exclusive)
+#define LI_CURSOR_STATE_FLAG_COMPOSITED   0x10 // The host currently draws the cursor into the video
+#define LI_CURSOR_STATE_FLAG_RESYNC       0x20 // Full state after (re)subscribing
+typedef struct _LI_CURSOR_STATE {
+    uint8_t flags;
+    uint32_t sequence;
+    uint32_t shapeId;           // 0 when there is no shape
+    uint16_t referenceWidth;
+    uint16_t referenceHeight;
+    uint32_t scaleQ16;          // Stream pixels per shape pixel, 16.16 fixed point
+    int32_t x;
+    int32_t y;
+    int32_t clipLeft;
+    int32_t clipTop;
+    int32_t clipRight;
+    int32_t clipBottom;
+} LI_CURSOR_STATE, *PLI_CURSOR_STATE;
+
+#define LI_CURSOR_SHAPE_MAX_DIMENSION 256
+typedef struct _LI_CURSOR_SHAPE {
+    uint32_t shapeId;
+    uint16_t width;
+    uint16_t height;
+    uint16_t hotspotX;
+    uint16_t hotspotY;
+    const uint8_t* pixels;      // width * height * 4 bytes: B, G, R, A (straight alpha), top-down
+} LI_CURSOR_SHAPE, *PLI_CURSOR_SHAPE;
+
+// Both callbacks run synchronously on the control receive thread after
+// validation. They must not block; the arguments are only valid for the
+// duration of the call. Each shape arrives once per subscription, before the
+// first state that names it; a state may name a shape the client already has.
+typedef void(*ConnListenerCursorState)(const LI_CURSOR_STATE* state);
+typedef void(*ConnListenerCursorShape)(const LI_CURSOR_SHAPE* shape);
+
 // Authored DualSense haptics captured from the host's virtual USB audio
 // endpoint. PCM is signed 16-bit little-endian, interleaved haptic-left then
 // haptic-right. The buffer is valid only for the duration of the callback.
@@ -1393,6 +1439,7 @@ void LiRequestIdrFrame(void);
 #define LI_FF_DS5_HAPTICS_PCM         0x80 // Host can stream authored DualSense stereo PCM
 #define LI_FF_REMOTE_TEXT_CONTEXT     0x200 // Host can send InputPane/UIA text context updates
 #define LI_FF_DYNAMIC_SDR_WHITE      0x100 // Host accepts runtime client SDR reference white updates
+#define LI_FF_CURSOR_STATE           0x400 // Host accepts cursor protocol v2: LiSetCursorStateCallbacks()/LiSendCursorControl()
 uint32_t LiGetHostFeatureFlags(void);
 
 // Update the client's SDR reference white (50-1000 nits inclusive) during an
@@ -1418,6 +1465,22 @@ int LiSendClientSdrWhiteNits(float nits);
 #define LI_CURSOR_MODE_ERR_NOT_CONNECTED -3
 #define LI_CURSOR_MODE_ERR_SEND_FAILED  -4
 int LiSetCursorMode(int cursorMode);
+
+// Registers the cursor protocol v2 callbacks without extending the
+// ABI-sensitive CONNECTION_LISTENER_CALLBACKS structure. Call before
+// LiStartConnection(), while no connection is running. This function is not
+// thread-safe. NULL drops the corresponding host messages.
+void LiSetCursorStateCallbacks(ConnListenerCursorState stateCallback, ConnListenerCursorShape shapeCallback);
+
+// Subscribes to (or unsubscribes from) cursor protocol v2, and tells the host
+// whether the client draws the cursor itself so the host can leave it out of
+// the video. A non-zero resendShapeId asks for that shape again. A v2
+// subscription replaces LiSetCursorMode() for the session, and a later
+// LiSetCursorMode() call ends it. Returns LI_CURSOR_MODE_ERR_UNSUPPORTED unless
+// the host advertised LI_FF_CURSOR_STATE on an encrypted control stream.
+#define LI_CURSOR_CONTROL_SUBSCRIBE    0x01
+#define LI_CURSOR_CONTROL_CLIENT_DRAWS 0x02
+int LiSendCursorControl(uint8_t flags, uint32_t resendShapeId);
 
 // Returns the audio codec actually negotiated for this session. See AUDIO_CODEC_*
 // constants. Valid only after AudioRendererInit has been called. Before that,

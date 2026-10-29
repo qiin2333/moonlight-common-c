@@ -15,6 +15,14 @@ void LiSetDs5HapticsStateCallback(ConnListenerDs5HapticsState callback) {
     Ds5HapticsStateCallback = callback;
 }
 
+static ConnListenerCursorState cursorStateCallback;
+static ConnListenerCursorShape cursorShapeCallback;
+
+void LiSetCursorStateCallbacks(ConnListenerCursorState stateCallback, ConnListenerCursorShape shapeCallback) {
+    cursorStateCallback = stateCallback;
+    cursorShapeCallback = shapeCallback;
+}
+
 // This is a private header, but it just contains some time macros
 #include <enet/time.h>
 
@@ -164,6 +172,8 @@ static PPLT_CRYPTO_CONTEXT decryptionCtx;
 #define IDX_REMOTE_TEXT_CONTEXT 24
 
 static CURSOR_STREAM_STATE cursorReassembly;
+static CURSOR_STREAM_V2_STATE cursorV2Reassembly;
+static bool cursorV2MalformedLogged;
 
 #define CONTROL_STREAM_TIMEOUT_SEC 10
 #define CONTROL_STREAM_LINGER_TIMEOUT_SEC 2
@@ -565,6 +575,8 @@ static bool supportsIdrFrameRequest;
 
 static void resetCursorReassembly(void) {
     destroyCursorStreamState(&cursorReassembly);
+    destroyCursorStreamV2State(&cursorV2Reassembly);
+    cursorV2MalformedLogged = false;
 }
 
 // Initializes the control stream
@@ -1466,7 +1478,43 @@ static void dispatchCursorUpdate(const LI_CURSOR_UPDATE* update, void* context) 
     ListenerCallbacks.cursorUpdate(update);
 }
 
+static void dispatchCursorState(const LI_CURSOR_STATE* state, void* context) {
+    (void)context;
+    cursorStateCallback(state);
+}
+
+static void dispatchCursorShape(const LI_CURSOR_SHAPE* shape, void* context) {
+    (void)context;
+    cursorShapeCallback(shape);
+}
+
+// Cursor protocol v2 messages are only interpreted from a host that advertised
+// LI_FF_CURSOR_STATE, and only while a callback is registered.
+static void processCursorV2Update(const char* payload, int payloadLength) {
+    if ((SunshineFeatureFlags & LI_FF_CURSOR_STATE) == 0 ||
+            (cursorStateCallback == NULL && cursorShapeCallback == NULL)) {
+        return;
+    }
+
+    if (!processCursorStreamV2Packet(&cursorV2Reassembly,
+                                     (const uint8_t*)payload,
+                                     (size_t)payloadLength,
+                                     cursorStateCallback != NULL ? dispatchCursorState : NULL,
+                                     cursorShapeCallback != NULL ? dispatchCursorShape : NULL,
+                                     NULL) &&
+            !cursorV2MalformedLogged) {
+        Limelog("Dropping malformed cursor v2 message (%d bytes)\n", payloadLength);
+        cursorV2MalformedLogged = true;
+    }
+}
+
 static void processCursorUpdate(const char* payload, int payloadLength) {
+    // The first byte is the protocol version in both versions
+    if (payloadLength > 0 && (uint8_t)payload[0] == CURSOR_STREAM_V2_PROTOCOL_VERSION) {
+        processCursorV2Update(payload, payloadLength);
+        return;
+    }
+
     if (ListenerCallbacks.cursorUpdate == NULL) {
         return;
     }
@@ -2273,6 +2321,31 @@ int LiSetCursorMode(int cursorMode) {
     }
 
     payload[1] = (uint8_t)cursorMode;
+    if (!sendMessageAndForget(packetTypes[IDX_CURSOR], sizeof(payload), payload,
+                              CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false)) {
+        return LI_CURSOR_MODE_ERR_SEND_FAILED;
+    }
+
+    return LI_CURSOR_MODE_OK;
+}
+
+int LiSendCursorControl(uint8_t flags, uint32_t resendShapeId) {
+    uint8_t payload[CURSOR_STREAM_V2_REQUEST_SIZE];
+
+    if ((flags & ~(LI_CURSOR_CONTROL_SUBSCRIBE | LI_CURSOR_CONTROL_CLIENT_DRAWS)) != 0) {
+        return LI_CURSOR_MODE_ERR_INVALID;
+    }
+    if ((SunshineFeatureFlags & LI_FF_CURSOR_STATE) == 0 ||
+            !encryptedControlStream ||
+            AppVersionQuad[0] < 5 || packetTypes == NULL ||
+            packetTypes[IDX_CURSOR] == -1) {
+        return LI_CURSOR_MODE_ERR_UNSUPPORTED;
+    }
+    if (peer == NULL || peer->state != ENET_PEER_STATE_CONNECTED) {
+        return LI_CURSOR_MODE_ERR_NOT_CONNECTED;
+    }
+
+    encodeCursorStreamV2Request(payload, flags, resendShapeId);
     if (!sendMessageAndForget(packetTypes[IDX_CURSOR], sizeof(payload), payload,
                               CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false)) {
         return LI_CURSOR_MODE_ERR_SEND_FAILED;
