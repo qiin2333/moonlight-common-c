@@ -15,6 +15,7 @@ extern LI_MAT_LIVE_PROFILE MatLiveProfile;
 #include "PyrowaveReassembly.h"
 
 #include <enet/enet.h>
+#include <stdatomic.h>
 
 // Common globals
 extern char* RemoteAddrString;
@@ -28,7 +29,7 @@ extern ConnListenerRemoteTextContext RemoteTextContextCallback;
 extern DECODER_RENDERER_CALLBACKS VideoCallbacks;
 extern AUDIO_RENDERER_CALLBACKS AudioCallbacks;
 extern int NegotiatedVideoFormat;
-extern volatile bool ConnectionInterrupted;
+extern atomic_bool ConnectionInterrupted;
 extern bool HighQualitySurroundSupported;
 extern bool HighQualitySurroundEnabled;
 extern OPUS_MULTISTREAM_CONFIGURATION NormalQualityOpusConfig;
