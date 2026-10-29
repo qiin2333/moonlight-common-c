@@ -1,10 +1,8 @@
 // Exercise the production sender with an ACK that never arrives during shutdown.
-#define PltSleepMs testSleepMs
 #define isControlDataInTransit testControlDataInTransit
 #define flushInputOnControlStream testFlushInputOnControlStream
 #define sendInputPacketOnControlStream testSendInputPacketOnControlStream
 #include "../src/InputStream.c"
-#undef PltSleepMs
 #undef isControlDataInTransit
 #undef flushInputOnControlStream
 #undef sendInputPacketOnControlStream
@@ -17,17 +15,11 @@
         } \
     } while (0)
 
-static int ackChecks;
+static PLT_EVENT waitingForAck;
 static int keyReleases;
 
-void testSleepMs(int ms) {
-    CHECK(ms == 10);
-    ConnectionInterrupted = true;
-}
-
 bool testControlDataInTransit(void) {
-    // A broken sender must fail promptly instead of hanging the test runner.
-    CHECK(++ackChecks == 1);
+    PltSetEvent(&waitingForAck);
     return true;
 }
 
@@ -50,22 +42,22 @@ int main(void) {
     AppVersionQuad[1] = 1;
     AppVersionQuad[2] = 500;
     AppVersionQuad[3] = 0; // Exercise GFE's ACK wait (Sunshine may skip it).
+    CHECK(PltCreateEvent(&waitingForAck) == 0);
     CHECK(initializeInputStream() == 0);
     initialized = true;
 
     CHECK(LiSendUtf8TextEvent("ab", 2) == 0);
     CHECK(LiSendKeyboardEvent(0x41, KEY_ACTION_UP, 0) == 0);
-    LbqSignalQueueDrain(&packetQueue);
-    inputSendThreadProc(NULL);
+    CHECK(PltCreateThread("InputSend", inputSendThreadProc, NULL, &inputSendThread) == 0);
+    PltWaitForEvent(&waitingForAck);
+    LiInterruptConnection();
+    stopInputStream();
 
-    CHECK(ackChecks == 1);
     CHECK(keyReleases == 1);
     CHECK(LbqGetItemCount(&packetQueue) == 0);
 
-    initialized = false;
-    LbqSignalQueueShutdown(&packetQueue);
-    LbqSignalQueueShutdown(&packetHolderFreeList);
     destroyInputStream();
+    PltCloseEvent(&waitingForAck);
     puts("Input stream shutdown regression passed");
     return 0;
 }
