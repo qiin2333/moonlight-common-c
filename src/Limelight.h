@@ -1406,6 +1406,11 @@ uint32_t LiGetHostFeatureFlags(void);
 #define LI_DYNAMIC_SDR_WHITE_ERR_SEND_FAILED   -4
 int LiSendClientSdrWhiteNits(float nits);
 
+// Foundation Sunshine extension. Zero means sent, not applied; clients must
+// observe a frame at the requested dimensions and reconnect on timeout.
+// -1: invalid dimensions; -2: unsupported host; -3: disconnected; -4: send failed.
+int LiRequestResolutionChange(int width, int height);
+
 // Select whether Sunshine composites the cursor into the video frame or sends
 // cursor shape updates for local rendering. This is only supported when the
 // host advertises LI_FF_CURSOR_SHAPE.
