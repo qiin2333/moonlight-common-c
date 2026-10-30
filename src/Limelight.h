@@ -1275,6 +1275,19 @@ const RTP_VIDEO_STATS* LiGetRTPVideoStats(void);
 // active stream. The counter is reset when the video stream is initialized.
 uint64_t LiGetRTPVideoBytesReceived(void);
 
+// Cumulative video FEC results for the active stream, covering both the RTP
+// FEC queue and PyroWave's block-aware parity. The counters are reset when the
+// video stream is initialized, and LiGetRTPVideoFecStats() may be called from
+// any thread. Each field is read atomically, but not as one snapshot.
+typedef struct _RTP_VIDEO_FEC_STATS {
+    uint64_t framesRecovered;      // frames that were only complete after FEC repaired them
+    uint64_t framesUnrecoverable;  // partly received frames dropped because FEC couldn't repair them
+    uint64_t fecPacketsReceived;   // FEC (parity) packets received
+} RTP_VIDEO_FEC_STATS, *PRTP_VIDEO_FEC_STATS;
+
+#define LI_HAS_RTP_VIDEO_FEC_STATS 1
+void LiGetRTPVideoFecStats(PRTP_VIDEO_FEC_STATS stats);
+
 // Returns the percentage of video frames lost by the network during the most
 // recent connection-status sampling interval. Decoder and renderer drops are
 // not included. The value is updated every 3 seconds after the stream settles.
@@ -1394,6 +1407,16 @@ void LiRequestIdrFrame(void);
 #define LI_FF_REMOTE_TEXT_CONTEXT     0x200 // Host can send InputPane/UIA text context updates
 #define LI_FF_DYNAMIC_SDR_WHITE      0x100 // Host accepts runtime client SDR reference white updates
 uint32_t LiGetHostFeatureFlags(void);
+
+// Returns true if the host offered PyroWave in its RTSP DESCRIBE response for
+// the current connection, and copies the offer into capabilities (if non-NULL).
+// The offer is reported even when another codec was negotiated, so clients can
+// learn that a host supports PyroWave without requesting it. Values are the
+// host's as sent; compare them against LI_PYROWAVE_* to judge compatibility.
+// Valid after LiStartConnection() completes the RTSP handshake and until the
+// next LiStartConnection(). Returns false (and zeroes capabilities) otherwise.
+#define LI_PYROWAVE_HAS_HOST_CAPABILITIES_QUERY 1
+bool LiGetHostPyrowaveCapabilities(LI_PYROWAVE_CAPABILITIES* capabilities);
 
 // Update the client's SDR reference white (50-1000 nits inclusive) during an
 // encrypted Sunshine HLG session. This changes only the supported host
