@@ -2229,6 +2229,28 @@ int LiSendClipboardData(const void* payload, int length) {
     return 0;
 }
 
+int LiRequestResolutionChange(int width, int height) {
+    uint32_t payload[3];
+
+    if (width <= 0 || height <= 0 || width > 16384 || height > 16384 ||
+            (width & 1) || (height & 1)) {
+        return -1;
+    }
+    if (!IS_SUNSHINE() || !encryptedControlStream || AppVersionQuad[0] < 5 ||
+            packetTypes == NULL || packetTypes[IDX_DYNAMIC_PARAM_CHANGE] == -1) {
+        return -2;
+    }
+    if (stopping || peer == NULL || peer->state != ENET_PEER_STATE_CONNECTED) {
+        return -3;
+    }
+
+    payload[0] = LE32(SS_DYNAMIC_PARAM_TYPE_RESOLUTION);
+    payload[1] = LE32((uint32_t)width);
+    payload[2] = LE32((uint32_t)height);
+    return sendMessageAndForget(packetTypes[IDX_DYNAMIC_PARAM_CHANGE], sizeof(payload), payload,
+                                CTRL_CHANNEL_GENERIC, ENET_PACKET_FLAG_RELIABLE, false) ? 0 : -4;
+}
+
 int LiSendClientSdrWhiteNits(float nits) {
     uint32_t payload[2];
     uint32_t nitsBits;
