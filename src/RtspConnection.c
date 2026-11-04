@@ -4,7 +4,7 @@
 
 /* MAT playback confirmation is security/format critical: duplicates fail even
  * if they repeat the same value. Header names are ASCII case-insensitive. */
-static int rtspAsciiEqualsIgnoreCase(const char* a,const char* b) {
+static int matHeaderEqual(const char* a,const char* b) {
     while(*a && *b) {
         unsigned x=(unsigned char)*a++,y=(unsigned char)*b++;
         if(x>='A' && x<='Z')x+=32;
@@ -15,31 +15,11 @@ static int rtspAsciiEqualsIgnoreCase(const char* a,const char* b) {
 }
 static char* uniqueMatOption(POPTION_ITEM options,const char* name) {
     char* value=NULL;unsigned count=0;
-    for(;options;options=options->next)if(rtspAsciiEqualsIgnoreCase(options->option,name)){
+    for(;options;options=options->next)if(matHeaderEqual(options->option,name)){
         if(options->flags & FLAG_DUPLICATE_OPTION)return NULL;
         value=options->content;++count;
     }
     return count==1?value:NULL;
-}
-
-static bool isOpusConfirmationValid(POPTION_ITEM options) {
-    const char* confirmedCodec = getOptionContent(options, "X-SS-Audio-Codec");
-
-    // A missing confirmation is allowed for legacy hosts. If present, it must
-    // identify Opus unambiguously and must not carry a MAT confirmation.
-    // Vibepollo confirms the same codec as "Opus" rather than "opus".
-    if (confirmedCodec && (!rtspAsciiEqualsIgnoreCase(confirmedCodec, "opus") ||
-            !uniqueMatOption(options, "X-SS-Audio-Codec"))) {
-        return false;
-    }
-
-    return !getOptionContent(options, "X-SS-Mat-SHA256") &&
-           !getOptionContent(options, "X-SS-Mat-Cycles") &&
-           !getOptionContent(options, "X-SS-Mat-Carrier") &&
-           !getOptionContent(options, "X-SS-Mat-Clock") &&
-           !getOptionContent(options, "X-SS-Mat-Live-Epoch") &&
-           !getOptionContent(options, "X-SS-Mat-Live-Domain") &&
-           !getOptionContent(options, "X-SS-Mat-Live-Crypto");
 }
 
 #define RTSP_CONNECT_TIMEOUT_SEC 10
@@ -1708,9 +1688,20 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         // Sunshine dynamic HDR negotiation result. Hosts without the
         // extension send no X-SS-Dynamic-HDR header; that is the legacy
         // outcome (DYNAMIC_HDR_FORMAT_NONE) rather than an error.
-        if (NegotiatedAudioCodec == AUDIO_CODEC_OPUS && !isOpusConfirmationValid(response.options)) {
-            Limelog("Unexpected codec/MAT confirmation after selecting Opus; refusing media\n");
-            ret = -1; freeMessage(&response); goto Exit;
+        if (NegotiatedAudioCodec == AUDIO_CODEC_OPUS) {
+            const char* confirmedCodec = getOptionContent(response.options,"X-SS-Audio-Codec");
+            if ((confirmedCodec && (!matHeaderEqual(confirmedCodec,"opus") ||
+                    !uniqueMatOption(response.options,"X-SS-Audio-Codec"))) ||
+                getOptionContent(response.options,"X-SS-Mat-SHA256") ||
+                getOptionContent(response.options,"X-SS-Mat-Cycles") ||
+                getOptionContent(response.options,"X-SS-Mat-Carrier") ||
+                getOptionContent(response.options,"X-SS-Mat-Clock") ||
+                getOptionContent(response.options,"X-SS-Mat-Live-Epoch") ||
+                getOptionContent(response.options,"X-SS-Mat-Live-Domain") ||
+                getOptionContent(response.options,"X-SS-Mat-Live-Crypto")) {
+                Limelog("Unexpected codec/MAT confirmation after selecting Opus; refusing media\n");
+                ret = -1; freeMessage(&response); goto Exit;
+            }
         }
         if(NegotiatedAudioCodec==AUDIO_CODEC_MAT_LIVE &&
             (getOptionContent(response.options,"X-SS-Mat-SHA256") || getOptionContent(response.options,"X-SS-Mat-Cycles") ||
