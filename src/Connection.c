@@ -100,13 +100,13 @@ void LiStopConnection(void) {
     }
     if (stage == STAGE_AUDIO_STREAM_START) {
         Limelog("Stopping audio stream...");
-        stopAudioStream();
+        if (!StreamConfig.controlOnly) stopAudioStream();
         stage--;
         Limelog("done\n");
     }
     if (stage == STAGE_VIDEO_STREAM_START) {
         Limelog("Stopping video stream...");
-        stopVideoStream();
+        if (!StreamConfig.controlOnly) stopVideoStream();
         stage--;
         Limelog("done\n");
     }
@@ -124,7 +124,7 @@ void LiStopConnection(void) {
     }
     if (stage == STAGE_VIDEO_STREAM_INIT) {
         Limelog("Cleaning up video stream...");
-        destroyVideoStream();
+        if (!StreamConfig.controlOnly) destroyVideoStream();
         stage--;
         Limelog("done\n");
     }
@@ -140,7 +140,7 @@ void LiStopConnection(void) {
     }
     if (stage == STAGE_AUDIO_STREAM_INIT) {
         Limelog("Cleaning up audio stream...");
-        destroyAudioStream();
+        if (!StreamConfig.controlOnly) destroyAudioStream();
         stage--;
         Limelog("done\n");
     }
@@ -155,6 +155,8 @@ void LiStopConnection(void) {
         Limelog("done\n");
     }
     LC_ASSERT(stage == STAGE_NONE);
+    LiSetEndpointAutoRefreshEnabled(false);
+    EndpointRefreshRequested = false;
     
     if (RemoteAddrString != NULL) {
         free(RemoteAddrString);
@@ -561,7 +563,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     else {
         Limelog("Control-only mode: skipping audio stream initialization\n");
         stage++;  // Still increment stage to maintain continuity
-        LC_ASSERT(stage == STAGE_VIDEO_STREAM_INIT);
+        LC_ASSERT(stage == STAGE_AUDIO_STREAM_INIT);
     }
 
     Limelog("Starting RTSP handshake...");
