@@ -168,6 +168,16 @@ if (BUILD_TESTING)
     target_link_libraries(audio-codec-selection-tests PRIVATE moonlight-common-c)
     add_test(NAME audio-codec-selection-tests COMMAND audio-codec-selection-tests)
 
+    add_executable(rtsp-opus-confirmation-tests tests/RtspOpusConfirmationTest.c)
+    target_include_directories(rtsp-opus-confirmation-tests PRIVATE
+      enet/include $<TARGET_PROPERTY:moonlight-common-c,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(rtsp-opus-confirmation-tests PRIVATE
+      $<TARGET_PROPERTY:moonlight-common-c,COMPILE_DEFINITIONS>)
+    target_compile_options(rtsp-opus-confirmation-tests PRIVATE
+      $<TARGET_PROPERTY:moonlight-common-c,COMPILE_OPTIONS>)
+    target_link_libraries(rtsp-opus-confirmation-tests PRIVATE moonlight-common-c)
+    add_test(NAME rtsp-opus-confirmation-tests COMMAND rtsp-opus-confirmation-tests)
+
     # This test includes the sender and links its internal platform/queue helpers.
     add_executable(controller-handoff-queue-tests tests/ControllerHandoffQueueTest.c)
     target_include_directories(controller-handoff-queue-tests PRIVATE src enet/include)
