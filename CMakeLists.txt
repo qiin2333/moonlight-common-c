@@ -121,6 +121,14 @@ target_include_directories(moonlight-common-c SYSTEM PRIVATE
 target_compile_definitions(moonlight-common-c PRIVATE HAS_SOCKLEN_T)
 
 if (BUILD_TESTING)
+  add_executable(endpoint-refresh-control-cleanup-tests tests/EndpointRefreshControlCleanupTest.c)
+  target_include_directories(endpoint-refresh-control-cleanup-tests PRIVATE src enet/include)
+  target_compile_definitions(endpoint-refresh-control-cleanup-tests PRIVATE HAS_SOCKLEN_T)
+  if(MSVC)
+    target_compile_options(endpoint-refresh-control-cleanup-tests PRIVATE /W3 /WX /experimental:c11atomics)
+  endif()
+  add_test(NAME endpoint-refresh-control-cleanup-tests COMMAND endpoint-refresh-control-cleanup-tests)
+
   add_executable(mat-live-tests tests/MatLiveTest.c src/MatLivePlayback.c src/MatReceiver.c src/MatDepacketizer.c)
   target_include_directories(mat-live-tests PRIVATE src)
   if(USE_MBEDTLS)
