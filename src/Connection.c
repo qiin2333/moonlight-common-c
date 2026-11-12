@@ -266,12 +266,14 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
         goto Cleanup;
     }
 
+    /* HarmonyOS registers both decoders. The control stream dispatches each
+     * opcode independently (0x550A PCM / 0x550B IR v2), and SdpGenerator
+     * advertises only one capability, so keeping both callbacks available is
+     * a safe fallback if a host still emits IR frames. Do not reject the
+     * connection here: that would leave the user with no haptics at all. */
     if (clCallbacks != NULL && clCallbacks->ds5HapticsPcm != NULL &&
             (clCallbacks->ds5HapticsIrV2 != NULL || clCallbacks->ds5HapticsIrExtended != NULL)) {
-        Limelog("Physical and simulated DualSense haptics modes are mutually exclusive\n");
-        LC_ASSERT(false);
-        err = -1;
-        goto Cleanup;
+        Limelog("Physical and simulated DualSense haptic decoders both registered; PCM preferred\n");
     }
 
     if (serverInfo->serverCodecModeSupport == 0) {
