@@ -149,6 +149,10 @@ void LiSetDs5OutputExtensionCallback(ConnListenerDs5OutputExtension callback) {
     Ds5OutputExtensionCallback = callback;
 }
 
+void LiSetDs5PadAudioOffer(int mode) {
+    Ds5PadAudioOfferMode = mode;
+}
+
 void LiInitializeServerInformation(PSERVER_INFORMATION serverInfo) {
     memset(serverInfo, 0, sizeof(*serverInfo));
 }

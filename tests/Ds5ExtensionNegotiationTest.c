@@ -16,10 +16,17 @@ static unsigned failures;
 
 static unsigned outputCalls;
 static LI_DS5_OUTPUT_EXTENSION lastOutput;
+static unsigned pcmCalls;
+static unsigned lastPcmChannels;
 
 static void onOutput(const LI_DS5_OUTPUT_EXTENSION* output) {
     outputCalls++;
     lastOutput = *output;
+}
+
+static void onPcm(const LI_DS5_HAPTICS_PCM_FRAME* frame) {
+    pcmCalls++;
+    lastPcmChannels = frame->channelCount;
 }
 
 static void setApp(bool sunshine, int major) {
@@ -177,6 +184,131 @@ static void testOutputDelivery(void) {
     LiSetDs5OutputExtensionCallback(NULL);
 }
 
+static unsigned long featureFlagsOf(const char* payload) {
+    const char* flags = payload != NULL ? strstr(payload, "x-ml-general.featureFlags:") : NULL;
+
+    return flags != NULL ? strtoul(flags + strlen("x-ml-general.featureFlags:"), NULL, 10) : 0;
+}
+
+static void checkOffer(const char* expected) {
+    // expected == NULL: the SDP must carry no ds5Extensions attribute at all.
+    char* payload = sdp();
+    const char* line = payload != NULL ? strstr(payload, "a=x-ml-general.ds5Extensions:") : NULL;
+
+    CHECK(payload != NULL);
+    if (expected == NULL) {
+        CHECK(line == NULL);
+    }
+    else if (line != NULL) {
+        size_t length = strcspn(line, "\r\n");
+        // The generator ends every attribute with a space before the line break.
+        while (length > 0 && line[length - 1] == ' ') {
+            length--;
+        }
+        char want[96];
+        snprintf(want, sizeof(want), "a=x-ml-general.ds5Extensions:%s", expected);
+        CHECK(length == strlen(want) && strncmp(line, want, length) == 0);
+    }
+    else {
+        CHECK(line != NULL);
+    }
+    free(payload);
+}
+
+static void testPadAudioOffer(void) {
+    char* payload;
+
+    setApp(true, 7);
+    LiInitializeConnectionCallbacks(&ListenerCallbacks);
+    LiSetDs5OutputExtensionCallback(onOutput);
+
+    // Not asked for: the offer is the plain one, with or without a PCM callback.
+    LiSetDs5PadAudioOffer(LI_DS5_PAD_AUDIO_OFF);
+    checkOffer("output=1,input-status=1");
+    ListenerCallbacks.ds5HapticsPcm = onPcm;
+    checkOffer("output=1,input-status=1");
+
+    // Asked for, and the client can take PCM frames: the token is added, the PCM feature flag is set.
+    LiSetDs5PadAudioOffer(LI_DS5_PAD_AUDIO_PCM);
+    checkOffer("output=1,input-status=1,pad-audio=1");
+    payload = sdp();
+    CHECK((featureFlagsOf(payload) & ML_FF_DS5_HAPTICS_PCM) != 0);
+    free(payload);
+
+    // Asked for, but no PCM callback: nothing is offered for the speaker.
+    ListenerCallbacks.ds5HapticsPcm = NULL;
+    checkOffer("output=1,input-status=1");
+
+    // The token does not depend on the output callback.
+    ListenerCallbacks.ds5HapticsPcm = onPcm;
+    LiSetDs5OutputExtensionCallback(NULL);
+    checkOffer("pad-audio=1");
+    ListenerCallbacks.ds5HapticsPcm = NULL;
+    checkOffer(NULL);
+
+    // A mode this library does not define is the same as off.
+    ListenerCallbacks.ds5HapticsPcm = onPcm;
+    LiSetDs5OutputExtensionCallback(onOutput);
+    LiSetDs5PadAudioOffer(2);
+    checkOffer("output=1,input-status=1");
+    LiSetDs5PadAudioOffer(-1);
+    checkOffer("output=1,input-status=1");
+
+    // A non-Sunshine host never sees the attribute.
+    LiSetDs5PadAudioOffer(LI_DS5_PAD_AUDIO_PCM);
+    setApp(false, 7);
+    payload = sdp();
+    CHECK(payload == NULL || strstr(payload, "ds5Extensions") == NULL);
+    free(payload);
+
+    LiSetDs5PadAudioOffer(LI_DS5_PAD_AUDIO_OFF);
+    LiSetDs5OutputExtensionCallback(NULL);
+    LiInitializeConnectionCallbacks(&ListenerCallbacks);
+}
+
+static void testHostAnswer(void) {
+    Ds5ExtensionMask = ds5ExtParseSdpPayload("a=x-ss-general.ds5Extensions:output=1,input-status=1,pad-audio=1\r\n");
+    CHECK(LiGetHostDs5Extensions() == (LI_DS5_EXT_OUTPUT | LI_DS5_EXT_INPUT_STATUS | LI_DS5_EXT_PAD_AUDIO));
+    Ds5ExtensionMask = ds5ExtParseSdpPayload("a=x-ss-general.ds5Extensions:output=1,input-status=1\r\n");
+    CHECK(LiGetHostDs5Extensions() == (LI_DS5_EXT_OUTPUT | LI_DS5_EXT_INPUT_STATUS));
+    Ds5ExtensionMask = 0;
+}
+
+static void testPcmDelivery(void) {
+    // Two haptic channels, then four channels (speaker pair first).
+    static const uint8_t stereo[] = {
+        0x01, 0x00, 0x1c, 0x00, 0x00, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0xbb, 0x00, 0x00,
+        0x02, 0x10, 0x00, 0x00, 0x11, 0x12, 0x13, 0x14,
+    };
+    static const uint8_t quad[] = {
+        0x01, 0x00, 0x1c, 0x00, 0x00, 0x00, 0x01, 0x00, 0x02, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x80, 0xbb, 0x00, 0x00,
+        0x04, 0x10, 0x00, 0x00, 0x11, 0x12, 0x13, 0x14, 0x21, 0x22, 0x23, 0x24,
+    };
+
+    LiInitializeConnectionCallbacks(&ListenerCallbacks);
+    ListenerCallbacks.ds5HapticsPcm = onPcm;
+
+    // Not offered: two channels are delivered, four are not.
+    LiSetDs5PadAudioOffer(LI_DS5_PAD_AUDIO_OFF);
+    pcmCalls = 0;
+    CHECK(processDs5HapticsStreamPacket(stereo, sizeof(stereo), dispatchDs5HapticsPcm, NULL));
+    CHECK(pcmCalls == 1 && lastPcmChannels == 2);
+    CHECK(processDs5HapticsStreamPacket(quad, sizeof(quad), dispatchDs5HapticsPcm, NULL));
+    CHECK(pcmCalls == 1);
+
+    // Offered: both are delivered, and the callback sees the channel count.
+    LiSetDs5PadAudioOffer(LI_DS5_PAD_AUDIO_PCM);
+    CHECK(processDs5HapticsStreamPacket(quad, sizeof(quad), dispatchDs5HapticsPcm, NULL));
+    CHECK(pcmCalls == 2 && lastPcmChannels == 4);
+    CHECK(processDs5HapticsStreamPacket(stereo, sizeof(stereo), dispatchDs5HapticsPcm, NULL));
+    CHECK(pcmCalls == 3 && lastPcmChannels == 2);
+
+    LiSetDs5PadAudioOffer(LI_DS5_PAD_AUDIO_OFF);
+    LiInitializeConnectionCallbacks(&ListenerCallbacks);
+}
+
 int main(void) {
     CHECK(initializePlatform() == 0);
     NegotiatedVideoFormat = VIDEO_FORMAT_H264;
@@ -202,6 +334,9 @@ int main(void) {
     testPacketTables();
     testSendGate();
     testOutputDelivery();
+    testPadAudioOffer();
+    testHostAnswer();
+    testPcmDelivery();
 
     stopping = true;
     destroyControlStream();

@@ -1529,6 +1529,11 @@ static void processCursorUpdate(const char* payload, int payloadLength) {
 
 static void dispatchDs5HapticsPcm(const LI_DS5_HAPTICS_PCM_FRAME* frame, void* context) {
     (void)context;
+    // A client that did not offer pad-audio expects two channels. A host that
+    // sends four anyway is not served.
+    if (frame->channelCount != 2 && Ds5PadAudioOfferMode != LI_DS5_PAD_AUDIO_PCM) {
+        return;
+    }
     ListenerCallbacks.ds5HapticsPcm(frame);
 }
 

@@ -172,12 +172,20 @@ than `1`, and a malformed token.
 
 | Attribute | Sender | Tokens |
 | --- | --- | --- |
-| `x-ml-general.ds5Extensions` | Client offer | `output=1`: the client accepts `0x5515`. `input-status=1`: the client accepts `0x5516`. |
-| `x-ss-general.ds5Extensions` | Host answer | The same two tokens, for the directions the host accepts. |
+| `x-ml-general.ds5Extensions` | Client offer | `output=1`: the client accepts `0x5515`. `input-status=1`: the client accepts `0x5516`. `pad-audio=1`: see below. |
+| `x-ss-general.ds5Extensions` | Host answer | The same tokens: the directions the host accepts, and `pad-audio=1` when it will send four-channel PCM. |
 
-`pad-audio=1` and `pad-speaker=1` are reserved names in the same attribute for
-a four-channel DualSense PCM packet on opcode `0x550A`. Their payloads are not
-defined here yet, and no host answers them today.
+`pad-audio=1`: the client plays the pad speaker channels, and the host answers the
+token when it will send them. The haptics PCM packet on `0x550A` then carries
+`channelCount` 4 instead of 2, in the order speaker left, speaker right, haptic
+left, haptic right (16-bit little endian, 48 kHz, interleaved; `channelCount` is
+byte 24 of the packet header). A host sends four channels only to a client that
+offered the token, and a client that did not offer it drops them, so a client
+that never heard of the token keeps receiving two. Any other `channelCount`
+is rejected.
+
+`pad-speaker=1` is a reserved name in the same attribute. Its payload is not
+defined here yet, and no host answers it today.
 
 ## Reserved private opcodes
 

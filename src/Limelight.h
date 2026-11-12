@@ -635,7 +635,9 @@ typedef void(*ConnListenerCursorUpdate)(const LI_CURSOR_UPDATE* update);
 
 // Authored DualSense haptics captured from the host's virtual USB audio
 // endpoint. PCM is signed 16-bit little-endian, interleaved haptic-left then
-// haptic-right. The buffer is valid only for the duration of the callback.
+// haptic-right; with four channels (offered with LiSetDs5PadAudioOffer()) the
+// pad's speaker-left and speaker-right come first. The buffer is valid only
+// for the duration of the callback.
 // Packets are intentionally unreliable; use sequenceNumber and the
 // DISCONTINUITY flag to reset a client-side jitter buffer after loss.
 #define LI_DS5_HAPTICS_PCM_FLAG_STREAM_START  0x01
@@ -811,6 +813,17 @@ typedef void(*ConnListenerDs5OutputExtension)(const LI_DS5_OUTPUT_EXTENSION* out
 // (x-ml-general.ds5Extensions). Call before LiStartConnection(). This function
 // is not thread-safe.
 void LiSetDs5OutputExtensionCallback(ConnListenerDs5OutputExtension callback);
+
+// What the next connection offers for the pad's speaker. LI_DS5_PAD_AUDIO_OFF
+// (0, the default) keeps the haptics PCM packet at two channels. With
+// LI_DS5_PAD_AUDIO_PCM (1) the client offers "pad-audio" and a host that
+// answers it sends four channels: speaker-left, speaker-right, haptic-left,
+// haptic-right. The offer needs a ds5HapticsPcm callback; without one nothing
+// is offered. Any other value is treated as LI_DS5_PAD_AUDIO_OFF. Call before
+// LiStartConnection(). This function is not thread-safe.
+#define LI_DS5_PAD_AUDIO_OFF 0
+#define LI_DS5_PAD_AUDIO_PCM 1
+void LiSetDs5PadAudioOffer(int mode);
 
 // Optional absolute actuator controls accompanying authored PCM. State is eight
 // bytes: mode0, mode2, known controls, right/left motor, power-save, reduction, LPF.
@@ -1185,9 +1198,11 @@ int LiSendDs5InputStatus(uint16_t controllerNumber, uint32_t validMask, uint8_t 
 
 // Returns the DualSense extension directions the host declared, as the
 // LI_DS5_EXT_* bits below, or 0 for a host that declared none. Valid after the
-// RTSP handshake of the current connection.
+// RTSP handshake of the current connection. LI_DS5_EXT_PAD_AUDIO means the host
+// will send four-channel haptics PCM to a client that offered it.
 #define LI_DS5_EXT_OUTPUT        0x01
 #define LI_DS5_EXT_INPUT_STATUS  0x02
+#define LI_DS5_EXT_PAD_AUDIO     0x04
 uint32_t LiGetHostDs5Extensions(void);
 
 // This function is similar to LiSendTouchEvent(), but the touch events are associated with a
