@@ -26,6 +26,9 @@ extern int AppVersionQuad[4];
 extern STREAM_CONFIGURATION StreamConfig;
 extern CONNECTION_LISTENER_CALLBACKS ListenerCallbacks;
 extern ConnListenerRemoteTextContext RemoteTextContextCallback;
+extern ConnListenerDs5OutputExtension Ds5OutputExtensionCallback;
+// DS5EXT_MASK_* directions the host declared in x-ss-general.ds5Extensions
+extern uint32_t Ds5ExtensionMask;
 extern DECODER_RENDERER_CALLBACKS VideoCallbacks;
 extern AUDIO_RENDERER_CALLBACKS AudioCallbacks;
 extern int NegotiatedVideoFormat;
