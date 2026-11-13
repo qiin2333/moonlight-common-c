@@ -23,8 +23,8 @@ typedef struct _LI_ENDPOINT_REFRESH {
     bool candidateConfirmed;
     bool candidateNext;
     uint64_t candidatePacketGeneration;
-    bool candidateMedia;
     uint64_t candidateMediaGeneration;
+    bool candidateMedia;
     bool failed;
 } LI_ENDPOINT_REFRESH;
 

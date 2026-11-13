@@ -378,7 +378,13 @@ int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int
     // the existing RTP/decryption path; LiErClientMedia promotes it only after
     // the packet is accepted by that path.
     PltLockMutex(&state->mutex);
-    state->candidatePacketGeneration = selected == state->candidate ? state->candidateGeneration : 0;
+    // Generation zero marks the active socket so a buffered media packet can
+    // never be mistaken for candidate proof after this receive returns.
+    uint64_t packetGeneration = 0;
+    if (selected == state->candidate) {
+        packetGeneration = state->candidateGeneration;
+    }
+    state->candidatePacketGeneration = packetGeneration;
     PltUnlockMutex(&state->mutex);
     return length;
 }
