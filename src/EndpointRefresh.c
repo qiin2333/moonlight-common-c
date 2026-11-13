@@ -173,6 +173,16 @@ uint64_t LiErClientPacketGeneration(LI_ENDPOINT_REFRESH* state) {
     return generation;
 }
 
+bool LiErClientCandidatePresent(LI_ENDPOINT_REFRESH* state) {
+    if (!state->initialized) {
+        return false;
+    }
+    PltLockMutex(&state->mutex);
+    bool candidate = state->candidate != INVALID_SOCKET;
+    PltUnlockMutex(&state->mutex);
+    return candidate;
+}
+
 void LiErClientMedia(LI_ENDPOINT_REFRESH* state, uint64_t generation, bool authenticated) {
     if (!state->initialized) {
         return;

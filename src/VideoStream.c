@@ -191,7 +191,9 @@ static void VideoReceiveThreadProc(void* context) {
                                   (uint64_t)receivedPacketLength,
                                   memory_order_relaxed);
         uint64_t generation = LiErClientPacketGeneration(&endpointRefresh);
-        bool authenticated = !encrypted;
+        // Only AES-GCM authentication may prove a candidate source. Active
+        // socket packets are accepted through the generation == 0 argument.
+        bool authenticated = false;
 
         if (!receivedDataFromPeer) {
             receivedDataFromPeer = true;
