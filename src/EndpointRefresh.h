@@ -18,6 +18,8 @@ typedef struct _LI_ENDPOINT_REFRESH {
     uint64_t sequence, ackSequence;
     uint64_t lastAck, lastMedia, lastPoll;
     uint64_t lastProbeAt, activeResponseAt;
+    uint64_t probeAttempts, probeSendFailures, probeConfirmed;
+    uint64_t challengeReceived, ackReceived, lastConfirmedSequence;
 } LI_ENDPOINT_REFRESH;
 
 bool LiErClientInitialize(LI_ENDPOINT_REFRESH* state, SOCKET socket, uint8_t stream,

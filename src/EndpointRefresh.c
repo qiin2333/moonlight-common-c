@@ -16,6 +16,36 @@ enum {
 bool EndpointRefreshRequested;
 static atomic_bool enabled;
 
+static const char* endpointRefreshStreamName(uint8_t stream) {
+    switch (stream) {
+    case LI_ER_VIDEO:
+        return "video";
+    case LI_ER_AUDIO:
+        return "audio";
+    default:
+        return "unknown";
+    }
+}
+
+static void logEndpointRefreshStats(const LI_ENDPOINT_REFRESH* state, const char* event, uint64_t quiet) {
+    uint64_t unconfirmed = state->probeAttempts > state->probeConfirmed ?
+        state->probeAttempts - state->probeConfirmed : 0;
+    unsigned int estimatedLoss = state->probeAttempts == 0 ? 0 :
+        (unsigned int)((unconfirmed * 100u) / state->probeAttempts);
+
+    Limelog("Endpoint refresh (%s): %s after %llu ms; probes=%llu, confirmed=%llu, "
+            "unconfirmed=%llu, estimated_loss=%u%%, send_failures=%llu, challenges=%llu, acks=%llu\n",
+            endpointRefreshStreamName(state->stream), event,
+            (unsigned long long)quiet,
+            (unsigned long long)state->probeAttempts,
+            (unsigned long long)state->probeConfirmed,
+            (unsigned long long)unconfirmed,
+            estimatedLoss,
+            (unsigned long long)state->probeSendFailures,
+            (unsigned long long)state->challengeReceived,
+            (unsigned long long)state->ackReceived);
+}
+
 bool LiIsEndpointAutoRefreshEnabled(void) {
     return atomic_load_explicit(&enabled, memory_order_acquire);
 }
@@ -55,6 +85,9 @@ void LiErClientDestroy(LI_ENDPOINT_REFRESH* state) {
     if (!state->initialized) {
         return;
     }
+    if (state->probeAttempts > 0) {
+        logEndpointRefreshStats(state, "session summary", 0);
+    }
     PltDeleteMutex(&state->mutex);
     LiErWipe(state, sizeof(*state));
 }
@@ -71,8 +104,12 @@ static void sendProbe(LI_ENDPOINT_REFRESH* state, uint64_t now) {
             state->session, state->key, ++state->sequence, NULL)) {
         state->lastProbeAt = now;
         state->probeSent = true;
-        sendto(state->active, (char*)packet, sizeof(packet), 0,
+        state->probeAttempts++;
+        SOCK_RET result = sendto(state->active, (char*)packet, sizeof(packet), 0,
             (struct sockaddr*)&state->remote, AddrLen);
+        if (result != (SOCK_RET)sizeof(packet)) {
+            state->probeSendFailures++;
+        }
     }
 }
 
@@ -101,13 +138,27 @@ static void handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, 
         return;
     }
     if (message.type == LI_ER_CHALLENGE && message.sequence > state->ackSequence) {
+        if (message.sequence > state->lastConfirmedSequence) {
+            state->probeConfirmed++;
+            state->lastConfirmedSequence = message.sequence;
+        }
+        state->challengeReceived++;
         // A valid challenge proves that the original socket can still reach
         // the host. Restore the observation state even if response rate
         // limiting suppresses this particular response.
+        bool recovered = state->suspect || state->degraded;
+        uint64_t lastActivity = state->lastAck;
+        if (state->lastMedia > lastActivity) {
+            lastActivity = state->lastMedia;
+        }
+        uint64_t quiet = now > lastActivity ? now - lastActivity : 0;
         state->lastAck = now;
         state->suspect = false;
         state->degraded = false;
         state->degradedNotified = false;
+        if (recovered) {
+            logEndpointRefreshStats(state, "recovered by challenge", quiet);
+        }
         if (state->activeResponseAt != UINT64_MAX &&
             now - state->activeResponseAt < ENDPOINT_REFRESH_RESPONSE_INTERVAL_MS) {
             return;
@@ -120,11 +171,25 @@ static void handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, 
         }
     }
     else if (message.type == LI_ER_ACK && message.sequence > state->ackSequence) {
+        if (message.sequence > state->lastConfirmedSequence) {
+            state->probeConfirmed++;
+            state->lastConfirmedSequence = message.sequence;
+        }
+        state->ackReceived++;
+        bool recovered = state->suspect || state->degraded;
+        uint64_t lastActivity = state->lastAck;
+        if (state->lastMedia > lastActivity) {
+            lastActivity = state->lastMedia;
+        }
+        uint64_t quiet = now > lastActivity ? now - lastActivity : 0;
         state->ackSequence = message.sequence;
         state->lastAck = now;
         state->suspect = false;
         state->degraded = false;
         state->degradedNotified = false;
+        if (recovered) {
+            logEndpointRefreshStats(state, "recovered by ACK", quiet);
+        }
     }
 }
 
@@ -139,6 +204,8 @@ static void maintain(LI_ENDPOINT_REFRESH* state, uint64_t now) {
         lastActivity = state->lastMedia;
     }
     uint64_t quiet = now - lastActivity;
+    bool wasSuspect = state->suspect;
+    bool wasDegraded = state->degraded;
     if (quiet >= ENDPOINT_REFRESH_SUSPECT_TIMEOUT_MS) {
         state->suspect = true;
     }
@@ -150,6 +217,12 @@ static void maintain(LI_ENDPOINT_REFRESH* state, uint64_t now) {
     if (state->suspect && quiet >= ENDPOINT_REFRESH_DEGRADED_TIMEOUT_MS) {
         state->degraded = true;
     }
+    if (!wasSuspect && state->suspect) {
+        logEndpointRefreshStats(state, "entered suspect", quiet);
+    }
+    if (!wasDegraded && state->degraded) {
+        logEndpointRefreshStats(state, "entered degraded", quiet);
+    }
     PltUnlockMutex(&state->mutex);
 }
 
@@ -158,10 +231,20 @@ void LiErClientMedia(LI_ENDPOINT_REFRESH* state) {
         return;
     }
     PltLockMutex(&state->mutex);
-    state->lastMedia = PltGetMillis();
+    bool recovered = state->suspect || state->degraded;
+    uint64_t now = PltGetMillis();
+    uint64_t lastActivity = state->lastAck;
+    if (state->lastMedia > lastActivity) {
+        lastActivity = state->lastMedia;
+    }
+    uint64_t quiet = now > lastActivity ? now - lastActivity : 0;
+    state->lastMedia = now;
     state->suspect = false;
     state->degraded = false;
     state->degradedNotified = false;
+    if (recovered) {
+        logEndpointRefreshStats(state, "recovered by media", quiet);
+    }
     PltUnlockMutex(&state->mutex);
 }
 
