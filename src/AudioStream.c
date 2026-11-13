@@ -71,8 +71,6 @@ static uint8_t opusHeaderByte;
 typedef struct _QUEUE_AUDIO_PACKET_HEADER {
     LINKED_BLOCKING_QUEUE_ENTRY lentry;
     int size;
-    uint64_t generation;
-    bool authenticated;
 } QUEUED_AUDIO_PACKET_HEADER, *PQUEUED_AUDIO_PACKET_HEADER;
 
 typedef struct _QUEUED_AUDIO_PACKET {
@@ -150,7 +148,7 @@ int notifyAudioPortNegotiationComplete(void) {
     }
     LiRecordStreamSocket(rtpSocket, STREAM_SOCKET_SLOT_AUDIO);
     if (!LiErClientInitialize(&endpointRefresh, rtpSocket, LI_ER_AUDIO, AudioPingPayload.payload,
-            AudioPortNumber, SOCK_QOS_TYPE_AUDIO, 0)) {
+            AudioPortNumber)) {
         closeSocket(rtpSocket);
         rtpSocket = INVALID_SOCKET;
         return -1;
@@ -234,9 +232,6 @@ static void decodeInputData(PQUEUED_AUDIO_PACKET packet) {
         consumeAudio(NULL, 0);
         return;
     }
-    const uint64_t generation = packet->header.generation;
-    const bool authenticated = packet->header.authenticated;
-
     PRTP_PACKET rtp = (PRTP_PACKET)&packet->data[0];
     if (lastSeq != 0 && (unsigned short)(lastSeq + 1) != rtp->sequenceNumber) {
         Limelog("Network dropped audio data (expected %d, but received %d)\n", lastSeq + 1, rtp->sequenceNumber);
@@ -306,9 +301,9 @@ static void decodeInputData(PQUEUED_AUDIO_PACKET packet) {
         consumeAudio((char*)(rtp + 1), packet->header.size - sizeof(*rtp));
     }
 
-    // Provenance was classified by the receive thread: active socket media
-    // feeds the recovery timers; candidate or mixed-origin media never does.
-    LiErClientMedia(&endpointRefresh, generation, authenticated);
+    // All media comes from the original UDP socket in the conservative
+    // recovery mode. Accepted audio refreshes endpoint health.
+    LiErClientMedia(&endpointRefresh);
 }
 
 static void AudioReceiveThreadProc(void* context) {
@@ -350,9 +345,9 @@ static void AudioReceiveThreadProc(void* context) {
         if (packet->header.size == LI_ER_RECV_HANDLED) {
             continue;
         }
-        else if (packet->header.size == LI_ER_RECV_FAILED) {
-            ListenerCallbacks.connectionTerminated(ML_ERROR_ENDPOINT_REFRESH_FAILED);
-            break;
+        else if (packet->header.size == LI_ER_RECV_DEGRADED) {
+            Limelog("Audio endpoint is degraded; keeping the session alive\n");
+            continue;
         }
         else if (packet->header.size < 0) {
             Limelog("Audio Receive: recvUdpSocket() failed: %d\n", (int)LastSocketError());
@@ -407,13 +402,8 @@ static void AudioReceiveThreadProc(void* context) {
         rtp->timestamp = BE32(rtp->timestamp);
         rtp->ssrc = BE32(rtp->ssrc);
 
-        uint64_t generation = LiErClientPacketGeneration(&endpointRefresh);
         queueStatus = RtpaAddPacket(&rtpAudioQueue, (PRTP_PACKET)&packet->data[0], (uint16_t)packet->header.size);
         if (RTPQ_HANDLE_NOW(queueStatus)) {
-            packet->header.generation = generation;
-            // Active socket media keeps the timers healthy. Candidate audio
-            // cannot prove its source and must confirm via challenge/response.
-            packet->header.authenticated = generation == 0;
             if ((AudioCallbacks.capabilities & CAPABILITY_DIRECT_SUBMIT) == 0) {
                 if (!queuePacketToLbq(&packet)) {
                     // An exit signal was received
@@ -441,12 +431,6 @@ static void AudioReceiveThreadProc(void* context) {
                 while ((queuedPacket = (PQUEUED_AUDIO_PACKET)RtpaGetQueuedPacket(&rtpAudioQueue, sizeof(QUEUED_AUDIO_PACKET_HEADER), &length)) != NULL) {
                     // Populate header data (not preserved in queued packets)
                     queuedPacket->header.size = length;
-                    queuedPacket->header.generation = 0;
-                    // The queue mixes packets from both sockets and FEC shards,
-                    // so provenance is unknown. Treat drained media as active
-                    // only while no recovery is in progress; otherwise it must
-                    // not feed the recovery timers or delay failure detection.
-                    queuedPacket->header.authenticated = !LiErClientCandidatePresent(&endpointRefresh);
 
                     if ((AudioCallbacks.capabilities & CAPABILITY_DIRECT_SUBMIT) == 0) {
                         if (!queuePacketToLbq(&queuedPacket)) {

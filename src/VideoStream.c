@@ -82,7 +82,7 @@ static void VideoPingThreadProc(void* context) {
     int pingCount = 0;
     while (!PltIsThreadInterrupted(&udpPingThread)) {
         if (LiErClientPing(&endpointRefresh)) {
-            // Authenticated keepalive, including candidate-socket probes.
+            // Authenticated keepalive from the original media socket.
         }
         else if (VideoPingPayload.payload[0] != 0) {
             pingCount++;
@@ -158,9 +158,13 @@ static void VideoReceiveThreadProc(void* context) {
         if (err == LI_ER_RECV_HANDLED) {
             continue;
         }
-        else if (err == LI_ER_RECV_FAILED) {
-            ListenerCallbacks.connectionTerminated(ML_ERROR_ENDPOINT_REFRESH_FAILED);
-            break;
+        else if (err == LI_ER_RECV_DEGRADED) {
+            if (receivedDataFromPeer) {
+                Limelog("Video endpoint is degraded after the first frame\n");
+            }
+            // Keep the existing first-frame timeout and continue reading the
+            // original socket. A degraded probe is not a socket error.
+            continue;
         }
         else if (err < 0) {
             Limelog("Video Receive: recvUdpSocket() failed: %d\n", (int)LastSocketError());
@@ -190,11 +194,6 @@ static void VideoReceiveThreadProc(void* context) {
         atomic_fetch_add_explicit(&rtpVideoBytesReceived,
                                   (uint64_t)receivedPacketLength,
                                   memory_order_relaxed);
-        uint64_t generation = LiErClientPacketGeneration(&endpointRefresh);
-        // Only AES-GCM authentication may prove a candidate source. Active
-        // socket packets are accepted through the generation == 0 argument.
-        bool authenticated = false;
-
         if (!receivedDataFromPeer) {
             receivedDataFromPeer = true;
             Limelog("Received first video packet after %d ms\n", waitingForVideoMs);
@@ -255,7 +254,6 @@ static void VideoReceiveThreadProc(void* context) {
                 Limelog("Failed to decrypt video packet!\n");
                 continue;
             }
-            authenticated = true;
         }
 
         // Convert fields to host byte-order
@@ -267,9 +265,7 @@ static void VideoReceiveThreadProc(void* context) {
         queueStatus = RtpvAddPacket(&rtpQueue, packet, err, (PRTPV_QUEUE_ENTRY)&buffer[decryptedSize]);
 
         if (queueStatus == RTPF_RET_QUEUED) {
-            // AES-GCM authenticates the packet. Unencrypted video still needs
-            // the endpoint challenge/response before changing sockets.
-            LiErClientMedia(&endpointRefresh, generation, generation == 0 || authenticated);
+            LiErClientMedia(&endpointRefresh);
             // The queue owns the buffer
             buffer = NULL;
         }
@@ -379,7 +375,7 @@ int startVideoStream(void* rendererContext, int drFlags) {
     }
     LiRecordStreamSocket(rtpSocket, STREAM_SOCKET_SLOT_VIDEO);
     if (!LiErClientInitialize(&endpointRefresh, rtpSocket, LI_ER_VIDEO, VideoPingPayload.payload,
-            VideoPortNumber, SOCK_QOS_TYPE_VIDEO, recvPackets * (StreamConfig.packetSize + MAX_RTP_HEADER_SIZE))) {
+            VideoPortNumber)) {
         closeSocket(rtpSocket);
         rtpSocket = INVALID_SOCKET;
         VideoCallbacks.cleanup();
