@@ -261,6 +261,26 @@ int main(void) {
     CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
     CHECK(state.candidate == INVALID_SOCKET && state.attempts == 2);
 
+    // Authenticated candidate media can promote without an ACK (the video
+    // AES-GCM path), but a stale generation must never promote a replacement.
+    now += 2100;
+    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == 0);
+    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == 0);
+    CHECK(state.candidate != INVALID_SOCKET && state.attempts == 3);
+    original = active;
+    CHECK(readProbe(host, &peer, &state, &message) && message.type == LI_ER_PROBE);
+    state.candidateMedia = true;
+    state.candidateMediaGeneration = state.candidateGeneration - 1;
+    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == 0);
+    CHECK(active == original && state.candidate != INVALID_SOCKET && !state.candidateMedia);
+    CHECK(sendPacket(host, &peer, media, sizeof(media)) == sizeof(media));
+    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == sizeof(media));
+    uint64_t mediaGeneration = LiErClientPacketGeneration(&state);
+    CHECK(mediaGeneration == state.candidateGeneration);
+    LiErClientMedia(&state, mediaGeneration, true);
+    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == 0);
+    CHECK(active != original && state.candidate == INVALID_SOCKET && state.attempts == 3);
+
     // Scattered failures must not exhaust a session's lifetime budget. Exercise
     // real ACK/media traffic between five migrations, beyond the stable window.
     for (int migration = 0; migration < 5; migration++) {

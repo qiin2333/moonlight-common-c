@@ -194,6 +194,7 @@ void LiErClientMedia(LI_ENDPOINT_REFRESH* state, uint64_t generation, bool authe
     if (generation != 0 && generation == state->candidateGeneration &&
         state->candidate != INVALID_SOCKET) {
         state->candidateMedia = true;
+        state->candidateMediaGeneration = generation;
         state->candidatePacketGeneration = 0;
     }
     PltUnlockMutex(&state->mutex);
@@ -205,6 +206,7 @@ static void promoteCandidate(LI_ENDPOINT_REFRESH* state, SOCKET* socket) {
     state->candidate = INVALID_SOCKET;
     state->candidateConfirmed = false;
     state->candidateMedia = false;
+    state->candidateMediaGeneration = 0;
     state->candidatePacketGeneration = 0;
     state->stableSince = state->receiveTime;
     state->activeResponseAt = state->candidateResponseAt;
@@ -291,10 +293,15 @@ int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int
     PltLockMutex(&state->mutex);
     state->candidatePacketGeneration = 0;
     bool candidateMedia = state->candidateMedia;
+    uint64_t candidateMediaGeneration = state->candidateMediaGeneration;
     PltUnlockMutex(&state->mutex);
     if (candidateMedia) {
         PltLockMutex(&state->mutex);
-        if (state->candidate != INVALID_SOCKET) {
+        // The proof must belong to the candidate that is still current. A
+        // confirmation decoded from an expired candidate must not promote
+        // the replacement that was created after the media was decoded.
+        if (candidateMediaGeneration == state->candidateGeneration &&
+            state->candidate != INVALID_SOCKET) {
             promoteCandidate(state, socket);
         }
         else {

@@ -24,6 +24,7 @@ typedef struct _LI_ENDPOINT_REFRESH {
     bool candidateNext;
     uint64_t candidatePacketGeneration;
     bool candidateMedia;
+    uint64_t candidateMediaGeneration;
     bool failed;
 } LI_ENDPOINT_REFRESH;
 
