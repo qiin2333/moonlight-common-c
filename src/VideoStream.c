@@ -190,6 +190,8 @@ static void VideoReceiveThreadProc(void* context) {
         atomic_fetch_add_explicit(&rtpVideoBytesReceived,
                                   (uint64_t)receivedPacketLength,
                                   memory_order_relaxed);
+        uint64_t generation = LiErClientPacketGeneration(&endpointRefresh);
+        bool authenticated = !encrypted;
 
         if (!receivedDataFromPeer) {
             receivedDataFromPeer = true;
@@ -251,6 +253,7 @@ static void VideoReceiveThreadProc(void* context) {
                 Limelog("Failed to decrypt video packet!\n");
                 continue;
             }
+            authenticated = true;
         }
 
         // Convert fields to host byte-order
@@ -262,7 +265,9 @@ static void VideoReceiveThreadProc(void* context) {
         queueStatus = RtpvAddPacket(&rtpQueue, packet, err, (PRTPV_QUEUE_ENTRY)&buffer[decryptedSize]);
 
         if (queueStatus == RTPF_RET_QUEUED) {
-            LiErClientMedia(&endpointRefresh, false, true);
+            // AES-GCM authenticates the packet. Unencrypted video still needs
+            // the endpoint challenge/response before changing sockets.
+            LiErClientMedia(&endpointRefresh, generation, generation == 0 || authenticated);
             // The queue owns the buffer
             buffer = NULL;
         }

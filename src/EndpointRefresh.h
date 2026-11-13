@@ -15,14 +15,14 @@ typedef struct _LI_ENDPOINT_REFRESH {
     int qos;
     int bufferSize;
     unsigned char session[LI_ER_SESSION_SIZE], key[LI_ER_KEY_SIZE], nonce[LI_ER_NONCE_SIZE];
-    uint64_t sequence, ackSequence, challengeSequence, candidateFirstSequence;
+    uint64_t sequence, ackSequence, challengeSequence, candidateFirstSequence, candidateGeneration;
     uint64_t lastAck, lastMedia, candidateStarted, lastPoll, stableSince, receiveTime;
     uint64_t lastProbeAt, activeResponseAt, candidateResponseAt;
     unsigned int attempts;
     bool challenged;
     bool candidateConfirmed;
     bool candidateNext;
-    bool candidatePacket;
+    uint64_t candidatePacketGeneration;
     bool candidateMedia;
     bool failed;
 } LI_ENDPOINT_REFRESH;
@@ -35,7 +35,7 @@ bool LiErClientPing(LI_ENDPOINT_REFRESH* state);
 #define LI_ER_RECV_HANDLED -2
 #define LI_ER_RECV_FAILED -3
 int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int size, bool useSelect);
-bool LiErClientPacketFromCandidate(LI_ENDPOINT_REFRESH* state);
-void LiErClientMedia(LI_ENDPOINT_REFRESH* state, bool candidate, bool authenticated);
+uint64_t LiErClientPacketGeneration(LI_ENDPOINT_REFRESH* state);
+void LiErClientMedia(LI_ENDPOINT_REFRESH* state, uint64_t generation, bool authenticated);
 
 extern bool EndpointRefreshRequested;

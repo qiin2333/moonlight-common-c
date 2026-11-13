@@ -71,7 +71,7 @@ static uint8_t opusHeaderByte;
 typedef struct _QUEUE_AUDIO_PACKET_HEADER {
     LINKED_BLOCKING_QUEUE_ENTRY lentry;
     int size;
-    bool candidate;
+    uint64_t generation;
 } QUEUED_AUDIO_PACKET_HEADER, *PQUEUED_AUDIO_PACKET_HEADER;
 
 typedef struct _QUEUED_AUDIO_PACKET {
@@ -226,7 +226,7 @@ static bool queuePacketToLbq(PQUEUED_AUDIO_PACKET* packet) {
 }
 
 static void decodeInputData(PQUEUED_AUDIO_PACKET packet) {
-    const bool candidate = packet->header.size != 0 && packet->header.candidate;
+    const uint64_t generation = packet->header.size != 0 ? packet->header.generation : 0;
     // If the packet size is zero, this is a placeholder for a missing
     // packet. Trigger packet loss concealment logic in libopus by
     // invoking the decoder with a NULL buffer.
@@ -304,11 +304,9 @@ static void decodeInputData(PQUEUED_AUDIO_PACKET packet) {
         consumeAudio((char*)(rtp + 1), packet->header.size - sizeof(*rtp));
     }
 
-    // Candidate audio may promote the replacement socket only after the
-    // packet has passed decryption. Unencrypted audio has no packet
-    // authentication, so it must still use the challenge/response proof.
-    LiErClientMedia(&endpointRefresh, candidate,
-        !candidate || AudioEncryptionEnabled);
+    // AES-CBC decryption and unencrypted audio do not authenticate the packet.
+    // Only an endpoint challenge/response may prove a candidate source.
+    LiErClientMedia(&endpointRefresh, generation, generation == 0);
 }
 
 static void AudioReceiveThreadProc(void* context) {
@@ -407,10 +405,10 @@ static void AudioReceiveThreadProc(void* context) {
         rtp->timestamp = BE32(rtp->timestamp);
         rtp->ssrc = BE32(rtp->ssrc);
 
-        bool candidatePacket = LiErClientPacketFromCandidate(&endpointRefresh);
+        uint64_t generation = LiErClientPacketGeneration(&endpointRefresh);
         queueStatus = RtpaAddPacket(&rtpAudioQueue, (PRTP_PACKET)&packet->data[0], (uint16_t)packet->header.size);
         if (RTPQ_HANDLE_NOW(queueStatus)) {
-            packet->header.candidate = candidatePacket;
+            packet->header.generation = generation;
             if ((AudioCallbacks.capabilities & CAPABILITY_DIRECT_SUBMIT) == 0) {
                 if (!queuePacketToLbq(&packet)) {
                     // An exit signal was received
@@ -440,7 +438,7 @@ static void AudioReceiveThreadProc(void* context) {
                     queuedPacket->header.size = length;
                     // FEC can combine packets from both sockets. Do not use a
                     // reconstructed packet as proof of the candidate source.
-                    queuedPacket->header.candidate = false;
+                    queuedPacket->header.generation = 0;
 
                     if ((AudioCallbacks.capabilities & CAPABILITY_DIRECT_SUBMIT) == 0) {
                         if (!queuePacketToLbq(&queuedPacket)) {

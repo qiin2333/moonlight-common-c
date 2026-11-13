@@ -189,7 +189,7 @@ int main(void) {
     CHECK(sendPacket(host, &originalPeer, media, sizeof(media)) == sizeof(media));
     readsBefore = clockReads;
     CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == sizeof(media));
-    LiErClientMedia(&state, false, true);
+    LiErClientMedia(&state, 0, true);
     CHECK(clockReads == readsBefore + 1 && state.lastMedia == now && dualSocketPolls == 0);
 
     now += 2100;
@@ -221,9 +221,9 @@ int main(void) {
         int result = LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false);
         CHECK(result == sizeof(media) || result == LI_ER_RECV_HANDLED);
         if (result == sizeof(media)) {
-            bool candidate = LiErClientPacketFromCandidate(&state);
+            uint64_t generation = LiErClientPacketGeneration(&state);
             accepted++;
-            LiErClientMedia(&state, candidate, !candidate);
+            LiErClientMedia(&state, generation, generation == 0);
         }
     }
     CHECK(accepted == 2 && active == original);
@@ -236,8 +236,8 @@ int main(void) {
     for (int i = 0; i < 2; i++) {
         CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == sizeof(media));
         CHECK(!memcmp(buffer, media, sizeof(media)));
-        bool candidate = LiErClientPacketFromCandidate(&state);
-        LiErClientMedia(&state, candidate, true); // Media queued after the ACK must be delivered, not batch-drained.
+        uint64_t generation = LiErClientPacketGeneration(&state);
+        LiErClientMedia(&state, generation, true); // Media queued after the ACK must be delivered, not batch-drained.
     }
 
     // A lost commit ACK can be recovered by a later probe ACK with the same nonce.
@@ -273,7 +273,7 @@ int main(void) {
             CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
             CHECK(sendPacket(host, &peer, media, sizeof(media)) == sizeof(media));
             CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == sizeof(media));
-            LiErClientMedia(&state, false, true);
+            LiErClientMedia(&state, 0, true);
         }
         CHECK(state.attempts == 0 && !state.failed);
         now += 2100;

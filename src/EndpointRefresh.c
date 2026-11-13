@@ -163,17 +163,17 @@ static void handle(LI_ENDPOINT_REFRESH* state, SOCKET socket, const void* packet
     }
 }
 
-bool LiErClientPacketFromCandidate(LI_ENDPOINT_REFRESH* state) {
+uint64_t LiErClientPacketGeneration(LI_ENDPOINT_REFRESH* state) {
     if (!state->initialized) {
-        return false;
+        return 0;
     }
     PltLockMutex(&state->mutex);
-    bool candidate = state->candidatePacket;
+    uint64_t generation = state->candidatePacketGeneration;
     PltUnlockMutex(&state->mutex);
-    return candidate;
+    return generation;
 }
 
-void LiErClientMedia(LI_ENDPOINT_REFRESH* state, bool candidate, bool authenticated) {
+void LiErClientMedia(LI_ENDPOINT_REFRESH* state, uint64_t generation, bool authenticated) {
     if (!state->initialized) {
         return;
     }
@@ -189,9 +189,12 @@ void LiErClientMedia(LI_ENDPOINT_REFRESH* state, bool candidate, bool authentica
     state->lastMedia = now;
     // Valid media proves the current return path. Do not wait for a separate ACK.
     state->lastAck = now;
-    if (candidate) {
+    // Generation zero is the active socket. A delayed packet from a closed
+    // candidate must not confirm the replacement that replaced it.
+    if (generation != 0 && generation == state->candidateGeneration &&
+        state->candidate != INVALID_SOCKET) {
         state->candidateMedia = true;
-        state->candidatePacket = false;
+        state->candidatePacketGeneration = 0;
     }
     PltUnlockMutex(&state->mutex);
 }
@@ -202,6 +205,7 @@ static void promoteCandidate(LI_ENDPOINT_REFRESH* state, SOCKET* socket) {
     state->candidate = INVALID_SOCKET;
     state->candidateConfirmed = false;
     state->candidateMedia = false;
+    state->candidatePacketGeneration = 0;
     state->stableSince = state->receiveTime;
     state->activeResponseAt = state->candidateResponseAt;
     LiReplaceStreamSocket(previous, *socket,
@@ -235,6 +239,7 @@ static bool maintain(LI_ENDPOINT_REFRESH* state, uint64_t now) {
         if (now - state->candidateStarted >= ENDPOINT_REFRESH_RECOVERY_TIMEOUT_MS) {
             closeSocket(state->candidate);
             state->candidate = INVALID_SOCKET;
+            state->candidatePacketGeneration = 0;
         }
     }
     if (state->candidate == INVALID_SOCKET &&
@@ -254,6 +259,10 @@ static bool maintain(LI_ENDPOINT_REFRESH* state, uint64_t now) {
                 state->candidateConfirmed = false;
                 state->challengeSequence = 0;
                 state->candidateFirstSequence = state->sequence + 1;
+                state->candidateGeneration++;
+                if (state->candidateGeneration == 0) {
+                    state->candidateGeneration = 1;
+                }
                 state->candidateResponseAt = UINT64_MAX;
                 state->candidateNext = true;
                 sendProbe(state, state->candidate, now);
@@ -280,7 +289,7 @@ int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int
         return LI_ER_RECV_FAILED;
     }
     PltLockMutex(&state->mutex);
-    state->candidatePacket = false;
+    state->candidatePacketGeneration = 0;
     bool candidateMedia = state->candidateMedia;
     PltUnlockMutex(&state->mutex);
     if (candidateMedia) {
@@ -362,7 +371,7 @@ int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int
     // the existing RTP/decryption path; LiErClientMedia promotes it only after
     // the packet is accepted by that path.
     PltLockMutex(&state->mutex);
-    state->candidatePacket = selected == state->candidate;
+    state->candidatePacketGeneration = selected == state->candidate ? state->candidateGeneration : 0;
     PltUnlockMutex(&state->mutex);
     return length;
 }
