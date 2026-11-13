@@ -32,6 +32,10 @@ bool LiErClientInitialize(LI_ENDPOINT_REFRESH* state, SOCKET socket, uint8_t str
     atomic_init(&state->probeConfirmed, 0);
     atomic_init(&state->challengeReceived, 0);
     atomic_init(&state->ackReceived, 0);
+    atomic_init(&state->responsePacketsReceived, 0);
+    atomic_init(&state->invalidResponses, 0);
+    atomic_init(&state->staleResponses, 0);
+    atomic_init(&state->unexpectedResponses, 0);
     atomic_init(&state->statsSuspect, false);
     atomic_init(&state->statsDegraded, false);
     if (!EndpointRefreshRequested) {
@@ -103,13 +107,20 @@ bool LiErClientPing(LI_ENDPOINT_REFRESH* state) {
     return true;
 }
 
-static void handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, uint64_t now) {
+enum {
+    ENDPOINT_RESPONSE_INVALID = 0,
+    ENDPOINT_RESPONSE_ACCEPTED = 1,
+    ENDPOINT_RESPONSE_STALE = 2,
+    ENDPOINT_RESPONSE_UNEXPECTED = 3
+};
+
+static int handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, uint64_t now) {
     LI_ER_MESSAGE message;
     unsigned char response[LI_ER_PACKET_SIZE];
     if (!LiErDecode(packet, size, state->stream, state->session, state->key, &message) ||
         message.sequence > state->sequence ||
         state->sequence - message.sequence > ENDPOINT_REFRESH_SEQUENCE_WINDOW) {
-        return;
+        return ENDPOINT_RESPONSE_INVALID;
     }
     if (message.type == LI_ER_CHALLENGE && message.sequence > state->ackSequence) {
         if (message.sequence > state->lastConfirmedSequence) {
@@ -128,7 +139,7 @@ static void handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, 
         atomic_store_explicit(&state->statsDegraded, false, memory_order_relaxed);
         if (state->activeResponseAt != UINT64_MAX &&
             now - state->activeResponseAt < ENDPOINT_REFRESH_RESPONSE_INTERVAL_MS) {
-            return;
+            return ENDPOINT_RESPONSE_ACCEPTED;
         }
         if (LiErEncode(response, LI_ER_RESPONSE, state->stream, state->session, state->key,
                 message.sequence, message.nonce)) {
@@ -136,6 +147,7 @@ static void handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, 
             sendto(state->active, (char*)response, sizeof(response), 0,
                 (struct sockaddr*)&state->remote, AddrLen);
         }
+        return ENDPOINT_RESPONSE_ACCEPTED;
     }
     else if (message.type == LI_ER_ACK && message.sequence > state->ackSequence) {
         if (message.sequence > state->lastConfirmedSequence) {
@@ -150,7 +162,12 @@ static void handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, 
         state->degradedNotified = false;
         atomic_store_explicit(&state->statsSuspect, false, memory_order_relaxed);
         atomic_store_explicit(&state->statsDegraded, false, memory_order_relaxed);
+        return ENDPOINT_RESPONSE_ACCEPTED;
     }
+    if (message.type == LI_ER_CHALLENGE || message.type == LI_ER_ACK) {
+        return ENDPOINT_RESPONSE_STALE;
+    }
+    return ENDPOINT_RESPONSE_UNEXPECTED;
 }
 
 static void maintain(LI_ENDPOINT_REFRESH* state) {
@@ -209,6 +226,10 @@ bool LiErClientGetStats(LI_ENDPOINT_REFRESH* state, LI_ENDPOINT_REFRESH_STATS* s
     stats->probeConfirmed = atomic_load_explicit(&state->probeConfirmed, memory_order_relaxed);
     stats->challengeReceived = atomic_load_explicit(&state->challengeReceived, memory_order_relaxed);
     stats->ackReceived = atomic_load_explicit(&state->ackReceived, memory_order_relaxed);
+    stats->responsePacketsReceived = atomic_load_explicit(&state->responsePacketsReceived, memory_order_relaxed);
+    stats->invalidResponses = atomic_load_explicit(&state->invalidResponses, memory_order_relaxed);
+    stats->staleResponses = atomic_load_explicit(&state->staleResponses, memory_order_relaxed);
+    stats->unexpectedResponses = atomic_load_explicit(&state->unexpectedResponses, memory_order_relaxed);
     stats->suspect = atomic_load_explicit(&state->statsSuspect, memory_order_relaxed);
     stats->degraded = atomic_load_explicit(&state->statsDegraded, memory_order_relaxed);
     return true;
@@ -244,9 +265,19 @@ int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int
         return length;
     }
     if (length == LI_ER_PACKET_SIZE && !memcmp(packet, "EAPR", 4)) {
+        atomic_fetch_add_explicit(&state->responsePacketsReceived, 1, memory_order_relaxed);
         PltLockMutex(&state->mutex);
-        handle(state, packet, (size_t)length, receiveTime);
+        int responseResult = handle(state, packet, (size_t)length, receiveTime);
         PltUnlockMutex(&state->mutex);
+        if (responseResult == ENDPOINT_RESPONSE_INVALID) {
+            atomic_fetch_add_explicit(&state->invalidResponses, 1, memory_order_relaxed);
+        }
+        else if (responseResult == ENDPOINT_RESPONSE_STALE) {
+            atomic_fetch_add_explicit(&state->staleResponses, 1, memory_order_relaxed);
+        }
+        else if (responseResult == ENDPOINT_RESPONSE_UNEXPECTED) {
+            atomic_fetch_add_explicit(&state->unexpectedResponses, 1, memory_order_relaxed);
+        }
         return LI_ER_RECV_HANDLED;
     }
     return length;

@@ -21,6 +21,8 @@ typedef struct _LI_ENDPOINT_REFRESH {
     uint64_t lastProbeAt, activeResponseAt;
     atomic_uint_fast64_t probeAttempts, probeSendFailures, probeConfirmed;
     atomic_uint_fast64_t challengeReceived, ackReceived;
+    atomic_uint_fast64_t responsePacketsReceived, invalidResponses;
+    atomic_uint_fast64_t staleResponses, unexpectedResponses;
     atomic_bool statsSuspect, statsDegraded;
     uint64_t lastConfirmedSequence;
 } LI_ENDPOINT_REFRESH;
@@ -31,6 +33,10 @@ typedef struct _LI_ENDPOINT_REFRESH_STATS {
     uint64_t probeConfirmed;
     uint64_t challengeReceived;
     uint64_t ackReceived;
+    uint64_t responsePacketsReceived;
+    uint64_t invalidResponses;
+    uint64_t staleResponses;
+    uint64_t unexpectedResponses;
     bool suspect;
     bool degraded;
 } LI_ENDPOINT_REFRESH_STATS;

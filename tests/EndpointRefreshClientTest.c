@@ -172,6 +172,17 @@ int main(void) {
     CHECK(LiErClientGetStats(&state, &stats));
     CHECK(stats.probeConfirmed == 1 && stats.ackReceived == 1);
 
+    // Distinguish a response that reaches the socket from one that passes
+    // the authenticated endpoint-refresh checks.
+    unsigned char invalidAck[LI_ER_PACKET_SIZE];
+    memcpy(invalidAck, ack, sizeof(invalidAck));
+    invalidAck[LI_ER_PACKET_SIZE - 1] ^= 1;
+    CHECK(sendToPeer(host, &activePeer, invalidAck, sizeof(invalidAck)) == sizeof(invalidAck));
+    CHECK(LiErClientRecv(&state, &state.active, (char*)buffer, sizeof(buffer), false) ==
+        LI_ER_RECV_HANDLED);
+    CHECK(LiErClientGetStats(&state, &stats));
+    CHECK(stats.responsePacketsReceived == 2 && stats.invalidResponses == 1);
+
     // Simulate high-bitrate queueing: no return traffic for 2 seconds. The
     // original socket remains the only socket and the stream is not failed.
     now += 2100;
