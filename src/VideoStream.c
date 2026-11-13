@@ -12,6 +12,10 @@ static RTP_VIDEO_QUEUE rtpQueue;
 
 static SOCKET rtpSocket = INVALID_SOCKET;
 static LI_ENDPOINT_REFRESH endpointRefresh;
+
+bool LiGetVideoEndpointRefreshStats(LI_ENDPOINT_REFRESH_STATS* stats) {
+    return LiErClientGetStats(&endpointRefresh, stats);
+}
 static SOCKET firstFrameSocket = INVALID_SOCKET;
 
 static PPLT_CRYPTO_CONTEXT decryptionCtx;

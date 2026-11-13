@@ -16,36 +16,6 @@ enum {
 bool EndpointRefreshRequested;
 static atomic_bool enabled;
 
-static const char* endpointRefreshStreamName(uint8_t stream) {
-    switch (stream) {
-    case LI_ER_VIDEO:
-        return "video";
-    case LI_ER_AUDIO:
-        return "audio";
-    default:
-        return "unknown";
-    }
-}
-
-static void logEndpointRefreshStats(const LI_ENDPOINT_REFRESH* state, const char* event, uint64_t quiet) {
-    uint64_t unconfirmed = state->probeAttempts > state->probeConfirmed ?
-        state->probeAttempts - state->probeConfirmed : 0;
-    unsigned int estimatedLoss = state->probeAttempts == 0 ? 0 :
-        (unsigned int)((unconfirmed * 100u) / state->probeAttempts);
-
-    Limelog("Endpoint refresh (%s): %s after %llu ms; probes=%llu, confirmed=%llu, "
-            "unconfirmed=%llu, estimated_loss=%u%%, send_failures=%llu, challenges=%llu, acks=%llu\n",
-            endpointRefreshStreamName(state->stream), event,
-            (unsigned long long)quiet,
-            (unsigned long long)state->probeAttempts,
-            (unsigned long long)state->probeConfirmed,
-            (unsigned long long)unconfirmed,
-            estimatedLoss,
-            (unsigned long long)state->probeSendFailures,
-            (unsigned long long)state->challengeReceived,
-            (unsigned long long)state->ackReceived);
-}
-
 bool LiIsEndpointAutoRefreshEnabled(void) {
     return atomic_load_explicit(&enabled, memory_order_acquire);
 }
@@ -57,6 +27,13 @@ void LiSetEndpointAutoRefreshEnabled(bool value) {
 bool LiErClientInitialize(LI_ENDPOINT_REFRESH* state, SOCKET socket, uint8_t stream,
                           const char session[LI_ER_SESSION_SIZE], uint16_t remotePort) {
     memset(state, 0, sizeof(*state));
+    atomic_init(&state->probeAttempts, 0);
+    atomic_init(&state->probeSendFailures, 0);
+    atomic_init(&state->probeConfirmed, 0);
+    atomic_init(&state->challengeReceived, 0);
+    atomic_init(&state->ackReceived, 0);
+    atomic_init(&state->statsSuspect, false);
+    atomic_init(&state->statsDegraded, false);
     if (!EndpointRefreshRequested) {
         return true;
     }
@@ -85,9 +62,6 @@ void LiErClientDestroy(LI_ENDPOINT_REFRESH* state) {
     if (!state->initialized) {
         return;
     }
-    if (state->probeAttempts > 0) {
-        logEndpointRefreshStats(state, "session summary", 0);
-    }
     PltDeleteMutex(&state->mutex);
     LiErWipe(state, sizeof(*state));
 }
@@ -104,11 +78,11 @@ static void sendProbe(LI_ENDPOINT_REFRESH* state, uint64_t now) {
             state->session, state->key, ++state->sequence, NULL)) {
         state->lastProbeAt = now;
         state->probeSent = true;
-        state->probeAttempts++;
+        atomic_fetch_add_explicit(&state->probeAttempts, 1, memory_order_relaxed);
         SOCK_RET result = sendto(state->active, (char*)packet, sizeof(packet), 0,
             (struct sockaddr*)&state->remote, AddrLen);
         if (result != (SOCK_RET)sizeof(packet)) {
-            state->probeSendFailures++;
+            atomic_fetch_add_explicit(&state->probeSendFailures, 1, memory_order_relaxed);
         }
     }
 }
@@ -139,26 +113,19 @@ static void handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, 
     }
     if (message.type == LI_ER_CHALLENGE && message.sequence > state->ackSequence) {
         if (message.sequence > state->lastConfirmedSequence) {
-            state->probeConfirmed++;
+            atomic_fetch_add_explicit(&state->probeConfirmed, 1, memory_order_relaxed);
             state->lastConfirmedSequence = message.sequence;
         }
-        state->challengeReceived++;
+        atomic_fetch_add_explicit(&state->challengeReceived, 1, memory_order_relaxed);
         // A valid challenge proves that the original socket can still reach
         // the host. Restore the observation state even if response rate
         // limiting suppresses this particular response.
-        bool recovered = state->suspect || state->degraded;
-        uint64_t lastActivity = state->lastAck;
-        if (state->lastMedia > lastActivity) {
-            lastActivity = state->lastMedia;
-        }
-        uint64_t quiet = now > lastActivity ? now - lastActivity : 0;
         state->lastAck = now;
         state->suspect = false;
         state->degraded = false;
         state->degradedNotified = false;
-        if (recovered) {
-            logEndpointRefreshStats(state, "recovered by challenge", quiet);
-        }
+        atomic_store_explicit(&state->statsSuspect, false, memory_order_relaxed);
+        atomic_store_explicit(&state->statsDegraded, false, memory_order_relaxed);
         if (state->activeResponseAt != UINT64_MAX &&
             now - state->activeResponseAt < ENDPOINT_REFRESH_RESPONSE_INTERVAL_MS) {
             return;
@@ -172,24 +139,17 @@ static void handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, 
     }
     else if (message.type == LI_ER_ACK && message.sequence > state->ackSequence) {
         if (message.sequence > state->lastConfirmedSequence) {
-            state->probeConfirmed++;
+            atomic_fetch_add_explicit(&state->probeConfirmed, 1, memory_order_relaxed);
             state->lastConfirmedSequence = message.sequence;
         }
-        state->ackReceived++;
-        bool recovered = state->suspect || state->degraded;
-        uint64_t lastActivity = state->lastAck;
-        if (state->lastMedia > lastActivity) {
-            lastActivity = state->lastMedia;
-        }
-        uint64_t quiet = now > lastActivity ? now - lastActivity : 0;
+        atomic_fetch_add_explicit(&state->ackReceived, 1, memory_order_relaxed);
         state->ackSequence = message.sequence;
         state->lastAck = now;
         state->suspect = false;
         state->degraded = false;
         state->degradedNotified = false;
-        if (recovered) {
-            logEndpointRefreshStats(state, "recovered by ACK", quiet);
-        }
+        atomic_store_explicit(&state->statsSuspect, false, memory_order_relaxed);
+        atomic_store_explicit(&state->statsDegraded, false, memory_order_relaxed);
     }
 }
 
@@ -206,24 +166,20 @@ static void maintain(LI_ENDPOINT_REFRESH* state) {
         lastActivity = state->lastMedia;
     }
     uint64_t quiet = now > lastActivity ? now - lastActivity : 0;
-    bool wasSuspect = state->suspect;
-    bool wasDegraded = state->degraded;
     if (quiet >= ENDPOINT_REFRESH_SUSPECT_TIMEOUT_MS) {
         state->suspect = true;
+        atomic_store_explicit(&state->statsSuspect, true, memory_order_relaxed);
     }
     else {
         state->suspect = false;
         state->degraded = false;
         state->degradedNotified = false;
+        atomic_store_explicit(&state->statsSuspect, false, memory_order_relaxed);
+        atomic_store_explicit(&state->statsDegraded, false, memory_order_relaxed);
     }
     if (state->suspect && quiet >= ENDPOINT_REFRESH_DEGRADED_TIMEOUT_MS) {
         state->degraded = true;
-    }
-    if (!wasSuspect && state->suspect) {
-        logEndpointRefreshStats(state, "entered suspect", quiet);
-    }
-    if (!wasDegraded && state->degraded) {
-        logEndpointRefreshStats(state, "entered degraded", quiet);
+        atomic_store_explicit(&state->statsDegraded, true, memory_order_relaxed);
     }
     PltUnlockMutex(&state->mutex);
 }
@@ -233,21 +189,29 @@ void LiErClientMedia(LI_ENDPOINT_REFRESH* state) {
         return;
     }
     PltLockMutex(&state->mutex);
-    bool recovered = state->suspect || state->degraded;
     uint64_t now = PltGetMillis();
-    uint64_t lastActivity = state->lastAck;
-    if (state->lastMedia > lastActivity) {
-        lastActivity = state->lastMedia;
-    }
-    uint64_t quiet = now > lastActivity ? now - lastActivity : 0;
     state->lastMedia = now;
     state->suspect = false;
     state->degraded = false;
     state->degradedNotified = false;
-    if (recovered) {
-        logEndpointRefreshStats(state, "recovered by media", quiet);
-    }
+    atomic_store_explicit(&state->statsSuspect, false, memory_order_relaxed);
+    atomic_store_explicit(&state->statsDegraded, false, memory_order_relaxed);
     PltUnlockMutex(&state->mutex);
+}
+
+bool LiErClientGetStats(LI_ENDPOINT_REFRESH* state, LI_ENDPOINT_REFRESH_STATS* stats) {
+    if (state == NULL || stats == NULL || !state->initialized ||
+        !LiIsEndpointAutoRefreshEnabled()) {
+        return false;
+    }
+    stats->probeAttempts = atomic_load_explicit(&state->probeAttempts, memory_order_relaxed);
+    stats->probeSendFailures = atomic_load_explicit(&state->probeSendFailures, memory_order_relaxed);
+    stats->probeConfirmed = atomic_load_explicit(&state->probeConfirmed, memory_order_relaxed);
+    stats->challengeReceived = atomic_load_explicit(&state->challengeReceived, memory_order_relaxed);
+    stats->ackReceived = atomic_load_explicit(&state->ackReceived, memory_order_relaxed);
+    stats->suspect = atomic_load_explicit(&state->statsSuspect, memory_order_relaxed);
+    stats->degraded = atomic_load_explicit(&state->statsDegraded, memory_order_relaxed);
+    return true;
 }
 
 int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int size, bool useSelect) {

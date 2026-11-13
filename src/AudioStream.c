@@ -39,6 +39,10 @@ static void consumeAudio(char* data,int size) {
 static SOCKET rtpSocket = INVALID_SOCKET;
 static LI_ENDPOINT_REFRESH endpointRefresh;
 
+bool LiGetAudioEndpointRefreshStats(LI_ENDPOINT_REFRESH_STATS* stats) {
+    return LiErClientGetStats(&endpointRefresh, stats);
+}
+
 static LINKED_BLOCKING_QUEUE packetQueue;
 static RTP_AUDIO_QUEUE rtpAudioQueue;
 
