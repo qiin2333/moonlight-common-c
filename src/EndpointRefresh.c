@@ -193,17 +193,19 @@ static void handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, 
     }
 }
 
-static void maintain(LI_ENDPOINT_REFRESH* state, uint64_t now) {
+static void maintain(LI_ENDPOINT_REFRESH* state) {
+    PltLockMutex(&state->mutex);
+    uint64_t now = PltGetMillis();
     if (now - state->lastPoll < ENDPOINT_REFRESH_MAINTENANCE_INTERVAL_MS) {
+        PltUnlockMutex(&state->mutex);
         return;
     }
     state->lastPoll = now;
-    PltLockMutex(&state->mutex);
     uint64_t lastActivity = state->lastAck;
     if (state->lastMedia > lastActivity) {
         lastActivity = state->lastMedia;
     }
-    uint64_t quiet = now - lastActivity;
+    uint64_t quiet = now > lastActivity ? now - lastActivity : 0;
     bool wasSuspect = state->suspect;
     bool wasDegraded = state->degraded;
     if (quiet >= ENDPOINT_REFRESH_SUSPECT_TIMEOUT_MS) {
@@ -259,7 +261,7 @@ int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int
         state->receiving = true;
         PltUnlockMutex(&state->mutex);
     }
-    maintain(state, receiveTime);
+    maintain(state);
     int length = recvUdpSocket(state->active, packet, size, useSelect);
     receiveTime = PltGetMillis();
     if (length <= 0) {
