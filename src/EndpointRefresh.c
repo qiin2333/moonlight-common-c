@@ -163,25 +163,37 @@ static void handle(LI_ENDPOINT_REFRESH* state, SOCKET socket, const void* packet
     }
 }
 
-bool LiErClientPacketFromCandidate(const LI_ENDPOINT_REFRESH* state) {
-    return state->initialized && state->candidatePacket;
+bool LiErClientPacketFromCandidate(LI_ENDPOINT_REFRESH* state) {
+    if (!state->initialized) {
+        return false;
+    }
+    PltLockMutex(&state->mutex);
+    bool candidate = state->candidatePacket;
+    PltUnlockMutex(&state->mutex);
+    return candidate;
 }
 
 void LiErClientMedia(LI_ENDPOINT_REFRESH* state, bool candidate, bool authenticated) {
-    // Only the receive worker reads/writes this field; never lock for RTP data.
     if (!state->initialized) {
         return;
     }
     if (!authenticated) {
         return;
     }
-    state->lastMedia = state->receiveTime;
+
+    // Audio may reach this function from the decoder thread after the receive
+    // thread has returned the packet. Serialize the recovery state with the
+    // maintenance and promotion paths.
+    PltLockMutex(&state->mutex);
+    uint64_t now = state->receiveTime;
+    state->lastMedia = now;
     // Valid media proves the current return path. Do not wait for a separate ACK.
-    state->lastAck = state->receiveTime;
+    state->lastAck = now;
     if (candidate) {
         state->candidateMedia = true;
         state->candidatePacket = false;
     }
+    PltUnlockMutex(&state->mutex);
 }
 
 static void promoteCandidate(LI_ENDPOINT_REFRESH* state, SOCKET* socket) {
