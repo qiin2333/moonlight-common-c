@@ -22,6 +22,8 @@ typedef struct _LI_ENDPOINT_REFRESH {
     bool challenged;
     bool candidateConfirmed;
     bool candidateNext;
+    bool candidatePacket;
+    bool candidateMedia;
     bool failed;
 } LI_ENDPOINT_REFRESH;
 

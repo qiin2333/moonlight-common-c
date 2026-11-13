@@ -132,6 +132,9 @@ static void handle(LI_ENDPOINT_REFRESH* state, SOCKET socket, const void* packet
             now - *responseAt < ENDPOINT_REFRESH_RESPONSE_INTERVAL_MS) {
             return;
         }
+        // The host may already be sending media to this probe's port. Keep the
+        // recovery timer alive while the normal challenge/response completes.
+        state->lastAck = now;
         if (socket == state->candidate) {
             state->challengeSequence = message.sequence;
             memcpy(state->nonce, message.nonce, sizeof(state->nonce));
@@ -166,6 +169,27 @@ void LiErClientMedia(LI_ENDPOINT_REFRESH* state) {
         return;
     }
     state->lastMedia = state->receiveTime;
+    // Valid media proves the current return path. Do not wait for a separate ACK.
+    state->lastAck = state->receiveTime;
+    if (state->candidatePacket) {
+        state->candidateMedia = true;
+        state->candidatePacket = false;
+    }
+}
+
+static void promoteCandidate(LI_ENDPOINT_REFRESH* state, SOCKET* socket) {
+    SOCKET previous = state->active;
+    *socket = state->active = state->candidate;
+    state->candidate = INVALID_SOCKET;
+    state->candidateConfirmed = false;
+    state->candidateMedia = false;
+    state->stableSince = state->receiveTime;
+    state->activeResponseAt = state->candidateResponseAt;
+    LiReplaceStreamSocket(previous, *socket,
+        state->stream == LI_ER_VIDEO ? STREAM_SOCKET_SLOT_VIDEO : STREAM_SOCKET_SLOT_AUDIO);
+    closeSocket(previous);
+    Limelog("endpoint_auto_refresh: migrated %s UDP socket\n",
+        state->stream == LI_ER_VIDEO ? "video" : "audio");
 }
 
 static bool maintain(LI_ENDPOINT_REFRESH* state, uint64_t now) {
@@ -236,6 +260,17 @@ int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int
     if (state->failed) {
         return LI_ER_RECV_FAILED;
     }
+    state->candidatePacket = false;
+    if (state->candidateMedia) {
+        PltLockMutex(&state->mutex);
+        if (state->candidate != INVALID_SOCKET) {
+            promoteCandidate(state, socket);
+        }
+        else {
+            state->candidateMedia = false;
+        }
+        PltUnlockMutex(&state->mutex);
+    }
     if (state->receiving && !maintain(state, state->receiveTime)) {
         return LI_ER_RECV_FAILED;
     }
@@ -293,18 +328,14 @@ int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int
         PltLockMutex(&state->mutex);
         handle(state, selected, packet, (size_t)length, state->receiveTime);
         if (selected == state->candidate && state->candidateConfirmed) {
-            SOCKET previous = state->active;
-            *socket = state->active = state->candidate;
-            state->candidate = INVALID_SOCKET;
-            state->stableSince = state->receiveTime;
-            state->activeResponseAt = state->candidateResponseAt;
-            LiReplaceStreamSocket(previous, *socket, state->stream == LI_ER_VIDEO ? STREAM_SOCKET_SLOT_VIDEO : STREAM_SOCKET_SLOT_AUDIO);
-            closeSocket(previous);
-            Limelog("endpoint_auto_refresh: migrated %s UDP socket\n", state->stream == LI_ER_VIDEO ? "video" : "audio");
+            promoteCandidate(state, socket);
         }
         PltUnlockMutex(&state->mutex);
         return LI_ER_RECV_HANDLED;
     }
-    // Only authenticated candidates may feed the existing RTP/decryption path.
-    return selected == state->candidate ? LI_ER_RECV_HANDLED : length;
+    // A candidate has already sent an authenticated probe. Let its media reach
+    // the existing RTP/decryption path; LiErClientMedia promotes it only after
+    // the packet is accepted by that path.
+    state->candidatePacket = selected == state->candidate;
+    return length;
 }

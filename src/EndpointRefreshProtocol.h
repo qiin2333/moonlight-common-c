@@ -24,7 +24,8 @@ extern "C" {
  *   48..63 first 128 bits of HMAC-SHA-256 over bytes 0..47
  *
  * The HMAC key is derived per RTSP session from the existing RI key. A new
- * UDP endpoint is accepted only after an authenticated challenge/response.
+ * UDP endpoint is accepted from an authenticated probe. The
+ * challenge/response exchange remains an optional acknowledgement path.
  */
 #define LI_ER_VERSION 1
 #define LI_ER_PACKET_SIZE 64
