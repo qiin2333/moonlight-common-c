@@ -163,15 +163,22 @@ static void handle(LI_ENDPOINT_REFRESH* state, SOCKET socket, const void* packet
     }
 }
 
-void LiErClientMedia(LI_ENDPOINT_REFRESH* state) {
+bool LiErClientPacketFromCandidate(const LI_ENDPOINT_REFRESH* state) {
+    return state->initialized && state->candidatePacket;
+}
+
+void LiErClientMedia(LI_ENDPOINT_REFRESH* state, bool candidate, bool authenticated) {
     // Only the receive worker reads/writes this field; never lock for RTP data.
     if (!state->initialized) {
+        return;
+    }
+    if (!authenticated) {
         return;
     }
     state->lastMedia = state->receiveTime;
     // Valid media proves the current return path. Do not wait for a separate ACK.
     state->lastAck = state->receiveTime;
-    if (state->candidatePacket) {
+    if (candidate) {
         state->candidateMedia = true;
         state->candidatePacket = false;
     }

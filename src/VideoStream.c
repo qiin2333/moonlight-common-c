@@ -262,7 +262,7 @@ static void VideoReceiveThreadProc(void* context) {
         queueStatus = RtpvAddPacket(&rtpQueue, packet, err, (PRTPV_QUEUE_ENTRY)&buffer[decryptedSize]);
 
         if (queueStatus == RTPF_RET_QUEUED) {
-            LiErClientMedia(&endpointRefresh);
+            LiErClientMedia(&endpointRefresh, false, true);
             // The queue owns the buffer
             buffer = NULL;
         }

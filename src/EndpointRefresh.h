@@ -35,6 +35,7 @@ bool LiErClientPing(LI_ENDPOINT_REFRESH* state);
 #define LI_ER_RECV_HANDLED -2
 #define LI_ER_RECV_FAILED -3
 int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int size, bool useSelect);
-void LiErClientMedia(LI_ENDPOINT_REFRESH* state);
+bool LiErClientPacketFromCandidate(const LI_ENDPOINT_REFRESH* state);
+void LiErClientMedia(LI_ENDPOINT_REFRESH* state, bool candidate, bool authenticated);
 
 extern bool EndpointRefreshRequested;

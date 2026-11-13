@@ -189,7 +189,7 @@ int main(void) {
     CHECK(sendPacket(host, &originalPeer, media, sizeof(media)) == sizeof(media));
     readsBefore = clockReads;
     CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == sizeof(media));
-    LiErClientMedia(&state);
+    LiErClientMedia(&state, false, true);
     CHECK(clockReads == readsBefore + 1 && state.lastMedia == now && dualSocketPolls == 0);
 
     now += 2100;
@@ -220,9 +220,13 @@ int main(void) {
     for (int i = 0; i < 2; i++) {
         int result = LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false);
         CHECK(result == sizeof(media) || result == LI_ER_RECV_HANDLED);
-        if (result == sizeof(media)) { accepted++; LiErClientMedia(&state); }
+        if (result == sizeof(media)) {
+            bool candidate = LiErClientPacketFromCandidate(&state);
+            accepted++;
+            LiErClientMedia(&state, candidate, !candidate);
+        }
     }
-    CHECK(accepted == 1 && active == original);
+    CHECK(accepted == 2 && active == original);
     CHECK(sendPacket(host, &peer, packet, sizeof(packet)) == 64);
     CHECK(sendPacket(host, &peer, media, sizeof(media)) == sizeof(media));
     CHECK(sendPacket(host, &peer, media, sizeof(media)) == sizeof(media));
@@ -232,7 +236,8 @@ int main(void) {
     for (int i = 0; i < 2; i++) {
         CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == sizeof(media));
         CHECK(!memcmp(buffer, media, sizeof(media)));
-        LiErClientMedia(&state); // Media queued after the ACK must be delivered, not batch-drained.
+        bool candidate = LiErClientPacketFromCandidate(&state);
+        LiErClientMedia(&state, candidate, true); // Media queued after the ACK must be delivered, not batch-drained.
     }
 
     // A lost commit ACK can be recovered by a later probe ACK with the same nonce.
@@ -247,7 +252,7 @@ int main(void) {
     CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
     CHECK(readProbe(host, &peer, &state, &message) && message.type == LI_ER_RESPONSE);
     CHECK(sendPacket(host, &peer, media, sizeof(media)) == sizeof(media));
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
+    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == sizeof(media));
     now += 500;
     CHECK(LiErClientPing(&state));
     CHECK(readProbe(host, &peer, &state, &message) && message.type == LI_ER_PROBE);
@@ -268,7 +273,7 @@ int main(void) {
             CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
             CHECK(sendPacket(host, &peer, media, sizeof(media)) == sizeof(media));
             CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == sizeof(media));
-            LiErClientMedia(&state);
+            LiErClientMedia(&state, false, true);
         }
         CHECK(state.attempts == 0 && !state.failed);
         now += 2100;
