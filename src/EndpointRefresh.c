@@ -279,8 +279,11 @@ int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int
     if (state->failed) {
         return LI_ER_RECV_FAILED;
     }
+    PltLockMutex(&state->mutex);
     state->candidatePacket = false;
-    if (state->candidateMedia) {
+    bool candidateMedia = state->candidateMedia;
+    PltUnlockMutex(&state->mutex);
+    if (candidateMedia) {
         PltLockMutex(&state->mutex);
         if (state->candidate != INVALID_SOCKET) {
             promoteCandidate(state, socket);
@@ -326,13 +329,16 @@ int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int
     }
 
     // One clock read per receive, shared with ACK handling and RTP acceptance.
-    state->receiveTime = PltGetMillis();
+    uint64_t receiveTime = PltGetMillis();
+    PltLockMutex(&state->mutex);
+    state->receiveTime = receiveTime;
     if (!state->receiving) {
         // Audio SETUP can precede its receiver by seconds. Startup time must
         // not consume the recovery budget before this worker can receive ACKs.
         state->lastAck = state->lastMedia = state->lastPoll = state->receiveTime;
         state->receiving = true;
     }
+    PltUnlockMutex(&state->mutex);
     if (length <= 0) {
         if (length < 0 && selected == state->candidate) {
             PltLockMutex(&state->mutex);
@@ -345,7 +351,7 @@ int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int
     }
     if (length == LI_ER_PACKET_SIZE && !memcmp(packet, "EAPR", 4)) {
         PltLockMutex(&state->mutex);
-        handle(state, selected, packet, (size_t)length, state->receiveTime);
+        handle(state, selected, packet, (size_t)length, receiveTime);
         if (selected == state->candidate && state->candidateConfirmed) {
             promoteCandidate(state, socket);
         }
@@ -355,6 +361,8 @@ int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int
     // A candidate has already sent an authenticated probe. Let its media reach
     // the existing RTP/decryption path; LiErClientMedia promotes it only after
     // the packet is accepted by that path.
+    PltLockMutex(&state->mutex);
     state->candidatePacket = selected == state->candidate;
+    PltUnlockMutex(&state->mutex);
     return length;
 }
