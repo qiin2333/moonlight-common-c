@@ -27,17 +27,6 @@ void LiSetEndpointAutoRefreshEnabled(bool value) {
 bool LiErClientInitialize(LI_ENDPOINT_REFRESH* state, SOCKET socket, uint8_t stream,
                           const char session[LI_ER_SESSION_SIZE], uint16_t remotePort) {
     memset(state, 0, sizeof(*state));
-    atomic_init(&state->probeAttempts, 0);
-    atomic_init(&state->probeSendFailures, 0);
-    atomic_init(&state->probeConfirmed, 0);
-    atomic_init(&state->challengeReceived, 0);
-    atomic_init(&state->ackReceived, 0);
-    atomic_init(&state->responsePacketsReceived, 0);
-    atomic_init(&state->invalidResponses, 0);
-    atomic_init(&state->staleResponses, 0);
-    atomic_init(&state->unexpectedResponses, 0);
-    atomic_init(&state->statsSuspect, false);
-    atomic_init(&state->statsDegraded, false);
     if (!EndpointRefreshRequested) {
         return true;
     }
@@ -82,12 +71,8 @@ static void sendProbe(LI_ENDPOINT_REFRESH* state, uint64_t now) {
             state->session, state->key, ++state->sequence, NULL)) {
         state->lastProbeAt = now;
         state->probeSent = true;
-        atomic_fetch_add_explicit(&state->probeAttempts, 1, memory_order_relaxed);
-        SOCK_RET result = sendto(state->active, (char*)packet, sizeof(packet), 0,
+        (void)sendto(state->active, (char*)packet, sizeof(packet), 0,
             (struct sockaddr*)&state->remote, AddrLen);
-        if (result != (SOCK_RET)sizeof(packet)) {
-            atomic_fetch_add_explicit(&state->probeSendFailures, 1, memory_order_relaxed);
-        }
     }
 }
 
@@ -107,27 +92,15 @@ bool LiErClientPing(LI_ENDPOINT_REFRESH* state) {
     return true;
 }
 
-enum {
-    ENDPOINT_RESPONSE_INVALID = 0,
-    ENDPOINT_RESPONSE_ACCEPTED = 1,
-    ENDPOINT_RESPONSE_STALE = 2,
-    ENDPOINT_RESPONSE_UNEXPECTED = 3
-};
-
-static int handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, uint64_t now) {
+static void handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, uint64_t now) {
     LI_ER_MESSAGE message;
     unsigned char response[LI_ER_PACKET_SIZE];
     if (!LiErDecode(packet, size, state->stream, state->session, state->key, &message) ||
         message.sequence > state->sequence ||
         state->sequence - message.sequence > ENDPOINT_REFRESH_SEQUENCE_WINDOW) {
-        return ENDPOINT_RESPONSE_INVALID;
+        return;
     }
     if (message.type == LI_ER_CHALLENGE && message.sequence > state->ackSequence) {
-        if (message.sequence > state->lastConfirmedSequence) {
-            atomic_fetch_add_explicit(&state->probeConfirmed, 1, memory_order_relaxed);
-            state->lastConfirmedSequence = message.sequence;
-        }
-        atomic_fetch_add_explicit(&state->challengeReceived, 1, memory_order_relaxed);
         // A valid challenge proves that the original socket can still reach
         // the host. Restore the observation state even if response rate
         // limiting suppresses this particular response.
@@ -135,11 +108,9 @@ static int handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, u
         state->suspect = false;
         state->degraded = false;
         state->degradedNotified = false;
-        atomic_store_explicit(&state->statsSuspect, false, memory_order_relaxed);
-        atomic_store_explicit(&state->statsDegraded, false, memory_order_relaxed);
         if (state->activeResponseAt != UINT64_MAX &&
             now - state->activeResponseAt < ENDPOINT_REFRESH_RESPONSE_INTERVAL_MS) {
-            return ENDPOINT_RESPONSE_ACCEPTED;
+            return;
         }
         if (LiErEncode(response, LI_ER_RESPONSE, state->stream, state->session, state->key,
                 message.sequence, message.nonce)) {
@@ -147,27 +118,16 @@ static int handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, u
             sendto(state->active, (char*)response, sizeof(response), 0,
                 (struct sockaddr*)&state->remote, AddrLen);
         }
-        return ENDPOINT_RESPONSE_ACCEPTED;
+        return;
     }
     else if (message.type == LI_ER_ACK && message.sequence > state->ackSequence) {
-        if (message.sequence > state->lastConfirmedSequence) {
-            atomic_fetch_add_explicit(&state->probeConfirmed, 1, memory_order_relaxed);
-            state->lastConfirmedSequence = message.sequence;
-        }
-        atomic_fetch_add_explicit(&state->ackReceived, 1, memory_order_relaxed);
         state->ackSequence = message.sequence;
         state->lastAck = now;
         state->suspect = false;
         state->degraded = false;
         state->degradedNotified = false;
-        atomic_store_explicit(&state->statsSuspect, false, memory_order_relaxed);
-        atomic_store_explicit(&state->statsDegraded, false, memory_order_relaxed);
-        return ENDPOINT_RESPONSE_ACCEPTED;
+        return;
     }
-    if (message.type == LI_ER_CHALLENGE || message.type == LI_ER_ACK) {
-        return ENDPOINT_RESPONSE_STALE;
-    }
-    return ENDPOINT_RESPONSE_UNEXPECTED;
 }
 
 static void maintain(LI_ENDPOINT_REFRESH* state) {
@@ -185,18 +145,14 @@ static void maintain(LI_ENDPOINT_REFRESH* state) {
     uint64_t quiet = now > lastActivity ? now - lastActivity : 0;
     if (quiet >= ENDPOINT_REFRESH_SUSPECT_TIMEOUT_MS) {
         state->suspect = true;
-        atomic_store_explicit(&state->statsSuspect, true, memory_order_relaxed);
     }
     else {
         state->suspect = false;
         state->degraded = false;
         state->degradedNotified = false;
-        atomic_store_explicit(&state->statsSuspect, false, memory_order_relaxed);
-        atomic_store_explicit(&state->statsDegraded, false, memory_order_relaxed);
     }
     if (state->suspect && quiet >= ENDPOINT_REFRESH_DEGRADED_TIMEOUT_MS) {
         state->degraded = true;
-        atomic_store_explicit(&state->statsDegraded, true, memory_order_relaxed);
     }
     PltUnlockMutex(&state->mutex);
 }
@@ -211,28 +167,7 @@ void LiErClientMedia(LI_ENDPOINT_REFRESH* state) {
     state->suspect = false;
     state->degraded = false;
     state->degradedNotified = false;
-    atomic_store_explicit(&state->statsSuspect, false, memory_order_relaxed);
-    atomic_store_explicit(&state->statsDegraded, false, memory_order_relaxed);
     PltUnlockMutex(&state->mutex);
-}
-
-bool LiErClientGetStats(LI_ENDPOINT_REFRESH* state, LI_ENDPOINT_REFRESH_STATS* stats) {
-    if (state == NULL || stats == NULL || !state->initialized ||
-        !LiIsEndpointAutoRefreshEnabled()) {
-        return false;
-    }
-    stats->probeAttempts = atomic_load_explicit(&state->probeAttempts, memory_order_relaxed);
-    stats->probeSendFailures = atomic_load_explicit(&state->probeSendFailures, memory_order_relaxed);
-    stats->probeConfirmed = atomic_load_explicit(&state->probeConfirmed, memory_order_relaxed);
-    stats->challengeReceived = atomic_load_explicit(&state->challengeReceived, memory_order_relaxed);
-    stats->ackReceived = atomic_load_explicit(&state->ackReceived, memory_order_relaxed);
-    stats->responsePacketsReceived = atomic_load_explicit(&state->responsePacketsReceived, memory_order_relaxed);
-    stats->invalidResponses = atomic_load_explicit(&state->invalidResponses, memory_order_relaxed);
-    stats->staleResponses = atomic_load_explicit(&state->staleResponses, memory_order_relaxed);
-    stats->unexpectedResponses = atomic_load_explicit(&state->unexpectedResponses, memory_order_relaxed);
-    stats->suspect = atomic_load_explicit(&state->statsSuspect, memory_order_relaxed);
-    stats->degraded = atomic_load_explicit(&state->statsDegraded, memory_order_relaxed);
-    return true;
 }
 
 int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int size, bool useSelect) {
@@ -265,19 +200,9 @@ int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int
         return length;
     }
     if (length == LI_ER_PACKET_SIZE && !memcmp(packet, "EAPR", 4)) {
-        atomic_fetch_add_explicit(&state->responsePacketsReceived, 1, memory_order_relaxed);
         PltLockMutex(&state->mutex);
-        int responseResult = handle(state, packet, (size_t)length, receiveTime);
+        handle(state, packet, (size_t)length, receiveTime);
         PltUnlockMutex(&state->mutex);
-        if (responseResult == ENDPOINT_RESPONSE_INVALID) {
-            atomic_fetch_add_explicit(&state->invalidResponses, 1, memory_order_relaxed);
-        }
-        else if (responseResult == ENDPOINT_RESPONSE_STALE) {
-            atomic_fetch_add_explicit(&state->staleResponses, 1, memory_order_relaxed);
-        }
-        else if (responseResult == ENDPOINT_RESPONSE_UNEXPECTED) {
-            atomic_fetch_add_explicit(&state->unexpectedResponses, 1, memory_order_relaxed);
-        }
         return LI_ER_RECV_HANDLED;
     }
     return length;

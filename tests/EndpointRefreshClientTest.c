@@ -155,9 +155,6 @@ int main(void) {
     struct sockaddr_storage probePeer;
     CHECK(receiveEapr(host, &state, &probe, &probePeer));
     CHECK(probe.type == LI_ER_PROBE);
-    LI_ENDPOINT_REFRESH_STATS stats;
-    CHECK(LiErClientGetStats(&state, &stats));
-    CHECK(stats.probeAttempts == 1 && stats.probeConfirmed == 0);
     CHECK(((struct sockaddr_in*)&probePeer)->sin_port ==
         ((struct sockaddr_in*)&activePeer)->sin_port);
 
@@ -169,33 +166,16 @@ int main(void) {
     CHECK(LiErClientRecv(&state, &state.active, (char*)buffer, sizeof(buffer), false) ==
         LI_ER_RECV_HANDLED);
     CHECK(!state.suspect && !state.degraded);
-    CHECK(LiErClientGetStats(&state, &stats));
-    CHECK(stats.probeConfirmed == 1 && stats.ackReceived == 1);
-
-    // Distinguish a response that reaches the socket from one that passes
-    // the authenticated endpoint-refresh checks.
-    unsigned char invalidAck[LI_ER_PACKET_SIZE];
-    memcpy(invalidAck, ack, sizeof(invalidAck));
-    invalidAck[LI_ER_PACKET_SIZE - 1] ^= 1;
-    CHECK(sendToPeer(host, &activePeer, invalidAck, sizeof(invalidAck)) == sizeof(invalidAck));
-    CHECK(LiErClientRecv(&state, &state.active, (char*)buffer, sizeof(buffer), false) ==
-        LI_ER_RECV_HANDLED);
-    CHECK(LiErClientGetStats(&state, &stats));
-    CHECK(stats.responsePacketsReceived == 2 && stats.invalidResponses == 1);
 
     // Simulate high-bitrate queueing: no return traffic for 2 seconds. The
     // original socket remains the only socket and the stream is not failed.
     now += 2100;
     CHECK(LiErClientRecv(&state, &state.active, (char*)buffer, sizeof(buffer), false) == 0);
     CHECK(state.suspect && !state.degraded && socketCreates == 2);
-    CHECK(LiErClientGetStats(&state, &stats));
-    CHECK(stats.suspect && !stats.degraded);
     now += 6000;
     CHECK(LiErClientRecv(&state, &state.active, (char*)buffer, sizeof(buffer), false) ==
         LI_ER_RECV_DEGRADED);
     CHECK(state.degraded && socketCreates == 2 && socketCloses == 0);
-    CHECK(LiErClientGetStats(&state, &stats));
-    CHECK(stats.suspect && stats.degraded);
 
     // A valid challenge also proves that the original path is reachable. It
     // must clear the observation state and produce a response without any
