@@ -31,7 +31,7 @@ static bool videoNeedsDecoderThread(void) {
 }
 
 static bool receivedDataFromPeer;
-static uint64_t firstDataTimeMs;
+static uint64_t firstDataTimeMs, lastVideoDataTimeMs;
 static bool receivedFullFrame;
 static _Atomic uint64_t rtpVideoBytesReceived;
 
@@ -52,7 +52,7 @@ void initializeVideoStream(void) {
     RtpvInitializeQueue(&rtpQueue);
     decryptionCtx = PltCreateCryptoContext();
     receivedDataFromPeer = false;
-    firstDataTimeMs = 0;
+    firstDataTimeMs = lastVideoDataTimeMs = 0;
     receivedFullFrame = false;
     atomic_store_explicit(&rtpVideoBytesReceived, 0, memory_order_relaxed);
 }
@@ -182,6 +182,12 @@ static void VideoReceiveThreadProc(void* context) {
                     break;
                 }
             }
+            else if (lastVideoDataTimeMs != 0 &&
+                     PltGetMillis() - lastVideoDataTimeMs >= FIRST_FRAME_TIMEOUT_SEC * 1000) {
+                Limelog("Terminating connection due to lack of video traffic\n");
+                ListenerCallbacks.connectionTerminated(ML_ERROR_NO_VIDEO_TRAFFIC);
+                break;
+            }
 
             // Receive timed out; try again
             continue;
@@ -191,6 +197,7 @@ static void VideoReceiveThreadProc(void* context) {
         // the plaintext size. This is local accounting only; it does not
         // affect the RTP protocol or packet processing.
         const int receivedPacketLength = err;
+        const uint64_t packetTimeMs = PltGetMillis();
         atomic_fetch_add_explicit(&rtpVideoBytesReceived,
                                   (uint64_t)receivedPacketLength,
                                   memory_order_relaxed);
@@ -198,12 +205,13 @@ static void VideoReceiveThreadProc(void* context) {
             receivedDataFromPeer = true;
             Limelog("Received first video packet after %d ms\n", waitingForVideoMs);
 
-            firstDataTimeMs = PltGetMillis();
+            firstDataTimeMs = packetTimeMs;
         }
+        lastVideoDataTimeMs = packetTimeMs;
 
 #ifndef LC_FUZZING
         if (!receivedFullFrame) {
-            if (PltGetMillis() - firstDataTimeMs >= FIRST_FRAME_TIMEOUT_SEC * 1000) {
+            if (packetTimeMs - firstDataTimeMs >= FIRST_FRAME_TIMEOUT_SEC * 1000) {
                 Limelog("Terminating connection due to lack of a successful video frame\n");
                 ListenerCallbacks.connectionTerminated(ML_ERROR_NO_VIDEO_FRAME);
                 break;

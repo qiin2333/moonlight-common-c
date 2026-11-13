@@ -180,6 +180,9 @@ int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int
     int length = recvUdpSocket(state->active, packet, size, useSelect);
     receiveTime = PltGetMillis();
     if (length <= 0) {
+        if (length < 0) {
+            return length;
+        }
         PltLockMutex(&state->mutex);
         bool notifyDegraded = state->degraded && !state->degradedNotified;
         if (notifyDegraded) {
