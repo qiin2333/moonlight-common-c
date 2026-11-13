@@ -9,13 +9,14 @@ typedef struct _LI_ENDPOINT_REFRESH {
     bool suspect;
     bool degraded;
     bool degradedNotified;
+    bool probeSent;
     PLT_MUTEX mutex;
     SOCKET active;
     struct sockaddr_storage remote;
     uint8_t stream;
     unsigned char session[LI_ER_SESSION_SIZE], key[LI_ER_KEY_SIZE];
     uint64_t sequence, ackSequence;
-    uint64_t lastAck, lastMedia, lastPoll, receiveTime;
+    uint64_t lastAck, lastMedia, lastPoll;
     uint64_t lastProbeAt, activeResponseAt;
 } LI_ENDPOINT_REFRESH;
 

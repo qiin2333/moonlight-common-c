@@ -61,12 +61,16 @@ void LiErClientDestroy(LI_ENDPOINT_REFRESH* state) {
 
 static void sendProbe(LI_ENDPOINT_REFRESH* state, uint64_t now) {
     unsigned char packet[LI_ER_PACKET_SIZE];
-    if (now - state->lastProbeAt < ENDPOINT_REFRESH_PROBE_INTERVAL_MS) {
+    // Send the first probe immediately. The first call can occur shortly
+    // after process start, when the monotonic clock is still below the
+    // regular probe interval.
+    if (state->probeSent && now - state->lastProbeAt < ENDPOINT_REFRESH_PROBE_INTERVAL_MS) {
         return;
     }
     if (state->sequence != UINT64_MAX && LiErEncode(packet, LI_ER_PROBE, state->stream,
             state->session, state->key, ++state->sequence, NULL)) {
         state->lastProbeAt = now;
+        state->probeSent = true;
         sendto(state->active, (char*)packet, sizeof(packet), 0,
             (struct sockaddr*)&state->remote, AddrLen);
     }
@@ -77,7 +81,10 @@ bool LiErClientPing(LI_ENDPOINT_REFRESH* state) {
         return false;
     }
     if (!LiIsEndpointAutoRefreshEnabled()) {
-        return true;
+        // EARP is enabled only after the encrypted RTSP negotiation has been
+        // confirmed. Until then, callers must keep sending the legacy ping
+        // used to start audio/video transport on older hosts.
+        return false;
     }
     PltLockMutex(&state->mutex);
     sendProbe(state, PltGetMillis());
@@ -94,6 +101,13 @@ static void handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, 
         return;
     }
     if (message.type == LI_ER_CHALLENGE && message.sequence > state->ackSequence) {
+        // A valid challenge proves that the original socket can still reach
+        // the host. Restore the observation state even if response rate
+        // limiting suppresses this particular response.
+        state->lastAck = now;
+        state->suspect = false;
+        state->degraded = false;
+        state->degradedNotified = false;
         if (state->activeResponseAt != UINT64_MAX &&
             now - state->activeResponseAt < ENDPOINT_REFRESH_RESPONSE_INTERVAL_MS) {
             return;
@@ -101,7 +115,6 @@ static void handle(LI_ENDPOINT_REFRESH* state, const void* packet, size_t size, 
         if (LiErEncode(response, LI_ER_RESPONSE, state->stream, state->session, state->key,
                 message.sequence, message.nonce)) {
             state->activeResponseAt = now;
-            state->lastAck = now;
             sendto(state->active, (char*)response, sizeof(response), 0,
                 (struct sockaddr*)&state->remote, AddrLen);
         }
@@ -160,16 +173,12 @@ int LiErClientRecv(LI_ENDPOINT_REFRESH* state, SOCKET* socket, char* packet, int
     if (!state->receiving) {
         PltLockMutex(&state->mutex);
         state->lastAck = state->lastMedia = state->lastPoll = receiveTime;
-        state->receiveTime = receiveTime;
         state->receiving = true;
         PltUnlockMutex(&state->mutex);
     }
     maintain(state, receiveTime);
     int length = recvUdpSocket(state->active, packet, size, useSelect);
     receiveTime = PltGetMillis();
-    PltLockMutex(&state->mutex);
-    state->receiveTime = receiveTime;
-    PltUnlockMutex(&state->mutex);
     if (length <= 0) {
         PltLockMutex(&state->mutex);
         bool notifyDegraded = state->degraded && !state->degradedNotified;

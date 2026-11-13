@@ -142,10 +142,13 @@ int main(void) {
 
     LI_ENDPOINT_REFRESH state;
     EndpointRefreshRequested = true;
-    LiSetEndpointAutoRefreshEnabled(true);
+    LiSetEndpointAutoRefreshEnabled(false);
     CHECK(LiErClientInitialize(&state, active, LI_ER_VIDEO,
         "0123456789abcdef", ntohs(((struct sockaddr_in*)&RemoteAddr)->sin_port)));
-    state.active = active;
+    // Before ANNOUNCE confirms EARP, the caller must fall back to the legacy
+    // ping so RTSP/SETUP startup compatibility is preserved.
+    CHECK(!LiErClientPing(&state));
+    LiSetEndpointAutoRefreshEnabled(true);
     now += 1;
     CHECK(LiErClientPing(&state));
     LI_ER_MESSAGE probe;
@@ -173,6 +176,25 @@ int main(void) {
     CHECK(LiErClientRecv(&state, &state.active, (char*)buffer, sizeof(buffer), false) ==
         LI_ER_RECV_DEGRADED);
     CHECK(state.degraded && socketCreates == 2 && socketCloses == 0);
+
+    // A valid challenge also proves that the original path is reachable. It
+    // must clear the observation state and produce a response without any
+    // socket replacement.
+    unsigned char nonce[LI_ER_NONCE_SIZE] = { 1 };
+    now += 500;
+    CHECK(LiErClientPing(&state));
+    CHECK(receiveEapr(host, &state, &probe, &probePeer));
+    CHECK(probe.type == LI_ER_PROBE);
+    CHECK(LiErEncode(ack, LI_ER_CHALLENGE, LI_ER_VIDEO, state.session, state.key,
+        probe.sequence, nonce));
+    CHECK(sendToPeer(host, &activePeer, ack, sizeof(ack)) == sizeof(ack));
+    CHECK(LiErClientRecv(&state, &state.active, (char*)buffer, sizeof(buffer), false) ==
+        LI_ER_RECV_HANDLED);
+    CHECK(!state.suspect && !state.degraded);
+    LI_ER_MESSAGE response;
+    CHECK(receiveEapr(host, &state, &response, &probePeer));
+    CHECK(response.type == LI_ER_RESPONSE && response.sequence == probe.sequence);
+    CHECK(!memcmp(response.nonce, nonce, sizeof(nonce)));
 
     // Long probe stress: one original socket, no candidate bind and no fail.
     for (int i = 0; i < 2000; i++) {
