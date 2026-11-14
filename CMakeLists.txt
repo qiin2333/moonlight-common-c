@@ -280,6 +280,15 @@ if (BUILD_TESTING)
   endif()
   add_test(NAME remote-text-context-protocol-golden-tests COMMAND remote-text-context-protocol-golden-tests)
 
+  add_executable(ds5-control-extension-tests tests/Ds5ControlExtensionTest.c)
+  target_include_directories(ds5-control-extension-tests PRIVATE src)
+  if(MSVC)
+    target_compile_options(ds5-control-extension-tests PRIVATE /W3 /WX)
+  else()
+    target_compile_options(ds5-control-extension-tests PRIVATE -Wall -Wextra -Werror)
+  endif()
+  add_test(NAME ds5-control-extension-tests COMMAND ds5-control-extension-tests)
+
   add_executable(ds5-haptics-protocol-golden-tests
     tests/Ds5HapticsStreamGoldenTest.c
     src/Ds5HapticsStream.c
@@ -323,6 +332,16 @@ if (BUILD_TESTING)
       $<TARGET_PROPERTY:moonlight-common-c,COMPILE_OPTIONS>)
     target_link_libraries(ds5-haptics-negotiation-tests PRIVATE moonlight-common-c)
     add_test(NAME ds5-haptics-negotiation-tests COMMAND ds5-haptics-negotiation-tests)
+    # This test includes the control stream to reach its packet tables.
+    add_executable(ds5-extension-negotiation-tests tests/Ds5ExtensionNegotiationTest.c)
+    target_include_directories(ds5-extension-negotiation-tests PRIVATE
+      enet/include $<TARGET_PROPERTY:moonlight-common-c,INCLUDE_DIRECTORIES>)
+    target_compile_definitions(ds5-extension-negotiation-tests PRIVATE
+      $<TARGET_PROPERTY:moonlight-common-c,COMPILE_DEFINITIONS>)
+    target_compile_options(ds5-extension-negotiation-tests PRIVATE
+      $<TARGET_PROPERTY:moonlight-common-c,COMPILE_OPTIONS>)
+    target_link_libraries(ds5-extension-negotiation-tests PRIVATE moonlight-common-c)
+    add_test(NAME ds5-extension-negotiation-tests COMMAND ds5-extension-negotiation-tests)
   endif()
 
   add_executable(pyrowave-protocol-golden-tests

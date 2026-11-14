@@ -26,6 +26,9 @@ extern int AppVersionQuad[4];
 extern STREAM_CONFIGURATION StreamConfig;
 extern CONNECTION_LISTENER_CALLBACKS ListenerCallbacks;
 extern ConnListenerRemoteTextContext RemoteTextContextCallback;
+extern ConnListenerDs5OutputExtension Ds5OutputExtensionCallback;
+// DS5EXT_MASK_* directions the host declared in x-ss-general.ds5Extensions
+extern uint32_t Ds5ExtensionMask;
 extern DECODER_RENDERER_CALLBACKS VideoCallbacks;
 extern AUDIO_RENDERER_CALLBACKS AudioCallbacks;
 extern int NegotiatedVideoFormat;
@@ -120,6 +123,7 @@ extern uint32_t EncryptionFeaturesEnabled;
 extern ConnListenerDs5HapticsState Ds5HapticsStateCallback;
 extern ConnListenerHostSessionState HostSessionStateCallback;
 #define ML_FF_ENDPOINT_AUTO_REFRESH 0x8000 // Client requests authenticated endpoint migration v1
+#define ML_FF_BITRATE_CALLBACK 0x4000 // Reserved: client accepts host runtime bitrate updates on 0x5506 (not offered yet)
 extern bool EndpointRefreshRequested;
 void LiSetEndpointAutoRefreshEnabled(bool enabled);
 
