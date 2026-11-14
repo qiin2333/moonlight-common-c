@@ -184,6 +184,9 @@ static void VideoReceiveThreadProc(void* context) {
             }
             // Keep the existing first-frame timeout and continue reading the
             // original socket. A degraded probe is not a socket error.
+            if (terminateIfVideoTrafficTimedOut()) {
+                break;
+            }
             continue;
         }
         else if (err < 0) {
@@ -272,6 +275,10 @@ static void VideoReceiveThreadProc(void* context) {
         queueStatus = RtpvAddPacket(&rtpQueue, packet, err, (PRTPV_QUEUE_ENTRY)&buffer[decryptedSize]);
 
         if (queueStatus == RTPF_RET_QUEUED) {
+            // RtpvAddPacket() has taken ownership of the buffer, even if the
+            // timeout checks below terminate the receive loop.
+            buffer = NULL;
+
             if (!receivedDataFromPeer) {
                 receivedDataFromPeer = true;
                 waitingForVideoMs = firstVideoWaitStartMs != 0 && packetTimeMs >= firstVideoWaitStartMs
@@ -293,8 +300,6 @@ static void VideoReceiveThreadProc(void* context) {
 #endif
 
             LiErClientMedia(&endpointRefresh);
-            // The queue owns the buffer
-            buffer = NULL;
         }
         else if (terminateIfVideoTrafficTimedOut()) {
             break;
