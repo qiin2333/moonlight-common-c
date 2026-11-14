@@ -1409,6 +1409,8 @@ void LiRequestIdrFrame(void);
 // docs/protocol-extension-registry.md.
 #define LI_FF_PEN_TOUCH_EVENTS        0x01 // LiSendTouchEvent()/LiSendPenEvent() supported
 #define LI_FF_CONTROLLER_TOUCH_EVENTS 0x02 // LiSendControllerTouchEvent() supported
+#define LI_FF_CLIPBOARD_TEXT          0x04 // Host synchronizes clipboard text (0x5508)
+#define LI_FF_CLIPBOARD_IMAGE         0x08 // Host synchronizes clipboard images (0x5508)
 #define LI_FF_TOUCHPAD_EVENTS         0x10 // LiSendTouchpadEvent() supported
 #define LI_FF_TOUCHPAD_FRAME_EVENTS   0x20 // LiSendTouchpadFrameEvent() supported
 #define LI_FF_CURSOR_SHAPE            0x40 // Host can send local cursor shape updates
@@ -1417,6 +1419,7 @@ void LiRequestIdrFrame(void);
 #define LI_FF_DYNAMIC_SDR_WHITE      0x100 // Host accepts runtime client SDR reference white updates
 #define LI_FF_HOST_SESSION_STATE      0x800 // Host can report its session lock state
 #define LI_FF_ENDPOINT_AUTO_REFRESH  0x8000 // Authenticated UDP endpoint migration v1
+#define LI_FF_BITRATE_CALLBACK       0x4000 // Reserved: host pushes runtime bitrate updates on 0x5506
 // True only for a live session with explicit encrypted-RTSP confirmation.
 bool LiIsEndpointAutoRefreshEnabled(void);
 uint32_t LiGetHostFeatureFlags(void);
@@ -1436,6 +1439,17 @@ int LiSendClientSdrWhiteNits(float nits);
 // observe a frame at the requested dimensions and reconnect on timeout.
 // -1: invalid dimensions; -2: unsupported host; -3: disconnected; -4: send failed.
 int LiRequestResolutionChange(int width, int height);
+
+// Foundation Sunshine extensions on the same dynamic parameter message (0x5506)
+// as LiRequestResolutionChange(). LiSendStreamBitrate() asks for a new video
+// bitrate in kbps (1 to LI_STREAM_BITRATE_MAX_KBPS) and LiSendStreamFramerate()
+// for a new frame rate (greater than 0, at most LI_STREAM_FRAMERATE_MAX). Zero
+// means sent, not applied. -1: value out of range; -2: unsupported host;
+// -3: disconnected; -4: send failed. See docs/protocol-extension-registry.md.
+#define LI_STREAM_BITRATE_MAX_KBPS 800000
+#define LI_STREAM_FRAMERATE_MAX 1000
+int LiSendStreamBitrate(int kbps);
+int LiSendStreamFramerate(float fps);
 
 // Select whether Sunshine composites the cursor into the video frame or sends
 // cursor shape updates for local rendering. This is only supported when the
