@@ -637,7 +637,9 @@ typedef void(*ConnListenerCursorUpdate)(const LI_CURSOR_UPDATE* update);
 
 // Authored DualSense haptics captured from the host's virtual USB audio
 // endpoint. PCM is signed 16-bit little-endian, interleaved haptic-left then
-// haptic-right. The buffer is valid only for the duration of the callback.
+// haptic-right; with four channels (offered with LiSetDs5PadAudioOffer()) the
+// pad's speaker-left and speaker-right come first. The buffer is valid only
+// for the duration of the callback.
 // Packets are intentionally unreliable; use sequenceNumber and the
 // DISCONTINUITY flag to reset a client-side jitter buffer after loss.
 #define LI_DS5_HAPTICS_PCM_FLAG_STREAM_START  0x01
@@ -778,6 +780,52 @@ void LiInitializeConnectionCallbacks(PCONNECTION_LISTENER_CALLBACKS clCallbacks)
 // ABI-sensitive CONNECTION_LISTENER_CALLBACKS structure. Call before
 // LiStartConnection(). This function is not thread-safe.
 void LiSetRemoteTextContextCallback(ConnListenerRemoteTextContext callback);
+
+// DualSense output extension (control message 0x5515, host to client): player
+// and mute LEDs, speaker / headphone / microphone volume, microphone mute,
+// audio routing and lightbar brightness. A field is meaningful only when its
+// bit is set in validMask; the values are the DualSense output report bytes
+// (player LEDs: byte 44, mute LED: byte 9, speaker: 6, headphone: 5, microphone:
+// 7, microphone mute: byte 10 bit 4, routing: byte 8, brightness: byte 43).
+#define LI_DS5_OUT_PLAYER_LEDS         0x00000001
+#define LI_DS5_OUT_MUTE_LED            0x00000002
+#define LI_DS5_OUT_SPEAKER_VOLUME      0x00000004
+#define LI_DS5_OUT_HEADPHONE_VOLUME    0x00000008
+#define LI_DS5_OUT_MIC_VOLUME          0x00000010
+#define LI_DS5_OUT_MIC_MUTE            0x00000020
+#define LI_DS5_OUT_AUDIO_ROUTING       0x00000040
+#define LI_DS5_OUT_LIGHTBAR_BRIGHTNESS 0x00000080
+typedef struct _LI_DS5_OUTPUT_EXTENSION {
+    uint16_t controllerNumber;
+    uint32_t validMask;
+    uint8_t playerLedMask;
+    uint8_t muteLed;
+    uint8_t speakerVolume;
+    uint8_t headphoneVolume;
+    uint8_t micVolume;
+    uint8_t micMute;
+    uint8_t audioRouting;
+    uint8_t lightbarBrightness;
+} LI_DS5_OUTPUT_EXTENSION, *PLI_DS5_OUTPUT_EXTENSION;
+typedef void(*ConnListenerDs5OutputExtension)(const LI_DS5_OUTPUT_EXTENSION* output);
+
+// Registers the DualSense output extension callback without extending the
+// ABI-sensitive CONNECTION_LISTENER_CALLBACKS structure. A non-NULL callback
+// makes the client offer the extension to the host in the launch SDP
+// (x-ml-general.ds5Extensions). Call before LiStartConnection(). This function
+// is not thread-safe.
+void LiSetDs5OutputExtensionCallback(ConnListenerDs5OutputExtension callback);
+
+// What the next connection offers for the pad's speaker. LI_DS5_PAD_AUDIO_OFF
+// (0, the default) keeps the haptics PCM packet at two channels. With
+// LI_DS5_PAD_AUDIO_PCM (1) the client offers "pad-audio" and a host that
+// answers it sends four channels: speaker-left, speaker-right, haptic-left,
+// haptic-right. The offer needs a ds5HapticsPcm callback; without one nothing
+// is offered. Any other value is treated as LI_DS5_PAD_AUDIO_OFF. Call before
+// LiStartConnection(). This function is not thread-safe.
+#define LI_DS5_PAD_AUDIO_OFF 0
+#define LI_DS5_PAD_AUDIO_PCM 1
+void LiSetDs5PadAudioOffer(int mode);
 
 // Optional absolute actuator controls accompanying authored PCM. State is eight
 // bytes: mode0, mode2, known controls, right/left motor, power-save, reduction, LPF.
@@ -1137,6 +1185,28 @@ int LiSendMultiControllerEvent(short controllerNumber, short activeGamepadMask,
 int LiSendControllerArrivalEvent(uint8_t controllerNumber, uint16_t activeGamepadMask, uint8_t type,
                                  uint32_t supportedButtonFlags, uint16_t capabilities);
 
+// DualSense input status (control message 0x5516, client to host): headset and
+// microphone presence and the microphone mute state. Only the fields set in
+// validMask are carried; a value must be 0 or 1. Returns 0 once the message is
+// sent, -1 for a malformed argument, LI_ERR_UNSUPPORTED when the host did not
+// declare "input-status=1" in x-ss-general.ds5Extensions (an old host never sees
+// the message), -3 when the stream is not connected or is stopping, and -4 when
+// the send failed.
+#define LI_DS5_IN_HEADSET     0x00000001
+#define LI_DS5_IN_MICROPHONE  0x00000002
+#define LI_DS5_IN_MIC_MUTED   0x00000004
+int LiSendDs5InputStatus(uint16_t controllerNumber, uint32_t validMask, uint8_t headsetPresent,
+                         uint8_t microphonePresent, uint8_t microphoneMuted);
+
+// Returns the DualSense extension directions the host declared, as the
+// LI_DS5_EXT_* bits below, or 0 for a host that declared none. Valid after the
+// RTSP handshake of the current connection. LI_DS5_EXT_PAD_AUDIO means the host
+// will send four-channel haptics PCM to a client that offered it.
+#define LI_DS5_EXT_OUTPUT        0x01
+#define LI_DS5_EXT_INPUT_STATUS  0x02
+#define LI_DS5_EXT_PAD_AUDIO     0x04
+uint32_t LiGetHostDs5Extensions(void);
+
 // This function is similar to LiSendTouchEvent(), but the touch events are associated with a
 // touchpad device present on a game controller instead of a touchscreen.
 //
@@ -1409,6 +1479,8 @@ void LiRequestIdrFrame(void);
 // docs/protocol-extension-registry.md.
 #define LI_FF_PEN_TOUCH_EVENTS        0x01 // LiSendTouchEvent()/LiSendPenEvent() supported
 #define LI_FF_CONTROLLER_TOUCH_EVENTS 0x02 // LiSendControllerTouchEvent() supported
+#define LI_FF_CLIPBOARD_TEXT          0x04 // Host synchronizes clipboard text (0x5508)
+#define LI_FF_CLIPBOARD_IMAGE         0x08 // Host synchronizes clipboard images (0x5508)
 #define LI_FF_TOUCHPAD_EVENTS         0x10 // LiSendTouchpadEvent() supported
 #define LI_FF_TOUCHPAD_FRAME_EVENTS   0x20 // LiSendTouchpadFrameEvent() supported
 #define LI_FF_CURSOR_SHAPE            0x40 // Host can send local cursor shape updates
@@ -1417,6 +1489,7 @@ void LiRequestIdrFrame(void);
 #define LI_FF_DYNAMIC_SDR_WHITE      0x100 // Host accepts runtime client SDR reference white updates
 #define LI_FF_HOST_SESSION_STATE      0x800 // Host can report its session lock state
 #define LI_FF_ENDPOINT_AUTO_REFRESH  0x8000 // Authenticated UDP endpoint migration v1
+#define LI_FF_BITRATE_CALLBACK       0x4000 // Reserved: host pushes runtime bitrate updates on 0x5506
 // True only for a live session with explicit encrypted-RTSP confirmation.
 bool LiIsEndpointAutoRefreshEnabled(void);
 uint32_t LiGetHostFeatureFlags(void);

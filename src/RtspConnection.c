@@ -1,5 +1,6 @@
 #include "DynamicHdr.h"
 #include "Limelight-internal.h"
+#include "Ds5ControlExtension.h"
 #include "Rtsp.h"
 
 /* MAT playback confirmation is security/format critical: duplicates fail even
@@ -1173,6 +1174,7 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
     MicPortNumber = 0;
     encryptedRtspEnabled = serverInfo->rtspSessionUrl && strstr(serverInfo->rtspSessionUrl, "rtspenc://");
     EndpointRefreshRequested = false;
+    Ds5ExtensionMask = 0;
     LiSetEndpointAutoRefreshEnabled(false);
     encryptionCtx = PltCreateCryptoContext();
     decryptionCtx = PltCreateCryptoContext();
@@ -1448,6 +1450,13 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
             EndpointRefreshRequested = encryptedRtspEnabled &&
                 (SunshineFeatureFlags & LI_FF_ENDPOINT_AUTO_REFRESH) &&
                 parseSdpAttributeToUInt(response.payload, "x-ss-general.endpointAutoRefreshVersion", &refreshVersion) && refreshVersion == 1;
+        }
+
+        // DualSense control extensions declared by the host. An absent or malformed
+        // value leaves the mask empty, so 0x5516 is never sent to a host that did
+        // not declare it.
+        if (IS_SUNSHINE()) {
+            Ds5ExtensionMask = ds5ExtParseSdpPayload(response.payload);
         }
 
         // Look for the Sunshine encryption flags in the SDP attributes
