@@ -201,23 +201,6 @@ static void VideoReceiveThreadProc(void* context) {
         atomic_fetch_add_explicit(&rtpVideoBytesReceived,
                                   (uint64_t)receivedPacketLength,
                                   memory_order_relaxed);
-        if (!receivedDataFromPeer) {
-            receivedDataFromPeer = true;
-            Limelog("Received first video packet after %d ms\n", waitingForVideoMs);
-
-            firstDataTimeMs = packetTimeMs;
-        }
-        lastVideoDataTimeMs = packetTimeMs;
-
-#ifndef LC_FUZZING
-        if (!receivedFullFrame) {
-            if (packetTimeMs - firstDataTimeMs >= FIRST_FRAME_TIMEOUT_SEC * 1000) {
-                Limelog("Terminating connection due to lack of a successful video frame\n");
-                ListenerCallbacks.connectionTerminated(ML_ERROR_NO_VIDEO_FRAME);
-                break;
-            }
-        }
-#endif
 
         if (err < minSize) {
             // Runt packet
@@ -273,6 +256,23 @@ static void VideoReceiveThreadProc(void* context) {
         queueStatus = RtpvAddPacket(&rtpQueue, packet, err, (PRTPV_QUEUE_ENTRY)&buffer[decryptedSize]);
 
         if (queueStatus == RTPF_RET_QUEUED) {
+            if (!receivedDataFromPeer) {
+                receivedDataFromPeer = true;
+                Limelog("Received first video packet after %d ms\n", waitingForVideoMs);
+
+                firstDataTimeMs = packetTimeMs;
+            }
+            lastVideoDataTimeMs = packetTimeMs;
+
+#ifndef LC_FUZZING
+            if (!receivedFullFrame &&
+                packetTimeMs - firstDataTimeMs >= FIRST_FRAME_TIMEOUT_SEC * 1000) {
+                Limelog("Terminating connection due to lack of a successful video frame\n");
+                ListenerCallbacks.connectionTerminated(ML_ERROR_NO_VIDEO_FRAME);
+                break;
+            }
+#endif
+
             LiErClientMedia(&endpointRefresh);
             // The queue owns the buffer
             buffer = NULL;
