@@ -52,6 +52,10 @@ typedef struct _RTP_VIDEO_QUEUE {
 
 #define RTPF_RET_QUEUED    0
 #define RTPF_RET_REJECTED  1
+// The packet was consumed by the depacketizer but did not provide new video
+// data, so the caller must release its buffer ownership without refreshing
+// the video watchdog.
+#define RTPF_RET_CONSUMED  2
 
 void RtpvInitializeQueue(PRTP_VIDEO_QUEUE queue);
 void RtpvCleanupQueue(PRTP_VIDEO_QUEUE queue);

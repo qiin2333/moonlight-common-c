@@ -148,7 +148,7 @@ int notifyAudioPortNegotiationComplete(void) {
     }
     LiRecordStreamSocket(rtpSocket, STREAM_SOCKET_SLOT_AUDIO);
     if (!LiErClientInitialize(&endpointRefresh, rtpSocket, LI_ER_AUDIO, AudioPingPayload.payload,
-            AudioPortNumber, SOCK_QOS_TYPE_AUDIO, 0)) {
+            AudioPortNumber)) {
         closeSocket(rtpSocket);
         rtpSocket = INVALID_SOCKET;
         return -1;
@@ -232,7 +232,6 @@ static void decodeInputData(PQUEUED_AUDIO_PACKET packet) {
         consumeAudio(NULL, 0);
         return;
     }
-
     PRTP_PACKET rtp = (PRTP_PACKET)&packet->data[0];
     if (lastSeq != 0 && (unsigned short)(lastSeq + 1) != rtp->sequenceNumber) {
         Limelog("Network dropped audio data (expected %d, but received %d)\n", lastSeq + 1, rtp->sequenceNumber);
@@ -301,6 +300,10 @@ static void decodeInputData(PQUEUED_AUDIO_PACKET packet) {
 
         consumeAudio((char*)(rtp + 1), packet->header.size - sizeof(*rtp));
     }
+
+    // All media comes from the original UDP socket in the conservative
+    // recovery mode. Accepted audio refreshes endpoint health.
+    LiErClientMedia(&endpointRefresh);
 }
 
 static void AudioReceiveThreadProc(void* context) {
@@ -342,9 +345,9 @@ static void AudioReceiveThreadProc(void* context) {
         if (packet->header.size == LI_ER_RECV_HANDLED) {
             continue;
         }
-        else if (packet->header.size == LI_ER_RECV_FAILED) {
-            ListenerCallbacks.connectionTerminated(ML_ERROR_ENDPOINT_REFRESH_FAILED);
-            break;
+        else if (packet->header.size == LI_ER_RECV_DEGRADED) {
+            Limelog("Audio endpoint is degraded; keeping the session alive\n");
+            continue;
         }
         else if (packet->header.size < 0) {
             Limelog("Audio Receive: recvUdpSocket() failed: %d\n", (int)LastSocketError());
@@ -400,9 +403,6 @@ static void AudioReceiveThreadProc(void* context) {
         rtp->ssrc = BE32(rtp->ssrc);
 
         queueStatus = RtpaAddPacket(&rtpAudioQueue, (PRTP_PACKET)&packet->data[0], (uint16_t)packet->header.size);
-        if (queueStatus != 0) {
-            LiErClientMedia(&endpointRefresh);
-        }
         if (RTPQ_HANDLE_NOW(queueStatus)) {
             if ((AudioCallbacks.capabilities & CAPABILITY_DIRECT_SUBMIT) == 0) {
                 if (!queuePacketToLbq(&packet)) {

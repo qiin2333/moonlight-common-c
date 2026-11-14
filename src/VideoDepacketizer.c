@@ -990,7 +990,7 @@ static bool isFirstPacket(uint8_t flags, uint8_t fecBlockNumber) {
 // The caller will free *existingEntry unless we NULL it
 static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
                        uint64_t receiveTimeUs, uint64_t presentationTimeUs, uint32_t rtpTimestamp,
-                       PLENTRY_INTERNAL* existingEntry) {
+                       PLENTRY_INTERNAL* existingEntry, bool* packetAccepted) {
     BUFFER_DESC currentPos;
     uint32_t frameIndex;
     uint8_t flags;
@@ -999,6 +999,8 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
     uint32_t streamPacketIndex;
     uint8_t fecCurrentBlockNumber;
     uint8_t fecLastBlockNumber;
+
+    *packetAccepted = false;
 
     // Mask the top 8 bits from the SPI
     videoPacket->streamPacketIndex >>= 8;
@@ -1288,6 +1290,10 @@ static void processRtpPayload(PNV_VIDEO_PACKET videoPacket, int length,
             return;
         }
 
+        // A duplicate is valid input, but it did not add new video data.
+        // Do not let repeated copies keep the video-traffic watchdog alive.
+        *packetAccepted = reassemblyResult != LI_PYROWAVE_REASSEMBLY_DUPLICATE;
+
         if (!LiPyrowaveReassemblyIsComplete(&pyrowaveReassembly)) {
             // Outer EOF can arrive ahead of data/parity. Let the inner FEC
             // finish, expire at its deadline, or yield to the next frame.
@@ -1508,8 +1514,9 @@ void notifyFrameLost(unsigned int frameNumber, bool speculative) {
 }
 
 // Add an RTP Packet to the queue
-void queueRtpPacket(PRTPV_QUEUE_ENTRY queueEntryPtr) {
+bool queueRtpPacket(PRTPV_QUEUE_ENTRY queueEntryPtr) {
     int dataOffset;
+    bool packetAccepted;
     RTPV_QUEUE_ENTRY queueEntry = *queueEntryPtr;
 
     LC_ASSERT(!queueEntry.isParity);
@@ -1535,12 +1542,18 @@ void queueRtpPacket(PRTPV_QUEUE_ENTRY queueEntryPtr) {
                       queueEntry.receiveTimeUs,
                       queueEntry.presentationTimeUs,
                       queueEntry.rtpTimestamp,
-                      &existingEntry);
+                      &existingEntry,
+                      &packetAccepted);
 
     if (existingEntry != NULL) {
         // processRtpPayload didn't want this packet, so just free it
         free(existingEntry->allocPtr);
     }
+
+    // For the legacy depacketizer, ownership transfer is the acceptance
+    // signal. PyroWave reports acceptance explicitly because it can consume
+    // and discard duplicate packets while reassembling a frame.
+    return existingEntry == NULL || packetAccepted;
 }
 
 int LiGetPendingVideoFrames(void) {

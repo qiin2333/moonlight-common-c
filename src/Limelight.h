@@ -556,7 +556,9 @@ typedef void(*ConnListenerConnectionTerminated)(int errorCode);
 #define ML_ERROR_FRAME_CONVERSION -104
 // A negotiated control-only session lost its transport without a termination message.
 #define ML_ERROR_CONTROL_TRANSPORT_TIMEOUT -105
-// Authenticated endpoint recovery exhausted its bounded socket replacement attempts.
+// Retained for source compatibility with clients built against the original
+// endpoint-refresh API. The conservative implementation no longer returns
+// this code because a probe timeout is not proof that the session failed.
 #define ML_ERROR_ENDPOINT_REFRESH_FAILED -106
 
 // This callback is invoked to log debug message
