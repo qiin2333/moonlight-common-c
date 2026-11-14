@@ -624,7 +624,7 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         packetEntry->length = length;
         packetEntry->isParity = false;
         if (!queueRtpPacket(packetEntry)) {
-            return RTPF_RET_REJECTED;
+            return RTPF_RET_CONSUMED;
         }
         return RTPF_RET_QUEUED;
     }

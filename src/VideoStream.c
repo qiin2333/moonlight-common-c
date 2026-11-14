@@ -301,6 +301,15 @@ static void VideoReceiveThreadProc(void* context) {
 
             LiErClientMedia(&endpointRefresh);
         }
+        else if (queueStatus == RTPF_RET_CONSUMED) {
+            // The depacketizer consumed and released the buffer, but the
+            // packet did not add new video data. Keep ownership in sync
+            // without refreshing the video watchdog.
+            buffer = NULL;
+            if (terminateIfVideoTrafficTimedOut()) {
+                break;
+            }
+        }
         else if (terminateIfVideoTrafficTimedOut()) {
             break;
         }
