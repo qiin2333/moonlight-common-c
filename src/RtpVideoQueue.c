@@ -644,6 +644,7 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         if (queue->pendingFecBlockList.count != 0) {
             // Report the final status of the FEC queue before dropping this frame
             reportFinalFrameFecStatus(queue);
+            recordVideoFecStats(0, 1, 0);
 
             if (queue->multiFecLastBlockNumber != 0) {
                 Limelog("Unrecoverable frame %d (block %d of %d): %d+%d=%d received < %d needed\n",
@@ -690,6 +691,7 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         if (fecCurrentBlockNumber != expectedFecBlockNumber) {
             // Report the final status of the FEC queue before dropping this frame
             reportFinalFrameFecStatus(queue);
+            recordVideoFecStats(0, 1, 0);
 
             Limelog("Unrecoverable frame %d: lost FEC blocks %d to %d\n",
                     nvPacket->frameIndex,
@@ -761,6 +763,9 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         queue->bufferHighestSequenceNumber = U16(queue->bufferFirstParitySequenceNumber + queue->bufferParityPackets - 1);
         queue->multiFecCurrentBlockNumber = fecCurrentBlockNumber;
         queue->multiFecLastBlockNumber = (nvPacket->multiFecBlocks >> 6) & 0x3;
+        if (fecCurrentBlockNumber == 0) {
+            queue->fecRecoveredFrame = false;
+        }
 
         queue->stats.packetCountVideo += queue->bufferDataPackets;
         queue->stats.packetCountFec += queue->bufferParityPackets;
@@ -819,11 +824,17 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         else {
             queue->receivedParityPackets++;
             LC_ASSERT(queue->receivedParityPackets <= queue->bufferParityPackets);
+            recordVideoFecStats(0, 0, 1);
         }
 
         // Try to submit this frame. If we haven't received enough packets,
         // this will fail and we'll keep waiting.
         if (reconstructFrame(queue) == 0) {
+            // Missing data packets in a complete block were rebuilt from parity
+            if (queue->receivedDataPackets < queue->bufferDataPackets) {
+                queue->fecRecoveredFrame = true;
+            }
+
             // Stage the complete FEC block for use once reassembly is complete
             stageCompleteFecBlock(queue);
 
@@ -841,6 +852,9 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
             else {
                 // Submit all FEC blocks to the depacketizer
                 submitCompletedFrame(queue);
+                if (queue->fecRecoveredFrame) {
+                    recordVideoFecStats(1, 0, 0);
+                }
 
                 // submitCompletedFrame() should have consumed all completed FEC data
                 LC_ASSERT(queue->completedFecBlockList.head == NULL);
