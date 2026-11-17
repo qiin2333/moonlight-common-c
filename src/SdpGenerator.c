@@ -284,12 +284,19 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
                 moonlightFeatureFlags |= ML_FF_DS5_HAPTICS_STATE;
             }
         }
+        /* v26: PCM 与 IR 不再互斥声明。
+         * 实机证据（AlkaidLab Sunshine，2026-11-11）：客户端只发 flags=7
+         * （仅 ML_FF_DS5_HAPTICS_PCM）时，主机日志里只有 793 条 rumble、
+         * 触觉扩展帧 0 条。未实现 PCM 直传编码的主机会把「只声明 PCM」的
+         * 客户端视作两种能力都不支持，按协议退回 ordinary rumble。
+         * 客户端三个回调都已注册，主机选 PCM(0x550A) 或 IR(0x550B) 都能接；
+         * 同时声明才能避开这个协商死区。 */
         if (ListenerCallbacks.ds5HapticsIrV2 != NULL) {
             moonlightFeatureFlags |= ML_FF_DS5_HAPTICS_IR_V2;
-        }
-        if (ListenerCallbacks.ds5HapticsIrV2 != NULL && ListenerCallbacks.ds5HapticsIrExtended != NULL) {
-            // Enhancement is optional and requires the existing v2 base capability.
-            moonlightFeatureFlags |= ML_FF_DS5_HAPTICS_IR_EXTENDED;
+            if (ListenerCallbacks.ds5HapticsIrExtended != NULL) {
+                // Enhancement is optional and requires the existing v2 base capability.
+                moonlightFeatureFlags |= ML_FF_DS5_HAPTICS_IR_EXTENDED;
+            }
         }
         if (RemoteTextContextCallback != NULL) {
             moonlightFeatureFlags |= ML_FF_REMOTE_TEXT_CONTEXT;
