@@ -253,6 +253,9 @@ typedef struct _DECODE_UNIT {
     // LiCompleteVideoFrame(); NULL/zero for traditional video formats.
     const uint8_t* pyrowaveMetadata;
     uint16_t pyrowaveMetadataLength;
+    // Complete PyroWave frames deliberately discarded by the decoder thread
+    // immediately before this frame, to bound latency during backlog.
+    uint32_t pyrowaveFramesDiscarded;
 } DECODE_UNIT, *PDECODE_UNIT;
 
 // Specifies that the audio stream should be encoded in stereo (default)

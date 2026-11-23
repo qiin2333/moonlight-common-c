@@ -321,6 +321,24 @@ bool LiWaitForNextVideoFrame(VIDEO_FRAME_HANDLE* frameHandle, PDECODE_UNIT* deco
         return false;
     }
 
+    // PyroWave is intra-only. When the synchronous renderer falls behind,
+    // discard all but one of the frames already queued behind the one being
+    // submitted. New arrivals can still queue concurrently. Do not change pull
+    // renderer semantics or discard inter-frame codecs.
+    if (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE &&
+            (VideoCallbacks.capabilities & CAPABILITY_PULL_RENDERER) == 0) {
+        uint32_t discarded = 0;
+        const int pending = LbqGetItemCount(&decodeUnitQueue);
+        for (int i = 1; i < pending; i++) {
+            PQUEUED_DECODE_UNIT next;
+            if (LbqPollQueueElement(&decodeUnitQueue, (void**)&next) != LBQ_SUCCESS) break;
+            LiCompleteVideoFrame(qdu, DR_CLEANUP);
+            qdu = next;
+            discarded++;
+        }
+        qdu->decodeUnit.pyrowaveFramesDiscarded = discarded;
+    }
+
     validateDecodeUnitForPlayback(&qdu->decodeUnit);
 
     *frameHandle = qdu;
@@ -595,6 +613,7 @@ static void reassembleFrame(int frameNumber, bool frameIsLTR) {
             qdu->decodeUnit.enqueueTimeUs = PltGetMicroseconds();
             qdu->decodeUnit.pyrowaveMetadata = NULL;
             qdu->decodeUnit.pyrowaveMetadataLength = 0;
+            qdu->decodeUnit.pyrowaveFramesDiscarded = 0;
             if (NegotiatedVideoFormat == VIDEO_FORMAT_PYROWAVE) {
                 PYROWAVE_FRAME_ENTRY* ownedFrame = (PYROWAVE_FRAME_ENTRY*)nalChainHead;
                 qdu->decodeUnit.pyrowaveMetadata = ownedFrame->pyrowaveMetadata;
