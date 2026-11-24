@@ -89,8 +89,9 @@ static ENetHost* client;
 static ENetPeer* peer;
 static PLT_MUTEX enetMutex;
 bool VideoFecControlSupported;
+int FecSummaryVersion;
 static PLT_MUTEX fecSummaryMutex;
-static uint32_t fecDataPackets, fecMissingPackets, fecSequence, fecLastFrame;
+static uint32_t fecDataPackets, fecMissingPackets, fecParityPackets, fecMissingParityPackets, fecSequence, fecLastFrame;
 static uint8_t fecLastBlock;
 static bool fecHasBlock;
 static uint64_t fecLastSummaryMs;
@@ -592,7 +593,7 @@ int initializeControlStream(void) {
     LbqInitializeLinkedBlockingQueue(&asyncCallbackQueue, 30);
     PltCreateMutex(&enetMutex);
     PltCreateMutex(&fecSummaryMutex);
-    fecDataPackets = fecMissingPackets = fecSequence = 0;
+    fecDataPackets = fecMissingPackets = fecParityPackets = fecMissingParityPackets = fecSequence = 0;
     fecHasBlock = false;
     fecLastSummaryMs = PltGetMillis();
 
@@ -746,13 +747,16 @@ void connectionReceivedCompleteFrame(uint32_t frameIndex, bool frameIsLTR) {
     }
 }
 
-void connectionRecordFecBlock(uint32_t frame, uint8_t block, uint16_t data, uint16_t received) {
-    if (!VideoFecControlSupported || !data || received > data) return;
+void connectionRecordFecBlock(uint32_t frame, uint8_t block, uint16_t data, uint16_t received,
+                              uint16_t parity, uint16_t parityReceived) {
+    if (!VideoFecControlSupported || !data || received > data || parityReceived > parity) return;
     PltLockMutex(&fecSummaryMutex);
     if ((!fecHasBlock || frame != fecLastFrame || block != fecLastBlock) &&
-        data <= 1000000U - fecDataPackets) {
+        data <= 1000000U - fecDataPackets && parity <= 1000000U - fecParityPackets) {
         fecDataPackets += data;
         fecMissingPackets += data - received;
+        fecParityPackets += parity;
+        fecMissingParityPackets += parity - parityReceived;
         fecLastFrame = frame;
         fecLastBlock = block;
         fecHasBlock = true;
@@ -1906,16 +1910,24 @@ static void lossStatsThreadFunc(void* context) {
 
         while (!PltIsThreadInterrupted(&lossStatsThread)) {
             if (VideoFecControlSupported && PltGetMillis() - fecLastSummaryMs >= 1000) {
-                SS_FEC_SUMMARY summary;
+                SS_FEC_SUMMARY_V2 summary;
+                bool observed;
                 PltLockMutex(&fecSummaryMutex);
                 summary.sequence = BE32(++fecSequence);
                 summary.dataPackets = BE32(fecDataPackets);
                 summary.missingDataPackets = BE32(fecMissingPackets);
-                fecDataPackets = fecMissingPackets = 0;
+                summary.parityPackets = BE32(fecParityPackets);
+                summary.missingParityPackets = BE32(fecMissingParityPackets);
+                observed = fecDataPackets != 0 || fecParityPackets != 0;
+                fecDataPackets = fecMissingPackets = fecParityPackets = fecMissingParityPackets = 0;
                 PltUnlockMutex(&fecSummaryMutex);
                 fecLastSummaryMs = PltGetMillis();
-                if (summary.dataPackets && !sendMessageEnet(SS_FEC_SUMMARY_PTYPE, sizeof(summary), &summary,
-                                                           CTRL_CHANNEL_GENERIC, 0, false)) {
+                // Version 2 sends the parity accounting; version 1 hosts read only the first
+                // three fields, so the shorter legacy payload goes out when they negotiated.
+                const bool v2 = FecSummaryVersion >= 2;
+                if (observed && !sendMessageEnet(SS_FEC_SUMMARY_PTYPE,
+                                                 v2 ? sizeof(summary) : sizeof(SS_FEC_SUMMARY), &summary,
+                                                 CTRL_CHANNEL_GENERIC, 0, false)) {
                     ListenerCallbacks.connectionTerminated(LastSocketFail());
                     return;
                 }

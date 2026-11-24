@@ -158,7 +158,9 @@ void connectionReceivedCompleteFrame(uint32_t frameIndex, bool frameIsLTR);
 void connectionSawFrame(uint32_t frameIndex);
 void connectionSendFrameFecStatus(PSS_FRAME_FEC_STATUS fecStatus);
 extern bool VideoFecControlSupported;
-void connectionRecordFecBlock(uint32_t frame, uint8_t block, uint16_t data, uint16_t received);
+extern int FecSummaryVersion;  // 1: data shards only, 2: parity shards included
+void connectionRecordFecBlock(uint32_t frame, uint8_t block, uint16_t data, uint16_t received,
+                              uint16_t parity, uint16_t parityReceived);
 int sendInputPacketOnControlStream(unsigned char* data, int length, uint8_t channelId, uint32_t flags, bool moreData);
 void flushInputOnControlStream(void);
 bool isControlDataInTransit(void);

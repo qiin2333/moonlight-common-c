@@ -61,6 +61,15 @@ typedef struct _SS_FEC_SUMMARY {
     uint32_t dataPackets;
     uint32_t missingDataPackets;
 } SS_FEC_SUMMARY;
+// Sent on fecControlVersion 2 and later: adds the parity shard accounting, so the host can
+// tell a clean link from one whose losses the parity is still absorbing. Same payload type.
+typedef struct _SS_FEC_SUMMARY_V2 {
+    uint32_t sequence;
+    uint32_t dataPackets;
+    uint32_t missingDataPackets;
+    uint32_t parityPackets;
+    uint32_t missingParityPackets;
+} SS_FEC_SUMMARY_V2;
 #define SS_FRAME_FEC_PTYPE 0x5502
 typedef struct _SS_FRAME_FEC_STATUS {
     uint32_t frameIndex;
