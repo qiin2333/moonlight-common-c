@@ -1438,7 +1438,7 @@ int performRtspHandshake(PSERVER_INFORMATION serverInfo) {
         uint32_t fecVersion = 0;
         VideoFecControlSupported = IS_SUNSHINE() && NegotiatedVideoFormat != VIDEO_FORMAT_PYROWAVE &&
             parseSdpAttributeToUInt(response.payload, "x-ss-video[0].fecControlVersion", &fecVersion) && fecVersion >= 1;
-        FecSummaryVersion = VideoFecControlSupported && fecVersion >= 2 ? 2 : 1;
+        FecSummaryVersion = VideoFecControlSupported && fecVersion >= 2 ? 2 : VideoFecControlSupported ? 1 : 0;
 
         // Look for the Sunshine feature flags in the SDP attributes
         if (!parseSdpAttributeToUInt(response.payload, "x-ss-general.featureFlags", &SunshineFeatureFlags)) {

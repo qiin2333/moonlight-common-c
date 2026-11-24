@@ -90,11 +90,16 @@ static void removeEntryFromList(PRTPV_QUEUE_LIST list, PRTPV_QUEUE_ENTRY entry) 
     list->count--;
 }
 
-static void reportFinalFrameFecStatus(PRTP_VIDEO_QUEUE queue) {
+static void reportFinalFrameFecStatus(PRTP_VIDEO_QUEUE queue, bool paritySettled) {
     SS_FRAME_FEC_STATUS fecStatus;
+    // The summary counts parity shards only where their arrival is settled: a block abandoned
+    // because a newer one started knows which shards will never come. The clean and recovery
+    // paths fire while this block's parity is still in flight behind the triggering packet,
+    // so recording it there would count in-flight shards as lost.
     connectionRecordFecBlock(queue->currentFrameNumber, queue->multiFecCurrentBlockNumber,
                              queue->bufferDataPackets, queue->receivedDataPackets,
-                             queue->bufferParityPackets, queue->receivedParityPackets);
+                             paritySettled ? queue->bufferParityPackets : 0,
+                             paritySettled ? queue->receivedParityPackets : 0);
 
     fecStatus.frameIndex = BE32(queue->currentFrameNumber);
     fecStatus.highestReceivedSequenceNumber = BE16(queue->receivedHighestSequenceNumber);
@@ -349,8 +354,9 @@ static int reconstructFrame(PRTP_VIDEO_QUEUE queue) {
                 queue->currentFrameNumber);
 #endif
 
-        // Report the final FEC status if we needed to perform a recovery
-        reportFinalFrameFecStatus(queue);
+        // Report the final FEC status if we needed to perform a recovery.
+        // Parity is still arriving behind the packet that completed the block: do not record it.
+        reportFinalFrameFecStatus(queue, false);
     }
 
 cleanup_packets:
@@ -645,7 +651,7 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
             queue->multiFecCurrentBlockNumber != fecCurrentBlockNumber) {
         if (queue->pendingFecBlockList.count != 0) {
             // Report the final status of the FEC queue before dropping this frame
-            reportFinalFrameFecStatus(queue);
+            reportFinalFrameFecStatus(queue, true);
 
             if (queue->multiFecLastBlockNumber != 0) {
                 Limelog("Unrecoverable frame %d (block %d of %d): %d+%d=%d received < %d needed\n",
@@ -691,7 +697,7 @@ int RtpvAddPacket(PRTP_VIDEO_QUEUE queue, PRTP_PACKET packet, int length, PRTPV_
         uint8_t expectedFecBlockNumber = (queue->currentFrameNumber == nvPacket->frameIndex ? queue->multiFecCurrentBlockNumber : 0);
         if (fecCurrentBlockNumber != expectedFecBlockNumber) {
             // Report the final status of the FEC queue before dropping this frame
-            reportFinalFrameFecStatus(queue);
+            reportFinalFrameFecStatus(queue, true);
 
             Limelog("Unrecoverable frame %d: lost FEC blocks %d to %d\n",
                     nvPacket->frameIndex,
