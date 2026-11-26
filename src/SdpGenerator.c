@@ -1,4 +1,5 @@
 #include "Limelight-internal.h"
+#include "Ds5ControlExtension.h"
 #include <inttypes.h>
 
 #define MAX_OPTION_NAME_LEN 128
@@ -329,6 +330,13 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         }
         snprintf(payloadStr, sizeof(payloadStr), "%" PRIu32, moonlightFeatureFlags);
         err |= addAttributeString(&optionHead, "x-ml-general.featureFlags", payloadStr);
+
+        // DualSense control extensions (0x5515/0x5516) use a versioned string
+        // namespace instead of a capability bit. A host that does not know the
+        // attribute ignores it and never sees either message.
+        if (Ds5OutputExtensionCallback != NULL) {
+            err |= addAttributeString(&optionHead, DS5EXT_SDP_CLIENT_ATTRIBUTE, DS5EXT_SDP_OFFER);
+        }
 
         // New-style control stream encryption is low overhead, so we enable it any time it is supported
         if (EncryptionFeaturesSupported & SS_ENC_CONTROL_V2) {
