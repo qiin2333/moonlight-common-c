@@ -29,6 +29,8 @@ extern ConnListenerRemoteTextContext RemoteTextContextCallback;
 extern ConnListenerDs5OutputExtension Ds5OutputExtensionCallback;
 // DS5EXT_MASK_* directions the host declared in x-ss-general.ds5Extensions
 extern uint32_t Ds5ExtensionMask;
+// LI_DS5_PAD_AUDIO_*: what LiSetDs5PadAudioOffer() asked the next connection to offer
+extern int Ds5PadAudioOfferMode;
 extern DECODER_RENDERER_CALLBACKS VideoCallbacks;
 extern AUDIO_RENDERER_CALLBACKS AudioCallbacks;
 extern int NegotiatedVideoFormat;

@@ -17,6 +17,7 @@ CONNECTION_LISTENER_CALLBACKS ListenerCallbacks;
 ConnListenerRemoteTextContext RemoteTextContextCallback;
 ConnListenerDs5OutputExtension Ds5OutputExtensionCallback;
 uint32_t Ds5ExtensionMask;
+int Ds5PadAudioOfferMode;
 DECODER_RENDERER_CALLBACKS VideoCallbacks;
 AUDIO_RENDERER_CALLBACKS AudioCallbacks;
 int NegotiatedVideoFormat;

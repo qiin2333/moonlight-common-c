@@ -20,9 +20,15 @@ static uint32_t parse(const char* text) {
 static void testSdpNamespace(void) {
     // The offer a client sends is understood by a peer that implements the namespace.
     CHECK(parse(DS5EXT_SDP_OFFER) == (DS5EXT_MASK_OUTPUT_V1 | DS5EXT_MASK_INPUT_STATUS_V1));
-    // Names registered for later extensions are not understood here and add no bit.
-    CHECK(parse("pad-audio=1") == 0);
-    CHECK(parse("output=1,pad-audio=1,pad-speaker=1") == DS5EXT_MASK_OUTPUT_V1);
+    // A name registered for a later extension is not understood here and adds no bit.
+    CHECK(parse("pad-speaker=1") == 0);
+    CHECK(parse("output=1,pad-audio=1,pad-speaker=1") == (DS5EXT_MASK_OUTPUT_V1 | DS5EXT_MASK_PAD_AUDIO_V1));
+    CHECK(parse("output=1,input-status=1," DS5EXT_SDP_TOKEN_PAD_AUDIO) ==
+          (DS5EXT_MASK_OUTPUT_V1 | DS5EXT_MASK_INPUT_STATUS_V1 | DS5EXT_MASK_PAD_AUDIO_V1));
+    CHECK(parse("pad-audio=1") == DS5EXT_MASK_PAD_AUDIO_V1);
+    CHECK(parse("pad-audio=2") == 0);
+    CHECK(parse("pad-audios=1") == 0);
+    CHECK(parse("pad-audio") == 0);
     CHECK(parse("output=1") == DS5EXT_MASK_OUTPUT_V1);
     CHECK(parse("input-status=1") == DS5EXT_MASK_INPUT_STATUS_V1);
     CHECK(parse("output=1;input-status=1") == 3);
