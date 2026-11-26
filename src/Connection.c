@@ -15,6 +15,9 @@ int AppVersionQuad[4];
 STREAM_CONFIGURATION StreamConfig;
 CONNECTION_LISTENER_CALLBACKS ListenerCallbacks;
 ConnListenerRemoteTextContext RemoteTextContextCallback;
+ConnListenerDs5OutputExtension Ds5OutputExtensionCallback;
+uint32_t Ds5ExtensionMask;
+int Ds5PadAudioOfferMode;
 DECODER_RENDERER_CALLBACKS VideoCallbacks;
 AUDIO_RENDERER_CALLBACKS AudioCallbacks;
 int NegotiatedVideoFormat;
@@ -310,6 +313,7 @@ int LiStartConnection(PSERVER_INFORMATION serverInfo, PSTREAM_CONFIGURATION stre
     memset(&LocalAddr, 0, sizeof(LocalAddr));
     NegotiatedVideoFormat = 0;
     VideoFecControlSupported = false;
+    Ds5ExtensionMask = 0;
     memcpy(&StreamConfig, streamConfig, sizeof(StreamConfig));
     RemoteAddrString = strdup(serverInfo->address);
     if (StreamConfig.videoFecPercentage < -2 || StreamConfig.videoFecPercentage > 100) {

@@ -1,4 +1,5 @@
 #include "Limelight-internal.h"
+#include "Ds5ControlExtension.h"
 #include <inttypes.h>
 
 #define MAX_OPTION_NAME_LEN 128
@@ -329,6 +330,27 @@ static PSDP_OPTION getAttributesList(char*urlSafeAddr) {
         }
         snprintf(payloadStr, sizeof(payloadStr), "%" PRIu32, moonlightFeatureFlags);
         err |= addAttributeString(&optionHead, "x-ml-general.featureFlags", payloadStr);
+
+        // DualSense control extensions (0x5515/0x5516) use a versioned string
+        // namespace instead of a capability bit. A host that does not know the
+        // attribute ignores it and never sees either message.
+        {
+            char ds5Offer[64] = "";
+            if (Ds5OutputExtensionCallback != NULL) {
+                strcpy(ds5Offer, DS5EXT_SDP_OFFER);
+            }
+            // Four-channel haptics PCM is offered only when the application asked for it
+            // and can receive the PCM frames at all.
+            if (Ds5PadAudioOfferMode == LI_DS5_PAD_AUDIO_PCM && ListenerCallbacks.ds5HapticsPcm != NULL) {
+                if (ds5Offer[0] != '\0') {
+                    strcat(ds5Offer, ",");
+                }
+                strcat(ds5Offer, DS5EXT_SDP_TOKEN_PAD_AUDIO);
+            }
+            if (ds5Offer[0] != '\0') {
+                err |= addAttributeString(&optionHead, DS5EXT_SDP_CLIENT_ATTRIBUTE, ds5Offer);
+            }
+        }
 
         // New-style control stream encryption is low overhead, so we enable it any time it is supported
         if (EncryptionFeaturesSupported & SS_ENC_CONTROL_V2) {
