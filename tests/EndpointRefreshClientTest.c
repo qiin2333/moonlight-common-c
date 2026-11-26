@@ -1,4 +1,4 @@
-// Exercise the real client state machine over loopback UDP with a controlled clock.
+// Conservative endpoint refresh tests over real loopback UDP.
 #include "Limelight-internal.h"
 #include "EndpointRefresh.h"
 #include <stdio.h>
@@ -8,13 +8,13 @@ CONNECTION_LISTENER_CALLBACKS ListenerCallbacks;
 struct sockaddr_storage RemoteAddr, LocalAddr;
 SOCKADDR_LEN AddrLen = sizeof(struct sockaddr_in);
 static uint64_t now = 10000;
-static unsigned int opened, closed;
-static unsigned int clockReads, dualSocketPolls;
+static unsigned int socketCreates, socketCloses, clockReads;
 
 uint64_t PltGetMillis(void) { clockReads++; return now; }
 int PltCreateMutex(PLT_MUTEX* mutex) {
 #ifdef LC_WINDOWS
-    InitializeSRWLock(mutex); return 0;
+    InitializeSRWLock(mutex);
+    return 0;
 #else
     return pthread_mutex_init(mutex, NULL);
 #endif
@@ -41,10 +41,12 @@ void PltUnlockMutex(PLT_MUTEX* mutex) {
 #endif
 }
 void LiRecordStreamSocket(SOCKET s, int slot) { (void)s; (void)slot; }
-void LiReplaceStreamSocket(SOCKET previous, SOCKET replacement, int slot) { (void)previous; (void)replacement; (void)slot; }
+void LiReplaceStreamSocket(SOCKET previous, SOCKET replacement, int slot) {
+    (void)previous; (void)replacement; (void)slot;
+}
 int setNonFatalRecvTimeoutMs(SOCKET s, int timeout) { (void)s; (void)timeout; return 0; }
 void closeSocket(SOCKET s) {
-    closed++;
+    socketCloses++;
 #ifdef LC_WINDOWS
     closesocket(s);
 #else
@@ -52,26 +54,21 @@ void closeSocket(SOCKET s) {
 #endif
 }
 SOCKET bindUdpSocket(int family, struct sockaddr_storage* local, SOCKADDR_LEN length, int bufferSize, int qos) {
-    (void)bufferSize; (void)qos;
-    SOCKET s = socket(family, SOCK_DGRAM, IPPROTO_UDP);
-    if (s == INVALID_SOCKET) {
-        return s;
+    (void)bufferSize;
+    (void)qos;
+    SOCKET socketValue = socket(family, SOCK_DGRAM, IPPROTO_UDP);
+    if (socketValue == INVALID_SOCKET) {
+        return socketValue;
     }
-    if (bind(s, (struct sockaddr*)local, length)) {
-        closeSocket(s);
+    if (bind(socketValue, (struct sockaddr*)local, length) != 0) {
+        closeSocket(socketValue);
         return INVALID_SOCKET;
     }
-    opened++;
-    return s;
+    socketCreates++;
+    return socketValue;
 }
-
 int pollSockets(struct pollfd* fds, int count, int timeout) {
-    // Clock advances explicitly in this test. Use real UDP readiness without
-    // sleeping through every simulated timeout in the retry-budget checks.
     (void)timeout;
-    if (count == 2) {
-        dualSocketPolls++;
-    }
     fd_set reads;
     struct timeval immediate = { 0, 0 };
     SOCKET highest = 0;
@@ -93,36 +90,34 @@ int pollSockets(struct pollfd* fds, int count, int timeout) {
     }
     return result;
 }
-
-int recvUdpSocket(SOCKET socket, char* buffer, int size, bool useSelect) {
+int recvUdpSocket(SOCKET socketValue, char* buffer, int size, bool useSelect) {
     (void)useSelect;
-    struct pollfd readable = { .fd = socket, .events = POLLIN };
-    int result = pollSockets(&readable, 1, 0);
-    return result > 0 ? (int)recvfrom(socket, buffer, size, 0, NULL, NULL) : result;
+    struct pollfd readable = { .fd = socketValue, .events = POLLIN };
+    if (pollSockets(&readable, 1, 0) <= 0) {
+        return 0;
+    }
+    return (int)recvfrom(socketValue, buffer, size, 0, NULL, NULL);
 }
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%d: %s\n", __LINE__, #x); return 1; } } while (0)
 
-static int readProbe(SOCKET host, struct sockaddr_storage* peer, LI_ENDPOINT_REFRESH* state, LI_ER_MESSAGE* message) {
-    fd_set reads;
-    struct timeval timeout = { 1, 0 };
-    unsigned char packet[64];
-    SOCKADDR_LEN length = sizeof(*peer);
-    FD_ZERO(&reads); FD_SET(host, &reads);
-    if (select((int)(host + 1), &reads, NULL, NULL, &timeout) != 1) {
+static int receiveEapr(SOCKET host, LI_ENDPOINT_REFRESH* state, LI_ER_MESSAGE* message, struct sockaddr_storage* peer) {
+    unsigned char packet[LI_ER_PACKET_SIZE];
+    SOCKADDR_LEN peerLength = sizeof(*peer);
+    struct pollfd readable = { .fd = host, .events = POLLIN };
+    if (pollSockets(&readable, 1, 0) <= 0) {
         return 0;
     }
-    int bytes = recvfrom(host, (char*)packet, sizeof(packet), 0, (struct sockaddr*)peer, &length);
-    return bytes == 64 && LiErDecode(packet, 64, LI_ER_VIDEO, state->session, state->key, message);
+    int length = recvfrom(host, (char*)packet, sizeof(packet), 0,
+        (struct sockaddr*)peer, &peerLength);
+    return length == LI_ER_PACKET_SIZE && LiErDecode(packet, length, LI_ER_VIDEO,
+        state->session, state->key, message);
 }
 
-static int sendPacket(SOCKET host, const struct sockaddr_storage* peer, const unsigned char* packet, int size) {
-    return sendto(host, (const char*)packet, size, 0, (const struct sockaddr*)peer, AddrLen);
-}
-
-static bool hostEmpty(SOCKET host) {
-    struct pollfd readable = { .fd = host, .events = POLLIN };
-    return pollSockets(&readable, 1, 0) == 0;
+static int sendToPeer(SOCKET host, const struct sockaddr_storage* peer,
+                      const unsigned char* packet, int size) {
+    return (int)sendto(host, (const char*)packet, size, 0,
+        (const struct sockaddr*)peer, AddrLen);
 }
 
 int main(void) {
@@ -130,201 +125,103 @@ int main(void) {
     WSADATA wsa;
     CHECK(WSAStartup(MAKEWORD(2, 2), &wsa) == 0);
 #endif
+    memset(&StreamConfig, 0, sizeof(StreamConfig));
     struct sockaddr_in* local = (struct sockaddr_in*)&LocalAddr;
     local->sin_family = AF_INET;
     local->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
     SOCKET host = bindUdpSocket(AF_INET, &LocalAddr, AddrLen, 0, 0);
     CHECK(host != INVALID_SOCKET);
-    SOCKADDR_LEN addressLength = sizeof(RemoteAddr);
-    CHECK(getsockname(host, (struct sockaddr*)&RemoteAddr, &addressLength) == 0);
+    SOCKADDR_LEN length = sizeof(RemoteAddr);
+    CHECK(getsockname(host, (struct sockaddr*)&RemoteAddr, &length) == 0);
+
     SOCKET active = bindUdpSocket(AF_INET, &LocalAddr, AddrLen, 0, 0);
     CHECK(active != INVALID_SOCKET);
-    struct sockaddr_storage originalPeer;
-    addressLength = sizeof(originalPeer);
-    CHECK(getsockname(active, (struct sockaddr*)&originalPeer, &addressLength) == 0);
-    unsigned char media[16] = { 0x80, 97, 1, 2, 3 }, buffer[256];
-    unsigned char packet[64], nonce[16];
-    memset(nonce, 0x42, sizeof(nonce));
+    struct sockaddr_storage activePeer;
+    length = sizeof(activePeer);
+    CHECK(getsockname(active, (struct sockaddr*)&activePeer, &length) == 0);
+
     LI_ENDPOINT_REFRESH state;
-    EndpointRefreshRequested = false;
-    CHECK(LiErClientInitialize(&state, active, LI_ER_VIDEO, "0123456789abcdef", ntohs(((struct sockaddr_in*)&RemoteAddr)->sin_port), 0, 0));
-    CHECK(!LiErClientPing(&state));
-    CHECK(sendPacket(host, &originalPeer, media, sizeof(media)) == sizeof(media));
-    unsigned int readsBefore = clockReads;
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == sizeof(media));
-    CHECK(clockReads == readsBefore && dualSocketPolls == 0); // Legacy fast path unchanged.
-    LiErClientDestroy(&state);
     EndpointRefreshRequested = true;
-    CHECK(LiErClientInitialize(&state, active, LI_ER_VIDEO, "0123456789abcdef", ntohs(((struct sockaddr_in*)&RemoteAddr)->sin_port), 0, 0));
-    CHECK(LiErClientPing(&state) && state.sequence == 0); // Pending ANNOUNCE emits nothing.
+    LiSetEndpointAutoRefreshEnabled(false);
+    CHECK(LiErClientInitialize(&state, active, LI_ER_VIDEO,
+        "0123456789abcdef", ntohs(((struct sockaddr_in*)&RemoteAddr)->sin_port)));
+    // Before ANNOUNCE confirms EARP, the caller must fall back to the legacy
+    // ping so RTSP/SETUP startup compatibility is preserved.
+    CHECK(!LiErClientPing(&state));
     LiSetEndpointAutoRefreshEnabled(true);
+    now += 1;
     CHECK(LiErClientPing(&state));
-    struct sockaddr_storage peer;
-    LI_ER_MESSAGE message;
-    CHECK(readProbe(host, &peer, &state, &message));
-    CHECK(message.type == LI_ER_PROBE);
-    for (int i = 0; i < 100; i++) {
-        CHECK(LiErClientPing(&state));
-    }
-    CHECK(state.sequence == 1 && hostEmpty(host)); // Repeated callers cannot flood probes.
-    CHECK(LiErEncode(packet, LI_ER_CHALLENGE, LI_ER_VIDEO, state.session, state.key, message.sequence, nonce));
-    CHECK(sendPacket(host, &originalPeer, packet, sizeof(packet)) == 64);
-    readsBefore = clockReads;
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
-    CHECK(clockReads == readsBefore + 1);
-    CHECK(readProbe(host, &peer, &state, &message) && message.type == LI_ER_RESPONSE);
-    CHECK(state.candidate == INVALID_SOCKET); // NAT rebinding can keep the active socket.
-    for (int i = 0; i < 50; i++) {
-        CHECK(sendPacket(host, &originalPeer, packet, sizeof(packet)) == 64);
-        CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
-    }
-    CHECK(hostEmpty(host)); // Authenticated challenge replay is also rate limited.
-    now += 250;
-    CHECK(sendPacket(host, &originalPeer, packet, sizeof(packet)) == 64);
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
-    CHECK(readProbe(host, &peer, &state, &message) && message.type == LI_ER_RESPONSE);
-    CHECK(LiErEncode(packet, LI_ER_ACK, LI_ER_VIDEO, state.session, state.key, message.sequence, nonce));
-    CHECK(sendPacket(host, &originalPeer, packet, sizeof(packet)) == 64);
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
-    CHECK(sendPacket(host, &originalPeer, media, sizeof(media)) == sizeof(media));
-    readsBefore = clockReads;
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == sizeof(media));
-    LiErClientMedia(&state);
-    CHECK(clockReads == readsBefore + 1 && state.lastMedia == now && dualSocketPolls == 0);
+    LI_ER_MESSAGE probe;
+    struct sockaddr_storage probePeer;
+    CHECK(receiveEapr(host, &state, &probe, &probePeer));
+    CHECK(probe.type == LI_ER_PROBE);
+    CHECK(((struct sockaddr_in*)&probePeer)->sin_port ==
+        ((struct sockaddr_in*)&activePeer)->sin_port);
 
-    now += 2100;
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == 0);
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == 0);
-    CHECK(state.candidate != INVALID_SOCKET && dualSocketPolls > 0);
-    SOCKET original = active;
-    // No periodic ping call: socket creation itself must send the first probe.
-    CHECK(readProbe(host, &peer, &state, &message) && message.type == LI_ER_PROBE);
-    CHECK(LiErEncode(packet, LI_ER_CHALLENGE, LI_ER_VIDEO, state.session, state.key, message.sequence, nonce));
-    CHECK(sendPacket(host, &peer, packet, sizeof(packet)) == 64);
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
-    CHECK(active == original && state.challenged);
-    CHECK(readProbe(host, &peer, &state, &message) && message.type == LI_ER_RESPONSE);
-    CHECK(LiErEncode(packet, LI_ER_ACK, LI_ER_VIDEO, state.session, state.key, message.sequence, nonce));
-    CHECK(sendPacket(host, &originalPeer, packet, sizeof(packet)) == 64);
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
-    CHECK(active == original); // An ACK received on the old socket cannot promote the candidate.
-    packet[48] ^= 1;
-    CHECK(sendPacket(host, &peer, packet, sizeof(packet)) == 64);
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
-    CHECK(active == original);
-    packet[48] ^= 1;
-    // Simultaneous old media and unverified candidate media must not starve the old path.
-    CHECK(sendPacket(host, &peer, media, sizeof(media)) == sizeof(media));
-    CHECK(sendPacket(host, &originalPeer, media, sizeof(media)) == sizeof(media));
-    int accepted = 0;
-    for (int i = 0; i < 2; i++) {
-        int result = LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false);
-        CHECK(result == sizeof(media) || result == LI_ER_RECV_HANDLED);
-        if (result == sizeof(media)) { accepted++; LiErClientMedia(&state); }
-    }
-    CHECK(accepted == 1 && active == original);
-    CHECK(sendPacket(host, &peer, packet, sizeof(packet)) == 64);
-    CHECK(sendPacket(host, &peer, media, sizeof(media)) == sizeof(media));
-    CHECK(sendPacket(host, &peer, media, sizeof(media)) == sizeof(media));
-    // Clock does not advance: neither challenge nor ACK waits for a 100ms polling tick.
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
-    CHECK(active != original && state.candidate == INVALID_SOCKET && state.attempts == 1);
-    for (int i = 0; i < 2; i++) {
-        CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == sizeof(media));
-        CHECK(!memcmp(buffer, media, sizeof(media)));
-        LiErClientMedia(&state); // Media queued after the ACK must be delivered, not batch-drained.
-    }
+    unsigned char ack[LI_ER_PACKET_SIZE];
+    CHECK(LiErEncode(ack, LI_ER_ACK, LI_ER_VIDEO, state.session, state.key,
+        probe.sequence, NULL));
+    CHECK(sendToPeer(host, &activePeer, ack, sizeof(ack)) == sizeof(ack));
+    unsigned char buffer[128];
+    CHECK(LiErClientRecv(&state, &state.active, (char*)buffer, sizeof(buffer), false) ==
+        LI_ER_RECV_HANDLED);
+    CHECK(!state.suspect && !state.degraded);
 
-    // A lost commit ACK can be recovered by a later probe ACK with the same nonce.
+    // Simulate high-bitrate queueing: no return traffic for 2 seconds. The
+    // original socket remains the only socket and the stream is not failed.
     now += 2100;
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == 0);
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == 0);
-    CHECK(state.candidate != INVALID_SOCKET && state.attempts == 2);
-    CHECK(readProbe(host, &peer, &state, &message) && message.type == LI_ER_PROBE);
-    nonce[0]++;
-    CHECK(LiErEncode(packet, LI_ER_CHALLENGE, LI_ER_VIDEO, state.session, state.key, message.sequence, nonce));
-    CHECK(sendPacket(host, &peer, packet, sizeof(packet)) == 64);
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
-    CHECK(readProbe(host, &peer, &state, &message) && message.type == LI_ER_RESPONSE);
-    CHECK(sendPacket(host, &peer, media, sizeof(media)) == sizeof(media));
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
+    CHECK(LiErClientRecv(&state, &state.active, (char*)buffer, sizeof(buffer), false) == 0);
+    CHECK(state.suspect && !state.degraded && socketCreates == 2);
+    now += 6000;
+    CHECK(LiErClientRecv(&state, &state.active, (char*)buffer, sizeof(buffer), false) ==
+        LI_ER_RECV_DEGRADED);
+    CHECK(state.degraded && socketCreates == 2 && socketCloses == 0);
+
+    // A valid challenge also proves that the original path is reachable. It
+    // must clear the observation state and produce a response without any
+    // socket replacement.
+    unsigned char nonce[LI_ER_NONCE_SIZE] = { 1 };
     now += 500;
     CHECK(LiErClientPing(&state));
-    CHECK(readProbe(host, &peer, &state, &message) && message.type == LI_ER_PROBE);
-    CHECK(LiErEncode(packet, LI_ER_ACK, LI_ER_VIDEO, state.session, state.key, message.sequence, nonce));
-    CHECK(sendPacket(host, &peer, packet, sizeof(packet)) == 64);
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
-    CHECK(state.candidate == INVALID_SOCKET && state.attempts == 2);
+    CHECK(receiveEapr(host, &state, &probe, &probePeer));
+    CHECK(probe.type == LI_ER_PROBE);
+    CHECK(LiErEncode(ack, LI_ER_CHALLENGE, LI_ER_VIDEO, state.session, state.key,
+        probe.sequence, nonce));
+    CHECK(sendToPeer(host, &activePeer, ack, sizeof(ack)) == sizeof(ack));
+    CHECK(LiErClientRecv(&state, &state.active, (char*)buffer, sizeof(buffer), false) ==
+        LI_ER_RECV_HANDLED);
+    CHECK(!state.suspect && !state.degraded);
+    LI_ER_MESSAGE response;
+    CHECK(receiveEapr(host, &state, &response, &probePeer));
+    CHECK(response.type == LI_ER_RESPONSE && response.sequence == probe.sequence);
+    CHECK(!memcmp(response.nonce, nonce, sizeof(nonce)));
 
-    // Scattered failures must not exhaust a session's lifetime budget. Exercise
-    // real ACK/media traffic between five migrations, beyond the stable window.
-    for (int migration = 0; migration < 5; migration++) {
-        for (int tick = 0; tick < 64; tick++) {
-            now += 500;
-            CHECK(LiErClientPing(&state));
-            CHECK(readProbe(host, &peer, &state, &message) && message.type == LI_ER_PROBE);
-            CHECK(LiErEncode(packet, LI_ER_ACK, LI_ER_VIDEO, state.session, state.key, message.sequence, nonce));
-            CHECK(sendPacket(host, &peer, packet, sizeof(packet)) == 64);
-            CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
-            CHECK(sendPacket(host, &peer, media, sizeof(media)) == sizeof(media));
-            CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == sizeof(media));
-            LiErClientMedia(&state);
-        }
-        CHECK(state.attempts == 0 && !state.failed);
-        now += 2100;
-        CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == 0);
-        CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == 0);
-        CHECK(state.candidate != INVALID_SOCKET && state.attempts == 1);
-        original = active;
-        CHECK(readProbe(host, &peer, &state, &message) && message.type == LI_ER_PROBE);
-        nonce[0]++;
-        CHECK(LiErEncode(packet, LI_ER_CHALLENGE, LI_ER_VIDEO, state.session, state.key, message.sequence, nonce));
-        CHECK(sendPacket(host, &peer, packet, sizeof(packet)) == 64);
-        CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
-        CHECK(readProbe(host, &peer, &state, &message) && message.type == LI_ER_RESPONSE);
-        CHECK(LiErEncode(packet, LI_ER_ACK, LI_ER_VIDEO, state.session, state.key, message.sequence, nonce));
-        CHECK(sendPacket(host, &peer, packet, sizeof(packet)) == 64);
-        CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_HANDLED);
-        CHECK(active != original && state.candidate == INVALID_SOCKET && state.attempts == 1);
-    }
-
-    int result = 0;
-    for (int i = 0; i < 110 && result != LI_ER_RECV_FAILED; i++) {
-        now += 100;
-        result = LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false);
-    }
-    CHECK(result == LI_ER_RECV_FAILED && state.attempts == 3 && state.candidate == INVALID_SOCKET);
-    while (!hostEmpty(host)) {
-        CHECK(readProbe(host, &peer, &state, &message));
-    }
-    uint64_t terminalSequence = state.sequence;
-    for (int i = 0; i < 100; i++) {
+    // Long probe stress: one original socket, no candidate bind and no fail.
+    for (int i = 0; i < 2000; i++) {
         now += 500;
         CHECK(LiErClientPing(&state));
+        CHECK(receiveEapr(host, &state, &probe, &probePeer));
+        CHECK(probe.type == LI_ER_PROBE);
+        CHECK(((struct sockaddr_in*)&probePeer)->sin_port ==
+            ((struct sockaddr_in*)&activePeer)->sin_port);
     }
-    CHECK(state.sequence == terminalSequence && hostEmpty(host));
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == LI_ER_RECV_FAILED);
+    CHECK(socketCreates == 2 && socketCloses == 0 && state.active == active);
+
+    // A late ACK on the original socket restores health without migration.
+    CHECK(LiErEncode(ack, LI_ER_ACK, LI_ER_VIDEO, state.session, state.key,
+        probe.sequence, NULL));
+    CHECK(sendToPeer(host, &activePeer, ack, sizeof(ack)) == sizeof(ack));
+    CHECK(LiErClientRecv(&state, &state.active, (char*)buffer, sizeof(buffer), false) ==
+        LI_ER_RECV_HANDLED);
+    CHECK(!state.suspect && !state.degraded);
+
     LiErClientDestroy(&state);
     closeSocket(active);
-    CHECK(opened == closed + 1); // Keep a reachable peer for the stop-during-probe case.
-    active = bindUdpSocket(AF_INET, &LocalAddr, AddrLen, 0, 0);
-    CHECK(active != INVALID_SOCKET);
-    CHECK(LiErClientInitialize(&state, active, LI_ER_VIDEO, "0123456789abcdef", ntohs(((struct sockaddr_in*)&RemoteAddr)->sin_port), 0, 0));
-    now += 10000; // Slow RTSP/startup must not count as a receive failure.
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == 0);
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == 0);
-    CHECK(state.candidate == INVALID_SOCKET && state.attempts == 0);
-    now += 2100;
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == 0);
-    CHECK(LiErClientRecv(&state, &active, (char*)buffer, sizeof(buffer), false) == 0);
-    CHECK(state.candidate != INVALID_SOCKET);
-    LiErClientDestroy(&state); // Stop while a candidate is still awaiting proof.
-    closeSocket(active);
     closeSocket(host);
-    CHECK(opened == closed);
+    CHECK(socketCreates == socketCloses);
 #ifdef LC_WINDOWS
     WSACleanup();
 #endif
-    puts("Endpoint refresh client: startup grace, repeated migration, dual receive, ACK isolation, rate limits and bounded cleanup passed");
+    puts("Endpoint refresh conservative client: loopback probe, ACK recovery, 2000-cycle stress and no candidate passed");
     return 0;
 }

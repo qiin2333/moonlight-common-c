@@ -65,7 +65,7 @@ int main(void) {
     StreamConfig.fps = 60;
     VideoCallbacks.capabilities = CAPABILITY_PULL_RENDERER;
     initializeVideoDepacketizer(1392);
-    for (unsigned frame = 1; frame <= 2; ++frame) {
+    for (unsigned frame = 1; frame <= 4; ++frame) {
         uint8_t* allocation = malloc(sizeof(PYROWAVE_FRAME_ENTRY) + sizeof(codec) + metadataLength);
         CHECK(allocation != NULL);
         metadata[metadataLength - 1] = (uint8_t)frame;
@@ -80,9 +80,10 @@ int main(void) {
     }
     // Reset/reuse receive-side state after queueing: each frame keeps its own TLVs.
     LiPyrowaveReassemblyReset(&pyrowaveReassembly);
-    for (unsigned frame = 1; frame <= 2; ++frame) {
-        CHECK(LiPollNextVideoFrame(&frameHandle, &decodeUnit));
+    for (unsigned frame = 1; frame <= 4; ++frame) {
+        CHECK(LiWaitForNextVideoFrame(&frameHandle, &decodeUnit));
         CHECK(decodeUnit->frameNumber == (int)frame);
+        CHECK(decodeUnit->pyrowaveFramesDiscarded == 0);
         CHECK(decodeUnit->fullLength == sizeof(codec));
         CHECK(decodeUnit->frameHostProcessingLatency == frame);
         CHECK(decodeUnit->pyrowaveMetadataLength == metadataLength);
@@ -90,6 +91,33 @@ int main(void) {
         CHECK(memcmp(decodeUnit->bufferList->data, codec, sizeof(codec)) == 0);
         LiCompleteVideoFrame(frameHandle, DR_OK);
     }
+    CHECK(!LiPollNextVideoFrame(&frameHandle, &decodeUnit));
+
+    // The push renderer discards stale complete frames but retains one queued
+    // frame and the selected frame's own metadata. Pull renderers above retain
+    // their normal FIFO semantics.
+    VideoCallbacks.capabilities = 0;
+    for (unsigned frame = 5; frame <= 9; ++frame) {
+        uint8_t* allocation = malloc(sizeof(PYROWAVE_FRAME_ENTRY) + sizeof(codec) + metadataLength);
+        CHECK(allocation != NULL);
+        metadata[metadataLength - 1] = (uint8_t)frame;
+        memcpy(allocation + sizeof(PYROWAVE_FRAME_ENTRY), codec, sizeof(codec));
+        memcpy(allocation + sizeof(PYROWAVE_FRAME_ENTRY) + sizeof(codec), metadata, metadataLength);
+        CHECK(queueOwnedFrame(allocation, sizeof(codec), metadataLength));
+        frameType = FRAME_TYPE_IDR;
+        nextFrameNumber = frame + 1;
+        reassembleFrame(frame, false);
+    }
+    CHECK(LiWaitForNextVideoFrame(&frameHandle, &decodeUnit));
+    CHECK(decodeUnit->frameNumber == 8);
+    CHECK(decodeUnit->pyrowaveFramesDiscarded == 3);
+    CHECK(decodeUnit->pyrowaveMetadata[metadataLength - 1] == 8);
+    LiCompleteVideoFrame(frameHandle, DR_OK);
+    CHECK(LiWaitForNextVideoFrame(&frameHandle, &decodeUnit));
+    CHECK(decodeUnit->frameNumber == 9);
+    CHECK(decodeUnit->pyrowaveFramesDiscarded == 0);
+    CHECK(decodeUnit->pyrowaveMetadata[metadataLength - 1] == 9);
+    LiCompleteVideoFrame(frameHandle, DR_OK);
     CHECK(!LiPollNextVideoFrame(&frameHandle, &decodeUnit));
 
     CHECK(LiPyrowaveDynamicHdrMetadataType(DYNAMIC_HDR_FORMAT_NONE) == 0);
